@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRTG Unified Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 300;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logout-btn {
+            background: rgba(231, 76, 60, 0.8);
+            border: none;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(231, 76, 60, 1);
+        }
+
+        .connection-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e74c3c;
+            animation: pulse 2s infinite;
+        }
+
+        .connection-indicator.connected {
+            background: #27ae60;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .dashboard {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .summary-card {
+            background: rgba(52, 73, 94, 0.8);
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+            border-left: 4px solid;
+        }
+
+        .summary-card.up { border-left-color: #27ae60; }
+        .summary-card.down { border-left-color: #e74c3c; }
+        .summary-card.warning { border-left-color: #f39c12; }
+        .summary-card.paused { border-left-color: #95a5a6; }
+        .summary-card.unusual { border-left-color: #9b59b6; }
+        .summary-card.unknown { border-left-color: #7f8c8d; }
+
+        .summary-card h3 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .summary-card p {
+            text-transform: uppercase;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .sensors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .sensor-card {
+            background: rgba(52, 73, 94, 0.6);
+            border-radius: 8px;
+            padding: 1rem;
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .sensor-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .sensor-card.status-3 { border-left-color: #27ae60; }
+        .sensor-card.status-5 { border-left-color: #e74c3c; }
+        .sensor-card.status-4 { border-left-color: #f39c12; }
+        .sensor-card.status-7 { border-left-color: #95a5a6; }
+        .sensor-card.status-10 { border-left-color: #9b59b6; }
+        .sensor-card.status-1 { border-left-color: #7f8c8d; }
+
+        .sensor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+        }
+
+        .sensor-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .sensor-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .sensor-status.up { background: #27ae60; }
+        .sensor-status.down { background: #e74c3c; }
+        .sensor-status.warning { background: #f39c12; }
+        .sensor-status.paused { background: #95a5a6; }
+        .sensor-status.unusual { background: #9b59b6; }
+        .sensor-status.unknown { background: #7f8c8d; }
+
+        .sensor-details {
+            font-size: 0.9rem;
+            opacity: 0.7;
+            margin-top: 0.5rem;
+        }
+
+        .sensor-device {
+            color: #3498db;
+            font-weight: 500;
+        }
+
+        .last-update {
+            text-align: center;
+            margin-top: 2rem;
+            opacity: 0.6;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            font-size: 1.2rem;
+            opacity: 0.7;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 3rem;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard { padding: 1rem; }
+            .summary-cards { grid-template-columns: repeat(2, 1fr); }
+            .sensors-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PRTG Unified Dashboard</h1>
+        <div class="header-controls">
+            <div class="connection-status">
+                <div class="connection-indicator" id="connectionIndicator"></div>
+                <span id="connectionText">Connecting...</span>
+            </div>
+            <button class="logout-btn" id="logoutBtn">Logout</button>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <div class="summary-cards" id="summaryCards">
+            <div class="summary-card up">
+                <h3 id="upCount">-</h3>
+                <p>Up</p>
+            </div>
+            <div class="summary-card down">
+                <h3 id="downCount">-</h3>
+                <p>Down</p>
+            </div>
+            <div class="summary-card warning">
+                <h3 id="warningCount">-</h3>
+                <p>Warning</p>
+            </div>
+            <div class="summary-card paused">
+                <h3 id="pausedCount">-</h3>
+                <p>Paused</p>
+            </div>
+            <div class="summary-card unusual">
+                <h3 id="unusualCount">-</h3>
+                <p>Unusual</p>
+            </div>
+            <div class="summary-card unknown">
+                <h3 id="unknownCount">-</h3>
+                <p>Unknown</p>
+            </div>
+        </div>
+
+        <div id="sensorsContainer">
+            <div class="loading">
+                <p>Loading sensor data...</p>
+            </div>
+        </div>
+
+        <div class="last-update">
+            <p>Last updated: <span id="lastUpdate">Never</span></p>
+        </div>
+    </div>
+
+    <script>
+        class PRTGDashboard {
+            constructor() {
+                this.ws = null;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.reconnectInterval = 5000;
+                
+                this.init();
+            }
+
+            init() {
+                this.connectWebSocket();
+                this.setupHeartbeat();
+            }
+
+            connectWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}`;
+                
+                try {
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        console.log('WebSocket connected');
+                        this.updateConnectionStatus(true);
+                        this.reconnectAttempts = 0;
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.handleMessage(data);
+                        } catch (error) {
+                            console.error('Error parsing WebSocket message:', error);
+                        }
+                    };
+                    
+                    this.ws.onclose = () => {
+                        console.log('WebSocket disconnected');
+                        this.updateConnectionStatus(false);
+                        this.attemptReconnect();
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateConnectionStatus(false);
+                    };
+                    
+                } catch (error) {
+                    console.error('Error creating WebSocket:', error);
+                    this.attemptReconnect();
+                }
+            }
+
+            handleMessage(data) {
+                switch (data.type) {
+                    case 'sensor-update':
+                        this.updateSensorData(data);
+                        break;
+                    case 'server-update':
+                        console.log('Server update received:', data);
+                        break;
+                    case 'heartbeat':
+                        // Acknowledge heartbeat
+                        break;
+                    case 'pong':
+                        // Pong received
+                        break;
+                    default:
+                        console.log('Unknown message type:', data.type);
+                }
+            }
+
+            updateSensorData(data) {
+                // Update summary cards
+                document.getElementById('upCount').textContent = data.summary.up;
+                document.getElementById('downCount').textContent = data.summary.down;
+                document.getElementById('warningCount').textContent = data.summary.warning;
+                document.getElementById('pausedCount').textContent = data.summary.paused;
+                document.getElementById('unusualCount').textContent = data.summary.unusual;
+                document.getElementById('unknownCount').textContent = data.summary.unknown;
+
+                // Update sensors grid
+                this.renderSensors(data.sensors);
+
+                // Update last update time
+                document.getElementById('lastUpdate').textContent = new Date(data.timestamp).toLocaleString();
+            }
+
+            renderSensors(sensors) {
+                const container = document.getElementById('sensorsContainer');
+                
+                if (sensors.length === 0) {
+                    container.innerHTML = '<div class="no-data"><p>No sensors found</p></div>';
+                    return;
+                }
+
+                const sensorsGrid = document.createElement('div');
+                sensorsGrid.className = 'sensors-grid';
+
+                sensors.forEach(sensor => {
+                    const sensorCard = document.createElement('div');
+                    sensorCard.className = `sensor-card status-${sensor.status}`;
+                    
+                    const statusClass = this.getStatusClass(sensor.status);
+                    const statusText = sensor.statusText || this.getStatusText(sensor.status);
+                    
+                    sensorCard.innerHTML = `
+                        <div class="sensor-header">
+                            <div class="sensor-name">${sensor.name}</div>
+                            <div class="sensor-status ${statusClass}">${statusText}</div>
+                        </div>
+                        <div class="sensor-details">
+                            <div class="sensor-device">${sensor.deviceName || 'Unknown Device'}</div>
+                            <div>Type: ${sensor.sensorType || 'Unknown'}</div>
+                            <div>Server: ${sensor.prtgServer}</div>
+                            ${sensor.deviceHost ? `<div>Host: ${sensor.deviceHost}</div>` : ''}
+                        </div>
+                    `;
+                    
+                    sensorsGrid.appendChild(sensorCard);
+                });
+
+                container.innerHTML = '';
+                container.appendChild(sensorsGrid);
+            }
+
+            getStatusClass(status) {
+                const statusMap = {
+                    3: 'up',
+                    4: 'warning',
+                    5: 'down',
+                    7: 'paused',
+                    10: 'unusual',
+                    1: 'unknown'
+                };
+                return statusMap[status] || 'unknown';
+            }
+
+            getStatusText(status) {
+                const statusMap = {
+                    3: 'Up',
+                    4: 'Warning',
+                    5: 'Down',
+                    7: 'Paused',
+                    10: 'Unusual',
+                    1: 'Unknown'
+                };
+                return statusMap[status] || 'Unknown';
+            }
+
+            updateConnectionStatus(connected) {
+                const indicator = document.getElementById('connectionIndicator');
+                const text = document.getElementById('connectionText');
+                
+                if (connected) {
+                    indicator.classList.add('connected');
+                    text.textContent = 'Connected';
+                } else {
+                    indicator.classList.remove('connected');
+                    text.textContent = 'Disconnected';
+                }
+            }
+
+            attemptReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+                    
+                    setTimeout(() => {
+                        this.connectWebSocket();
+                    }, this.reconnectInterval);
+                } else {
+                    console.log('Max reconnection attempts reached');
+                    document.getElementById('connectionText').textContent = 'Connection Failed';
+                }
+            }
+
+            setupHeartbeat() {
+                // Send ping every 30 seconds to keep connection alive
+                setInterval(() => {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 30000);
+            }
+        }
+
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.dashboard = new PRTGDashboard();
+            
+            // Setup logout functionality
+            document.getElementById('logoutBtn').addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/logout', {
+                        method: 'POST',
+                        credentials: 'same-origin'
+                    });
+                    
+                    if (response.ok) {
+                        window.location.href = '/login';
+                    } else {
+                        console.error('Logout failed');
+                    }
+                } catch (error) {
+                    console.error('Logout error:', error);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

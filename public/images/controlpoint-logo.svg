@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">
+  <defs>
+    <!-- Light blue gradient for better visibility on dark background -->
+    <linearGradient id="lightBlueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#85C1E9;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#5DADE2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3498DB;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Darker gradient for geometric depth -->
+    <linearGradient id="darkerBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3498DB;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2980B9;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background light area for logo visibility -->
+  <rect x="0" y="0" width="400" height="100" fill="rgba(255,255,255,0.95)" rx="6"/>
+  
+  <!-- Main geometric star design based on actual logo -->
+  <g transform="translate(15,15)">
+    <!-- Top-left triangular section -->
+    <path d="M0 35 L35 0 L35 35 Z" fill="url(#lightBlueGradient)"/>
+    <!-- Top-right triangular section -->  
+    <path d="M35 0 L70 35 L35 35 Z" fill="url(#darkerBlue)"/>
+    <!-- Bottom-right triangular section -->
+    <path d="M70 35 L35 70 L35 35 Z" fill="url(#lightBlueGradient)"/>
+    <!-- Bottom-left triangular section -->
+    <path d="M35 70 L0 35 L35 35 Z" fill="url(#darkerBlue)"/>
+    
+    <!-- Center cross structure - lighter for visibility -->
+    <rect x="32" y="5" width="6" height="60" fill="#34495E"/>
+    <rect x="5" y="32" width="60" height="6" fill="#34495E"/>
+    
+    <!-- Center circle -->
+    <circle cx="35" cy="35" r="8" fill="#2C3E50" stroke="#ECF0F1" stroke-width="1"/>
+  </g>
+  
+  <!-- ControlPoint text - darker for readability -->
+  <text x="100" y="40" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="bold" fill="#2C3E50">ControlPoint</text>
+  
+  <!-- MONITOR text - bright blue -->
+  <text x="100" y="70" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="bold" fill="#3498DB">MONITOR</text>
+</svg>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRTG Dashboard Health Check</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0f23, #1a1a2e, #16213e);
+            color: #fff;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .health-container {
+            background: rgba(30, 30, 60, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+            padding: 2rem 3rem;
+            text-align: center;
+            max-width: 400px;
+        }
+        .status-ok {
+            color: #27ae60;
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { text-shadow: 0 0 0 #27ae60; }
+            50% { text-shadow: 0 0 16px #27ae60; }
+            100% { text-shadow: 0 0 0 #27ae60; }
+        }
+        .uptime {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+        }
+        .details {
+            font-size: 1rem;
+            color: #aaa;
+        }
+        .bell {
+            font-size: 2rem;
+            color: #f39c12;
+            margin-bottom: 0.5rem;
+            animation: ring 1.2s infinite;
+        }
+        @keyframes ring {
+            0% { transform: rotate(0deg); }
+            10% { transform: rotate(-15deg); }
+            20% { transform: rotate(10deg); }
+            30% { transform: rotate(-10deg); }
+            40% { transform: rotate(5deg); }
+            50% { transform: rotate(0deg); }
+            100% { transform: rotate(0deg); }
+        }
+        .refresh-btn {
+            background: #27ae60;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 1rem;
+            transition: background 0.2s;
+        }
+        .refresh-btn:hover {
+            background: #219150;
+        }
+    </style>
+</head>
+<body>
+    <div class="health-container">
+        <div class="bell">🔔</div>
+        <div class="status-ok">Healthy</div>
+        <div class="uptime" id="uptime">Uptime: ...</div>
+        <div class="details">
+            <span id="details">All systems operational.<br>WebSocket, API, and DB are online.</span>
+        </div>
+        <button class="refresh-btn" onclick="location.reload()">Refresh</button>
+    </div>
+    <script>
+        async function fetchHealth() {
+            try {
+                const res = await fetch('/health');
+                if (!res.ok) throw new Error('Health check failed');
+                const data = await res.json();
+                document.getElementById('uptime').textContent = 'Uptime: ' + formatUptime(data.uptime);
+                document.getElementById('details').textContent = 'All systems operational.\nWebSocket, API, and DB are online.';
+            } catch (err) {
+                document.querySelector('.status-ok').textContent = 'Unhealthy';
+                document.querySelector('.status-ok').style.color = '#e74c3c';
+                document.getElementById('details').textContent = 'Some systems may be down. Check logs.';
+            }
+        }
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h}h ${m}m ${s}s`;
+        }
+        fetchHealth();
+    </script>
+</body>
+</html>

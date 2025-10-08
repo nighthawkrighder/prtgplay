@@ -1,0 +1,3990 @@
+<!DOCTYPE html>
+<!-- SOC Dashboard v2.1 - Updated 2025-10-08 - WebSocket Fix -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>LANAIR Unified Monitoring Dashboard - PRTG</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0f23, #1a1a2e, #16213e);
+            color: #ffffff;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23);
+            border-bottom: 3px solid #3498db;
+            box-shadow: 0 4px 25px rgba(0,0,0,0.6);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .controlpoint-logo {
+            height: 45px;
+            width: auto;
+            filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2));
+        }
+
+        .brand-text h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin: 0;
+            line-height: 1.2;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .user-menu-container {
+            position: relative;
+        }
+
+        .user-menu-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.6rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+
+        .user-menu-btn:hover {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.3);
+        }
+
+        .username-display {
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .user-menu-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: rgba(30, 30, 50, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            min-width: 250px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            margin-top: 0.5rem;
+        }
+
+        .user-menu-dropdown.active {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .user-avatar {
+            font-size: 2rem;
+            color: #3498db;
+        }
+
+        .user-details {
+            flex: 1;
+        }
+
+        .user-name {
+            font-weight: 600;
+            color: white;
+            font-size: 0.9rem;
+        }
+
+        .user-role {
+            font-size: 0.75rem;
+            color: #95a5a6;
+            margin-top: 0.2rem;
+        }
+
+        .menu-separator {
+            height: 1px;
+            background: rgba(255,255,255,0.1);
+            margin: 0.5rem 0;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: none;
+            border: none;
+            color: #bdc3c7;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+        }
+
+        .menu-item:hover {
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+
+        .menu-item.logout {
+            color: #e74c3c;
+        }
+
+        .menu-item.logout:hover {
+            background: rgba(231, 76, 60, 0.1);
+            color: #e74c3c;
+        }
+
+        .security-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 99999;
+        }
+
+        .security-modal .modal-backdrop {
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+        }
+
+        .security-modal .modal-content {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.1);
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .security-modal .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 1.5rem 0 1.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .security-modal .modal-header h3 {
+            margin: 0;
+            color: white;
+            font-size: 1.2rem;
+        }
+
+        .security-modal .modal-body {
+            padding: 1.5rem;
+        }
+
+        /* Authentication Screen Styles */
+        .authentication-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #0f0f23, #1a1a2e, #16213e);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .auth-container {
+            background: rgba(30, 30, 50, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.4);
+            max-width: 450px;
+            width: 90%;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .auth-header {
+            text-align: center;
+            padding: 2rem 2rem 1rem 2rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .auth-logo {
+            height: 60px;
+            width: auto;
+            margin-bottom: 1rem;
+            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
+        }
+
+        .auth-header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .auth-header p {
+            color: #95a5a6;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .auth-form-container {
+            padding: 2rem;
+        }
+
+        .auth-form h2 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin: 0 0 0.5rem 0;
+            text-align: center;
+        }
+
+        .auth-description {
+            color: #bdc3c7;
+            font-size: 0.85rem;
+            text-align: center;
+            margin: 0 0 2rem 0;
+        }
+
+        .auth-field {
+            margin-bottom: 1.5rem;
+        }
+
+        .auth-field label {
+            display: block;
+            color: #bdc3c7;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .auth-field input {
+            width: 100%;
+            padding: 0.875rem;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .auth-field input:focus {
+            outline: none;
+            border-color: #3498db;
+            background: rgba(255,255,255,0.08);
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .auth-options {
+            margin: 1.5rem 0;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            color: #bdc3c7;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            margin-right: 0.75rem;
+            accent-color: #3498db;
+        }
+
+        .auth-help-text {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: rgba(52, 152, 219, 0.1);
+            border: 1px solid rgba(52, 152, 219, 0.2);
+            border-radius: 6px;
+        }
+
+        .auth-help-text p {
+            color: #85c1e9;
+            font-size: 0.8rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .auth-submit-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border: none;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .auth-submit-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #2980b9, #1f618d);
+            transform: translateY(-1px);
+        }
+
+        .auth-submit-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .auth-error {
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            color: #e74c3c;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+            text-align: center;
+        }
+
+        .auth-footer {
+            padding: 1.5rem 2rem;
+            background: rgba(0,0,0,0.2);
+            text-align: center;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .auth-footer p {
+            color: #7f8c8d;
+            font-size: 0.75rem;
+            margin: 0 0 1rem 0;
+        }
+
+        .auth-security-badges {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        .security-badge {
+            font-size: 0.7rem;
+            color: #95a5a6;
+            background: rgba(255,255,255,0.05);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .header-logo {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: white;
+            font-weight: bold;
+        }
+
+        .header-title-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 0;
+            line-height: 1.2;
+        }
+
+        .header-subtitle {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            margin: 0;
+            font-weight: 400;
+        }
+
+        .telemetry-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 2rem;
+            background: rgba(0,0,0,0.1);
+            border-top: 1px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            height: 50px;
+        }
+
+        .telemetry-indicators {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .telemetry-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .telemetry-pulse {
+            width: 8px;
+            height: 8px;
+            background: #27ae60;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .telemetry-alert-icon, .telemetry-warning-icon {
+            font-size: 0.9rem;
+            opacity: 0.3;
+        }
+
+        .telemetry-item.critical .telemetry-alert-icon {
+            color: #e74c3c;
+            opacity: 1;
+            animation: pulse 1.5s infinite;
+        }
+
+        .telemetry-item.warning .telemetry-warning-icon {
+            color: #f39c12;
+            opacity: 1;
+            animation: pulse 2s infinite;
+        }
+
+        .telemetry-health-bar {
+            width: 40px;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .health-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #27ae60, #2ecc71);
+            border-radius: 3px;
+            width: 93%;
+            transition: width 0.3s ease;
+        }
+
+        .telemetry-count {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #bdc3c7;
+            min-width: 30px;
+        }
+
+        .telemetry-label {
+            font-size: 0.7rem;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .telemetry-separator {
+            width: 1px;
+            height: 20px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .status-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .status-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #3498db;
+            line-height: 1;
+        }
+
+        .status-label {
+            font-size: 0.7rem;
+            color: #95a5a6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        .status-item.critical .status-value { color: #e74c3c; }
+        .status-item.warning .status-value { color: #f39c12; }
+        .status-item.success .status-value { color: #27ae60; }
+
+        .header-nav {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.75rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .nav-items {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #bdc3c7;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .nav-item:hover {
+            background: rgba(52, 152, 219, 0.1);
+            color: #3498db;
+        }
+
+        .nav-item.active {
+            background: rgba(52, 152, 219, 0.2);
+            color: #3498db;
+        }
+
+        .nav-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .filter-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .filter-select {
+            background: rgba(52, 73, 94, 0.8);
+            border: 1px solid #3498db;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .connection-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e74c3c;
+            animation: pulse 2s infinite;
+        }
+
+        .connection-indicator.connected {
+            background: #27ae60;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .main-content {
+            padding: 1rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            display: none; /* Hidden by default - shown only after authentication */
+        }
+
+        .main-content.authenticated {
+            display: block;
+        }
+
+        .overview-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat-card {
+            background: rgba(52, 73, 94, 0.25);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            border-left: 3px solid;
+            transition: all 0.2s ease;
+        }
+
+        .stat-card:hover {
+            background: rgba(52, 73, 94, 0.35);
+        }
+
+        .stat-card.total { border-left-color: #3498db; }
+        .stat-card.up { border-left-color: #27ae60; }
+        .stat-card.down { border-left-color: #e74c3c; }
+        .stat-card.warning { border-left-color: #f39c12; }
+        .stat-card.companies { border-left-color: #9b59b6; }
+
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: #ffffff;
+        }
+
+        .stat-label {
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            opacity: 0.8;
+            font-weight: 500;
+        }
+
+        .companies-grid {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .company-section {
+            background: rgba(30, 60, 114, 0.2);
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.2s ease;
+        }
+
+        .company-section:hover {
+            background: rgba(30, 60, 114, 0.25);
+            border-color: rgba(231, 76, 60, 0.3);
+        }
+
+        .company-header {
+            padding: 0.75rem 1.25rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s ease;
+            min-height: 48px;
+        }
+
+        .company-header:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }        .company-header::after {
+            content: '▶';
+            position: absolute;
+            right: 2rem;
+            font-size: 1.2rem;
+            color: #e74c3c;
+            transition: transform 0.3s ease;
+        }
+
+        .company-section.expanded .company-header::after {
+            transform: rotate(90deg);
+        }
+
+        .company-name-container {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+            flex: 1;
+        }
+
+        .company-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #e74c3c;
+            letter-spacing: 0.3px;
+        }
+
+        .company-code {
+            background: rgba(231, 76, 60, 0.15);
+            color: #e74c3c;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            border: 1px solid rgba(231, 76, 60, 0.2);
+        }        .company-stats {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 45px;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            font-size: 0.9rem;
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 0.65rem;
+            color: #95a5a6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-indicator.up {
+            background: rgba(39, 174, 96, 0.2);
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+
+        .status-indicator.warning {
+            background: rgba(243, 156, 18, 0.2);
+            color: #f39c12;
+            border: 1px solid #f39c12;
+        }
+
+        .status-indicator.down {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+        }
+
+        .expand-icon {
+            font-size: 1.5rem;
+            transition: transform 0.3s ease;
+            color: #3498db;
+        }
+
+        .company-section.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+
+        .company-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.4s ease;
+            background: rgba(0,0,0,0.1);
+        }
+
+        .company-section.expanded .company-content {
+            max-height: 3000px;
+        }
+
+        .devices-grid {
+            padding: 0.5rem 1rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 0.4rem;
+            background: rgba(0, 0, 0, 0.08);
+        }
+
+        .device-card {
+            background: rgba(52, 73, 94, 0.15);
+            border-radius: 6px;
+            padding: 0.75rem;
+            border-left: 3px solid;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+            cursor: pointer;
+        }
+
+        .device-card:hover {
+            background: rgba(52, 73, 94, 0.25);
+            border-color: rgba(52, 152, 219, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .device-card.selected {
+            background: rgba(52, 152, 219, 0.2);
+            border-color: #3498db;
+        }
+
+        .device-card.status-up { border-left-color: #27ae60; }
+        .device-card.status-down { border-left-color: #e74c3c; }
+        .device-card.status-warning { border-left-color: #f39c12; }
+        .device-card.status-paused { border-left-color: #95a5a6; }
+        .device-card.status-unusual { border-left-color: #9b59b6; }
+
+        .device-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .device-name {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #ffffff;
+            line-height: 1.2;
+        }
+
+        .device-type {
+            font-size: 0.65rem;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-top: 1px;
+        }
+
+        .device-status {
+            padding: 0.2rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+
+        .device-details {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem 0.75rem;
+            font-size: 0.7rem;
+            color: #95a5a6;
+        }
+
+        .device-detail {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .sensors-summary {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sensor-count {
+            font-size: 0.9rem;
+            color: #95a5a6;
+        }
+
+        .criticality-badge {
+            padding: 0.2rem 0.6rem;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .criticality-high {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+        }
+
+        .criticality-medium {
+            background: rgba(243, 156, 18, 0.2);
+            color: #f39c12;
+            border: 1px solid #f39c12;
+        }
+
+        .criticality-low {
+            background: rgba(39, 174, 96, 0.2);
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            font-size: 1.2rem;
+            color: #bdc3c7;
+        }
+
+        .loading::after {
+            content: "...";
+            animation: dots 2s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ""; }
+            40% { content: "."; }
+            60% { content: ".."; }
+            80%, 100% { content: "..."; }
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 3rem;
+            color: #95a5a6;
+        }
+
+        .last-update {
+            text-align: center;
+            margin-top: 2rem;
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
+
+        .alert-indicator {
+            position: relative;
+        }
+
+        .alert-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #e74c3c;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+            animation: pulse-alert 2s infinite;
+        }
+
+        @keyframes pulse-alert {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        .search-box {
+            background: rgba(52, 73, 94, 0.8);
+            border: 1px solid #3498db;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            width: 250px;
+            outline: none;
+        }
+
+        .search-box::placeholder {
+            color: #bdc3c7;
+        }
+
+        .refresh-btn {
+            background: rgba(52, 152, 219, 0.8);
+            border: 1px solid rgba(52, 152, 219, 0.6);
+            color: white;
+            padding: 0.6rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 40px;
+            height: 40px;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(52, 152, 219, 1);
+            border-color: #3498db;
+            transform: translateY(-1px);
+        }
+
+        .auth-btn {
+            background: rgba(243, 156, 18, 0.8);
+            border: 1px solid rgba(243, 156, 18, 0.6);
+            color: white;
+            padding: 0.6rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 40px;
+            height: 40px;
+        }
+
+        .auth-btn:hover {
+            background: rgba(243, 156, 18, 1);
+            border-color: #f39c12;
+            transform: translateY(-1px);
+        }
+
+        .auth-btn.authenticated {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .header-controls {
+                flex-direction: column;
+                gap: 1rem;
+                width: 100%;
+            }
+
+            .filter-controls {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .overview-stats {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+
+            .company-stats {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .devices-grid {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+            }
+        }
+
+        /* Expand toggle animation */
+        .expand-toggle {
+            padding: 0.25rem;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            opacity: 0.6;
+            font-size: 0.8rem;
+        }
+
+        .expand-toggle:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+
+        .company-section.expanded .expand-toggle {
+            transform: rotate(180deg);
+        }
+
+        .company-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .company-section.expanded .company-content {
+            max-height: 2000px;
+        }
+
+        /* Status-based stat styling */
+        .stat-item.up .stat-value {
+            color: #27ae60;
+        }
+
+        .stat-item.warning .stat-value {
+            color: #f39c12;
+        }
+
+        .stat-item.down .stat-value {
+            color: #e74c3c;
+        }
+
+        /* Device Detail Modal */
+        .device-detail-modal {
+            position: fixed;
+            top: 0;
+            right: -600px;
+            width: 600px;
+            height: 100vh;
+            background: linear-gradient(135deg, rgba(20, 30, 48, 0.95), rgba(30, 60, 114, 0.95));
+            backdrop-filter: blur(15px);
+            border-left: 2px solid rgba(52, 152, 219, 0.3);
+            transition: right 0.3s ease-in-out;
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .device-detail-modal.open {
+            right: 0;
+        }
+
+        .detail-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .detail-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #3498db;
+        }
+
+        .close-detail {
+            background: none;
+            border: none;
+            color: #bdc3c7;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .close-detail:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .detail-content {
+            padding: 1.5rem;
+        }
+
+        .detail-section {
+            margin-bottom: 2rem;
+        }
+
+        .detail-section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #e74c3c;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(231, 76, 60, 0.2);
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .detail-label {
+            color: #95a5a6;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .detail-value {
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .sensor-list {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .sensor-item {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            padding: 0.75rem;
+            border-left: 3px solid;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .sensor-item:hover {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .sensor-item.up { border-left-color: #27ae60; }
+        .sensor-item.down { border-left-color: #e74c3c; }
+        .sensor-item.warning { border-left-color: #f39c12; }
+        .sensor-item.paused { border-left-color: #95a5a6; }
+        .sensor-item.unusual { border-left-color: #9b59b6; }
+
+        .sensor-name {
+            font-weight: 600;
+            color: #fff;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .sensor-details {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sensor-type {
+            color: #7f8c8d;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .sensor-value {
+            color: #3498db;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .alert-list {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .alert-item {
+            background: rgba(231, 76, 60, 0.1);
+            border-radius: 6px;
+            padding: 0.75rem;
+            border-left: 3px solid #e74c3c;
+        }
+
+        .alert-time {
+            color: #95a5a6;
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .alert-message {
+            color: #fff;
+            font-size: 0.85rem;
+        }
+
+        .loading-detail {
+            text-align: center;
+            padding: 2rem;
+            color: #95a5a6;
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-backdrop.open {
+            opacity: 1;
+            visibility: visible;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <!-- Top Row: Logo + Title + Actions -->
+        <div class="header-top">
+            <div class="header-brand">
+                <img src="images/controlpoint-logo.svg" alt="ControlPoint MONITOR" class="controlpoint-logo">
+                <div class="brand-text">
+                    <h1>LANAIR Unified Monitoring</h1>
+                    <div class="header-subtitle">Network Infrastructure Intelligence</div>
+                </div>
+            </div>
+            
+            <div class="header-actions">
+                <div class="connection-status">
+                    <div class="connection-indicator" id="connectionIndicator"></div>
+                    <span id="connectionText">Connecting...</span>
+                </div>
+                <div class="user-menu-container">
+                    <button class="user-menu-btn" onclick="toggleUserMenu()" title="User Menu">
+                        <i class="fas fa-user-circle"></i>
+                        <span class="username-display" id="usernameDisplay">Guest</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </button>
+                    <div class="user-menu-dropdown" id="userMenuDropdown">
+                        <div class="user-info">
+                            <div class="user-avatar">
+                                <i class="fas fa-user-circle"></i>
+                            </div>
+                            <div class="user-details">
+                                <div class="user-name" id="userNameMenu">Guest User</div>
+                                <div class="user-role">Administrator</div>
+                            </div>
+                        </div>
+                        <div class="menu-separator"></div>
+                        <button class="menu-item" onclick="handleChangePassword()">
+                            <i class="fas fa-lock"></i>
+                            Change Password
+                        </button>
+                        <button class="menu-item" onclick="handleSessionInfo()">
+                            <i class="fas fa-info-circle"></i>
+                            Session Info
+                        </button>
+                        <div class="menu-separator"></div>
+                        <button class="menu-item logout" onclick="handleLogout()">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Logout
+                        </button>
+                    </div>
+                </div>
+                <button class="auth-btn" onclick="dashboard.promptForCredentials()" title="Enhanced Data Access">
+                    <i class="fas fa-key"></i>
+                </button>
+                <button class="refresh-btn" onclick="handleRefresh()">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Middle Row: Telemetry Bar -->
+        <div class="telemetry-bar">
+            <div class="telemetry-indicators">
+                <div class="telemetry-item">
+                    <div class="telemetry-pulse"></div>
+                    <span class="telemetry-count" id="totalDevicesHeader">920</span>
+                    <span class="telemetry-label">Devices</span>
+                </div>
+                <div class="telemetry-separator"></div>
+                <div class="telemetry-item critical">
+                    <div class="telemetry-alert-icon">⚠</div>
+                    <span class="telemetry-count" id="criticalAlertsHeader">0</span>
+                </div>
+                <div class="telemetry-item warning">
+                    <div class="telemetry-warning-icon">⚡</div>
+                    <span class="telemetry-count" id="warningAlertsHeader">0</span>
+                </div>
+                <div class="telemetry-item success">
+                    <div class="telemetry-health-bar">
+                        <div class="health-fill" id="healthBar"></div>
+                    </div>
+                    <span class="telemetry-count" id="healthyDevicesHeader">858</span>
+                </div>
+            </div>
+            
+            <div class="header-controls">
+                <input type="text" class="search-box" placeholder="Search devices, companies..." id="searchBox">
+                <select class="filter-select" id="statusFilter">
+                    <option value="all">All Status</option>
+                    <option value="up">Up</option>
+                    <option value="down">Down</option>
+                    <option value="warning">Warning</option>
+                </select>
+                <select class="filter-select" id="companyFilter">
+                    <option value="all">All Companies</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Bottom Row: Navigation -->
+        <nav class="header-nav">
+            <div class="nav-item active" onclick="switchView('overview')">
+                <i class="fas fa-tachometer-alt"></i>
+                <span>Overview</span>
+            </div>
+            <div class="nav-item" onclick="switchView('topology')">
+                <i class="fas fa-project-diagram"></i>
+                <span>Topology</span>
+            </div>
+            <div class="nav-item" onclick="switchView('alerts')">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>Alerts</span>
+            </div>
+            <div class="nav-item" onclick="switchView('analytics')">
+                <i class="fas fa-chart-line"></i>
+                <span>Analytics</span>
+            </div>
+            <div class="nav-item" onclick="switchView('reports')">
+                <i class="fas fa-file-alt"></i>
+                <span>Reports</span>
+            </div>
+        </nav>
+    </div>
+
+    <div class="main-content">
+        <div class="overview-stats" id="overviewStats">
+            <!-- Stats will be populated by JavaScript -->
+        </div>
+
+        <div class="companies-grid" id="companiesGrid">
+            <div class="loading">Loading company data</div>
+        </div>
+
+        <div class="last-update" id="lastUpdate">
+            Last updated: <span id="updateTime">Never</span>
+        </div>
+    </div>
+
+    <script>
+        // Authentication Manager for Dynamic API Access
+        class AuthManager {
+            constructor() {
+                this.credentials = null;
+                this.authHeaders = {};
+                this.sessionToken = null;
+                this.authType = 'session'; // 'session', 'basic', 'bearer'
+            }
+            
+            setCredentials(username, password) {
+                this.credentials = { username, password };
+                // Create basic auth header for direct API calls
+                const basicAuth = btoa(`${username}:${password}`);
+                this.authHeaders = {
+                    'Authorization': `Basic ${basicAuth}`,
+                    'Content-Type': 'application/json'
+                };
+                return this;
+            }
+            
+            setSessionToken(token) {
+                this.sessionToken = token;
+                this.authHeaders = {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                };
+                this.authType = 'bearer';
+                return this;
+            }
+            
+            getAuthHeaders() {
+                return { ...this.authHeaders };
+            }
+            
+            async authenticatedFetch(url, options = {}) {
+                const authOptions = {
+                    ...options,
+                    credentials: 'include', // Include session cookies
+                    headers: {
+                        ...options.headers
+                    }
+                };
+                
+                // Add auth headers if we have credentials (for backup)
+                if (this.credentials || this.sessionToken) {
+                    authOptions.headers = {
+                        ...this.getAuthHeaders(),
+                        ...authOptions.headers
+                    };
+                }
+                
+                try {
+                    const response = await fetch(url, authOptions);
+                    
+                    // Handle authentication redirects
+                    if (response.status === 302 && response.headers.get('location')?.includes('/login')) {
+                        console.debug('Authentication required for:', url);
+                        return { ok: false, status: 401, statusText: 'Authentication Required' };
+                    }
+                    
+                    return response;
+                } catch (error) {
+                    console.error('Authenticated fetch error:', error);
+                    throw error;
+                }
+            }
+        }
+
+        // Enterprise Security Manager
+        class SecurityManager {
+            constructor() {
+                this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
+                this.sessionWarningTime = 5 * 60 * 1000; // 5 minutes before timeout
+                this.sessionTimer = null;
+                this.warningTimer = null;
+                this.currentUser = null;
+                this.loginTime = null;
+                this.lastActivity = Date.now();
+                this.isLocked = false;
+                
+                this.initializeSession();
+            }
+
+            initializeSession() {
+                // Check for existing session
+                const sessionData = localStorage.getItem('securitySession');
+                if (sessionData) {
+                    try {
+                        const session = JSON.parse(sessionData);
+                        if (this.isValidSession(session)) {
+                            this.restoreSession(session);
+                        } else {
+                            this.clearSession();
+                        }
+                    } catch (e) {
+                        this.clearSession();
+                    }
+                }
+
+                // Track user activity
+                this.setupActivityTracking();
+            }
+
+            setupActivityTracking() {
+                const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+                activityEvents.forEach(event => {
+                    document.addEventListener(event, () => {
+                        this.updateActivity();
+                    }, true);
+                });
+            }
+
+            updateActivity() {
+                this.lastActivity = Date.now();
+                if (this.sessionTimer) {
+                    this.resetSessionTimer();
+                }
+            }
+
+            login(username, password) {
+                const sessionData = {
+                    username: username,
+                    loginTime: Date.now(),
+                    sessionId: this.generateSessionId(),
+                    role: 'Administrator' // This would come from API
+                };
+
+                this.currentUser = sessionData;
+                this.loginTime = sessionData.loginTime;
+                this.lastActivity = Date.now();
+
+                // Store session
+                localStorage.setItem('securitySession', JSON.stringify(sessionData));
+                
+                // Update UI
+                this.updateUserDisplay();
+                
+                // Start session management
+                this.startSessionTimer();
+                
+                return sessionData;
+            }
+
+            logout() {
+                try {
+                    this.showLogoutConfirm();
+                } catch (error) {
+                    console.error('Error in logout():', error);
+                    // Fallback: show simple confirm dialog
+                    if (confirm('Are you sure you want to logout?')) {
+                        this.forceLogout('User logged out');
+                    }
+                }
+            }
+
+            async forceLogout(reason = 'Session expired') {
+                try {
+                    // Notify backend about logout
+                    const sessionData = this.getStoredSession();
+                    if (sessionData && sessionData.sessionId) {
+                        await fetch('/api/sessions/logout', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sessionId: sessionData.sessionId })
+                        }).catch(err => console.warn('Backend logout failed:', err));
+                    }
+                } catch (error) {
+                    console.warn('Error notifying backend of logout:', error);
+                }
+                
+                // Clear all session data
+                this.clearSession();
+                
+                // Clear authentication manager
+                if (window.dashboard && window.dashboard.authManager) {
+                    window.dashboard.authManager.credentials = null;
+                    window.dashboard.authManager.authHeaders = {};
+                    window.dashboard.authManager.sessionToken = null;
+                }
+                
+                // Clear any existing modals first
+                const modals = document.querySelectorAll('.security-modal');
+                modals.forEach(modal => modal.remove());
+                
+                // Hide main content
+                const mainContent = document.querySelector('.main-content');
+                if (mainContent) mainContent.style.display = 'none';
+                
+                // Show brief goodbye message then redirect to login
+                this.showBriefGoodbyeThenLogin(reason);
+            }
+
+            async validateSessionWithBackend() {
+                try {
+                    const sessionData = this.getStoredSession();
+                    if (!sessionData || !sessionData.sessionId) {
+                        return { valid: false, reason: 'No session found' };
+                    }
+
+                    const response = await fetch('/api/sessions/validate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sessionId: sessionData.sessionId })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.valid) {
+                            // Update activity timestamp
+                            sessionData.lastActivity = Date.now();
+                            this.saveSession(sessionData);
+                            return result;
+                        }
+                    }
+                    
+                    return { valid: false, reason: 'Backend validation failed' };
+                } catch (error) {
+                    console.error('Backend session validation error:', error);
+                    return { valid: false, reason: 'Validation error' };
+                }
+            }
+
+            async getSessionInfo() {
+                try {
+                    const sessionData = this.getStoredSession();
+                    if (!sessionData || !sessionData.sessionId) {
+                        throw new Error('No active session');
+                    }
+
+                    const response = await fetch(`/api/sessions/${sessionData.sessionId}`);
+                    if (response.ok) {
+                        return await response.json();
+                    } else {
+                        throw new Error('Failed to fetch session info');
+                    }
+                } catch (error) {
+                    console.error('Failed to get session info:', error);
+                    throw error;
+                }
+            }
+
+            returnToLogin() {
+                // Clear any existing modals
+                const modals = document.querySelectorAll('.security-modal');
+                modals.forEach(modal => modal.remove());
+                
+                // Show authentication screen
+                if (window.dashboard) {
+                    window.dashboard.showAuthenticationScreen();
+                }
+            }
+
+            clearSession() {
+                localStorage.removeItem('securitySession');
+                sessionStorage.clear();
+                this.currentUser = null;
+                this.loginTime = null;
+                
+                if (this.sessionTimer) clearTimeout(this.sessionTimer);
+                if (this.warningTimer) clearTimeout(this.warningTimer);
+            }
+
+            isValidSession(session) {
+                const now = Date.now();
+                const sessionAge = now - session.loginTime;
+                return sessionAge < this.sessionTimeout;
+            }
+
+            restoreSession(session) {
+                this.currentUser = session;
+                this.loginTime = session.loginTime;
+                this.updateUserDisplay();
+                this.startSessionTimer();
+            }
+
+            startSessionTimer() {
+                // Clear existing timers
+                if (this.sessionTimer) clearTimeout(this.sessionTimer);
+                if (this.warningTimer) clearTimeout(this.warningTimer);
+
+                // Set warning timer
+                this.warningTimer = setTimeout(() => {
+                    this.showSessionWarning();
+                }, this.sessionTimeout - this.sessionWarningTime);
+
+                // Set session expiry timer
+                this.sessionTimer = setTimeout(() => {
+                    this.forceLogout('Session timeout');
+                }, this.sessionTimeout);
+            }
+
+            resetSessionTimer() {
+                this.startSessionTimer();
+            }
+
+            generateSessionId() {
+                return 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+            }
+
+            updateUserDisplay() {
+                const usernameDisplay = document.getElementById('usernameDisplay');
+                const userNameMenu = document.getElementById('userNameMenu');
+                
+                if (this.currentUser) {
+                    if (usernameDisplay) usernameDisplay.textContent = this.currentUser.username;
+                    if (userNameMenu) userNameMenu.textContent = this.currentUser.username;
+                }
+            }
+
+            showSessionWarning() {
+                const modal = this.createModal('Session Warning', `
+                    <div style="text-align: center; padding: 1rem;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #f39c12; margin-bottom: 1rem;"></i>
+                        <h3>Your session will expire in 5 minutes</h3>
+                        <p>Click "Extend Session" to continue working, or "Logout" to end your session now.</p>
+                        <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: center;">
+                            <button onclick="securityManager.extendSession(); closeModal()" style="background: #27ae60; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                                Extend Session
+                            </button>
+                            <button onclick="securityManager.forceLogout('User logged out'); closeModal()" style="background: #e74c3c; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                                Logout Now
+                            </button>
+                        </div>
+                    </div>
+                `, true);
+            }
+
+            extendSession() {
+                this.lastActivity = Date.now();
+                this.resetSessionTimer();
+            }
+
+            showLogoutConfirm() {
+                try {
+                    // Clear any existing modals first
+                    const existingModals = document.querySelectorAll('.security-modal');
+                    existingModals.forEach(modal => modal.remove());
+                    
+                    const modal = this.createModal('Confirm Logout', `
+                    <div style="text-align: center; padding: 1rem;">
+                        <i class="fas fa-sign-out-alt" style="font-size: 3rem; color: #e74c3c; margin-bottom: 1rem;"></i>
+                        <h3>Are you sure you want to logout?</h3>
+                        <p>You will need to re-authenticate to access the dashboard.</p>
+                        <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: center;">
+                            <button onclick="closeModal()" style="background: #95a5a6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                                Cancel
+                            </button>
+                            <button onclick="securityManager.forceLogout('User logged out'); closeModal()" style="background: #e74c3c; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer;">
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                `, true);
+                } catch (error) {
+                    console.error('Error creating logout modal:', error);
+                    // Fallback: use browser confirm
+                    if (confirm('Are you sure you want to logout?')) {
+                        this.forceLogout('User logged out');
+                    }
+                }
+            }
+
+            showLogoutMessage(reason) {
+                this.showGoodbyePage(reason);
+            }
+
+            showGoodbyePage(reason = 'Logout successful') {
+                const modal = this.createModal('Goodbye', `
+                    <div style="text-align: center; padding: 2rem;">
+                        <div style="margin-bottom: 2rem;">
+                            <img src="https://www.lanairgroup.com/wp-content/uploads/2023/05/ControlPoint-MONITOR-Logo.png" alt="ControlPoint MONITOR" style="max-width: 200px; height: auto; margin-bottom: 1rem;">
+                        </div>
+                        <i class="fas fa-check-circle" style="font-size: 4rem; color: #27ae60; margin-bottom: 1.5rem;"></i>
+                        <h2 style="color: #2c3e50; margin-bottom: 1rem;">Thank You!</h2>
+                        <h3 style="color: #34495e; margin-bottom: 1.5rem;">${reason}</h3>
+                        <p style="color: #7f8c8d; margin-bottom: 2rem; line-height: 1.6;">
+                            Your session has been securely ended. Thank you for using the LANAIR Unified Monitoring Dashboard.
+                        </p>
+                        <div style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem;">
+                            <p style="margin: 0; color: #495057; font-size: 0.9rem;">
+                                <i class="fas fa-shield-alt" style="color: #28a745; margin-right: 0.5rem;"></i>
+                                Your data remains secure and all session information has been cleared.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                            <button onclick="securityManager.returnToLogin()" style="
+                                background: linear-gradient(135deg, #007bff, #0056b3); 
+                                color: white; 
+                                border: none; 
+                                padding: 0.75rem 2rem; 
+                                border-radius: 8px; 
+                                cursor: pointer; 
+                                font-weight: bold;
+                                box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+                                transition: all 0.3s ease;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                <i class="fas fa-sign-in-alt" style="margin-right: 0.5rem;"></i>
+                                Login Again
+                            </button>
+                            <button onclick="window.close()" style="
+                                background: linear-gradient(135deg, #6c757d, #495057); 
+                                color: white; 
+                                border: none; 
+                                padding: 0.75rem 2rem; 
+                                border-radius: 8px; 
+                                cursor: pointer; 
+                                font-weight: bold;
+                                box-shadow: 0 4px 12px rgba(108,117,125,0.3);
+                                transition: all 0.3s ease;
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                <i class="fas fa-times" style="margin-right: 0.5rem;"></i>
+                                Close Window
+                            </button>
+                        </div>
+                        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.2);">
+                            <p style="margin: 0; color: #95a5a6; font-size: 0.8rem;">
+                                LANAIR Unified Monitoring Dashboard • ControlPoint MONITOR<br>
+                                Secure Enterprise Network Monitoring Solution
+                            </p>
+                        </div>
+                    </div>
+                `, false);
+                
+                // Make the modal non-dismissible by clicking outside
+                const backdrop = modal.querySelector('.modal-backdrop');
+                if (backdrop) {
+                    backdrop.style.pointerEvents = 'none';
+                    backdrop.querySelector('.modal-content').style.pointerEvents = 'all';
+                }
+            }
+
+            showBriefGoodbyeThenLogin(reason = 'Logout successful') {
+                // Show a brief success message
+                const modal = this.createModal('Logged Out', `
+                    <div style="text-align: center; padding: 1.5rem;">
+                        <i class="fas fa-check-circle" style="font-size: 3rem; color: #27ae60; margin-bottom: 1rem;"></i>
+                        <h3 style="color: #2c3e50; margin-bottom: 0.5rem;">Logout Complete</h3>
+                        <p style="color: #7f8c8d; margin-bottom: 1rem;">${reason}</p>
+                        <p style="color: #95a5a6; font-size: 0.9rem;">Redirecting to login...</p>
+                    </div>
+                `, false);
+                
+                // Auto-redirect to login after 2 seconds
+                setTimeout(() => {
+                    this.returnToLogin();
+                }, 2000);
+            }
+
+            createModal(title, content, showCloseButton = true) {
+                const modal = document.createElement('div');
+                modal.className = 'security-modal';
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 99999; display: block !important;';
+                modal.innerHTML = `
+                    <div class="modal-backdrop">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3>${title}</h3>
+                                ${showCloseButton ? '<button onclick="closeModal()" style="background: none; border: none; color: #95a5a6; font-size: 1.5rem; cursor: pointer;">&times;</button>' : ''}
+                            </div>
+                            <div class="modal-body">
+                                ${content}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                return modal;
+            }
+        }
+
+        class SOCDashboard {
+            constructor() {
+                this.companies = new Map();
+                this.devices = [];
+                this.filters = {
+                    search: '',
+                    status: 'all',
+                    company: 'all'
+                };
+                this.ws = null;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                this.reconnectInterval = 5000;
+                this.webSocketDisabled = false;
+                this.authManager = new AuthManager();
+
+                this.init();
+            }
+
+            async init() {
+                this.setupEventListeners();
+                
+                // Check if authentication is needed and prompt if necessary
+                await this.initializeAuthentication();
+                
+                // Only connect WebSocket after authentication is verified
+                this.connectWebSocket();
+                
+                await this.loadData();
+                this.startAutoRefresh();
+            }
+            
+            async initializeAuthentication() {
+                // Check for existing valid session
+                const sessionData = localStorage.getItem('securitySession');
+                if (sessionData) {
+                    try {
+                        const session = JSON.parse(sessionData);
+                        if (this.isValidSession(session) && session.password) {
+                            console.debug('Restoring session for:', session.username);
+                            
+                            // Set credentials in auth manager
+                            this.authManager.setCredentials(session.username, session.password);
+                            
+                            // Restore security session
+                            if (window.securityManager) {
+                                window.securityManager.restoreSession(session);
+                            }
+                            
+                            // Try to validate session with server
+                            try {
+                                const testResponse = await this.authManager.authenticatedFetch('/api/devices/enhanced?limit=1');
+                                
+                                if (testResponse.ok) {
+                                    console.debug('Valid session restored - authenticated access granted');
+                                    
+                                    // Show main content
+                                    const mainContent = document.querySelector('.main-content');
+                                    if (mainContent) {
+                                        mainContent.style.display = 'block';
+                                        mainContent.classList.add('authenticated');
+                                    }
+                                    
+                                    this.updateAuthButtonState(true);
+                                    this.updateConnectionStatus('connected', 'Authenticated & Connected');
+                                    
+                                    // Load dashboard data
+                                    await this.loadData();
+                                    return;
+                                } else {
+                                    console.debug('Session validation failed - credentials may be invalid');
+                                }
+                            } catch (error) {
+                                console.debug('Session validation error:', error);
+                            }
+                        }
+                    } catch (error) {
+                        console.debug('Session restoration failed:', error);
+                    }
+                }
+                
+                // No valid session or validation failed - require authentication
+                this.requireAuthentication();
+            }
+
+            isValidSession(session) {
+                const now = Date.now();
+                const sessionAge = now - session.loginTime;
+                const maxAge = 30 * 60 * 1000; // 30 minutes
+                return sessionAge < maxAge && session.username && session.loginTime;
+            }
+
+            requireAuthentication() {
+                // Hide main content immediately
+                const mainContent = document.querySelector('.main-content');
+                if (mainContent) mainContent.style.display = 'none';
+                
+                // Show authentication required screen
+                this.showAuthenticationScreen();
+            }
+            
+            showAuthenticationScreen() {
+                // Create full-screen authentication overlay
+                const authScreen = document.createElement('div');
+                authScreen.id = 'authenticationScreen';
+                authScreen.className = 'authentication-screen';
+                
+                authScreen.innerHTML = `
+                    <div class="auth-container">
+                        <div class="auth-header">
+                            <img src="images/controlpoint-logo.svg" alt="ControlPoint MONITOR" class="auth-logo">
+                            <h1>LANAIR Unified Monitoring</h1>
+                            <p>Secure Access Required</p>
+                        </div>
+                        
+                        <div class="auth-form-container">
+                            <form id="loginForm" class="auth-form">
+                                <h2>Sign In</h2>
+                                <p class="auth-description">Enter your credentials to access the monitoring dashboard</p>
+                                
+                                <div class="auth-field">
+                                    <label for="authUsername">Username</label>
+                                    <input type="text" id="authUsername" name="username" required 
+                                           placeholder="Enter your username" autocomplete="username">
+                                </div>
+                                
+                                <div class="auth-field">
+                                    <label for="authPassword">Password</label>
+                                    <input type="password" id="authPassword" name="password" required 
+                                           placeholder="Enter your password" autocomplete="current-password">
+                                </div>
+                                
+                                <div class="auth-options">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="rememberSession">
+                                        <span class="checkmark"></span>
+                                        Keep me signed in (30 days)
+                                    </label>
+                                </div>
+                                
+                                <div class="auth-help-text">
+                                    <p><i class="fas fa-info-circle"></i> Use your PRTG credentials to access the monitoring dashboard</p>
+                                </div>
+                                
+                                <button type="submit" class="auth-submit-btn" id="loginButton">
+                                    <i class="fas fa-sign-in-alt"></i>
+                                    Sign In
+                                </button>
+                                
+                                <div class="auth-error" id="authError" style="display: none;"></div>
+                            </form>
+                        </div>
+                        
+                        <div class="auth-footer">
+                            <p>&copy; 2025 LANAIR Group, LLC. All Rights Reserved.</p>
+                            <div class="auth-security-badges">
+                                <span class="security-badge">🔒 Enterprise Security</span>
+                                <span class="security-badge">🛡️ SOC 2 Certified</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(authScreen);
+                
+                // Handle form submission
+                document.getElementById('loginForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.handleAuthentication();
+                });
+                
+                // Focus username field
+                document.getElementById('authUsername').focus();
+            }
+
+            async handleAuthentication() {
+                const username = document.getElementById('authUsername').value;
+                const password = document.getElementById('authPassword').value;
+                const rememberSession = document.getElementById('rememberSession').checked;
+                const loginButton = document.getElementById('loginButton');
+                const authError = document.getElementById('authError');
+                
+                if (!username || !password) {
+                    this.showAuthError('Please enter both username and password.');
+                    return;
+                }
+                
+                // Show loading state
+                loginButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing In...';
+                loginButton.disabled = true;
+                authError.style.display = 'none';
+                
+                try {
+                    const loginResponse = await fetch('/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password }),
+                        credentials: 'include'
+                    });
+                    
+                    const result = await loginResponse.json();
+                    
+                    if (loginResponse.ok && result.success) {
+                        console.info('Authentication successful');
+                        
+                        // Set credentials in auth manager
+                        this.authManager.setCredentials(username, password);
+                        
+                        // Initialize security session
+                        if (window.securityManager) {
+                            const sessionData = window.securityManager.login(username, password);
+                            
+                            // Set extended session if remember me is checked
+                            if (rememberSession) {
+                                sessionData.extendedSession = true;
+                                sessionData.password = password; // Store for session restoration
+                                localStorage.setItem('securitySession', JSON.stringify(sessionData));
+                            }
+                        }
+                        
+                        // Remove authentication screen
+                        const authScreen = document.getElementById('authenticationScreen');
+                        if (authScreen) {
+                            authScreen.remove();
+                        }
+                        
+                        // Show main content and mark as authenticated
+                        const mainContent = document.querySelector('.main-content');
+                        if (mainContent) {
+                            mainContent.style.display = 'block';
+                            mainContent.classList.add('authenticated');
+                        }
+                        
+                        this.updateAuthButtonState(true);
+                        
+                        // Update connection status to show authentication success
+                        // Update status to show authentication and data loading
+                        this.updateConnectionStatus('connected', 'Loading dashboard data...');
+                        
+                        // Load dashboard data with authenticated access
+                        await this.loadData();
+                        
+                        // Update final status
+                        this.updateConnectionStatus('connected', 'Connected & Authenticated');
+                        
+                        return true;
+                    } else {
+                        this.showAuthError(result.message || 'Invalid credentials. Please try again.');
+                    }
+                } catch (error) {
+                    console.error('Authentication error:', error);
+                    this.showAuthError('Authentication failed. Please check your connection and try again.');
+                } finally {
+                    // Restore button state
+                    loginButton.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+                    loginButton.disabled = false;
+                }
+                
+                return false;
+            }
+
+            showAuthError(message) {
+                const authError = document.getElementById('authError');
+                if (authError) {
+                    authError.textContent = message;
+                    authError.style.display = 'block';
+                }
+            }
+            
+            // If auto-auth fails, prompt user
+            // (This block should be inside a method, not outside the class)
+            // Remove this misplaced code or move it to the appropriate method if needed.
+
+            updateAuthButtonState(authenticated) {
+                const authBtn = document.querySelector('.auth-btn');
+                if (authBtn) {
+                    if (authenticated) {
+                        authBtn.classList.add('authenticated');
+                        authBtn.title = 'Enhanced Data Access: ACTIVE';
+                        authBtn.innerHTML = '🔓';
+                    } else {
+                        authBtn.classList.remove('authenticated');
+                        authBtn.title = 'Enhanced Data Access';
+                        authBtn.innerHTML = '🔑';
+                    }
+                }
+            }
+            
+            promptForCredentials() {
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                    background: rgba(0,0,0,0.8); z-index: 9999; 
+                    display: flex; align-items: center; justify-content: center;
+                `;
+                
+                modal.innerHTML = `
+                    <div style="background: #2c3e50; padding: 2rem; border-radius: 10px; max-width: 400px; width: 90%;">
+                        <h3 style="color: #3498db; margin-bottom: 1rem;">Enhanced Data Access</h3>
+                        <p style="margin-bottom: 1rem; color: #bdc3c7; font-size: 0.9rem;">
+                            Enter your PRTG authentication credentials (username and passhash) to access real-time monitoring data and detailed analytics.
+                        </p>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #95a5a6;">Username:</label>
+                            <input type="text" id="auth-username" value="LoginApiUser" style="width: 100%; padding: 0.5rem; border: 1px solid #34495e; border-radius: 4px; background: #34495e; color: white;" placeholder="Enter username">
+                        </div>
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; color: #95a5a6;">Passhash:</label>
+                            <input type="password" id="auth-password" value="730802978" style="width: 100%; padding: 0.5rem; border: 1px solid #34495e; border-radius: 4px; background: #34495e; color: white;" placeholder="Enter passhash">
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button onclick="dashboard.setAuthentication()" style="flex: 1; background: #3498db; color: white; border: none; padding: 0.75rem; border-radius: 4px; cursor: pointer;">Connect</button>
+                            <button onclick="dashboard.closeAuthModal()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.75rem; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        </div>
+                        <div id="auth-status" style="margin-top: 1rem; text-align: center; color: #e74c3c; font-size: 0.85rem;"></div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                this.authModal = modal;
+                document.getElementById('auth-username').focus();
+                
+                // Allow Enter key to submit
+                ['auth-username', 'auth-password'].forEach(id => {
+                    document.getElementById(id).addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') this.setAuthentication();
+                    });
+                });
+            }
+            
+            async setAuthentication() {
+                const username = document.getElementById('auth-username').value;
+                const password = document.getElementById('auth-password').value;
+                const statusEl = document.getElementById('auth-status');
+                
+                if (!username || !password) {
+                    statusEl.textContent = 'Please enter both username and password';
+                    return;
+                }
+                
+                statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validating credentials...';
+                
+                try {
+                    // Authenticate via the server's login endpoint
+                    const loginResponse = await fetch('/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ username, password }),
+                        credentials: 'include' // Important for session cookies
+                    });
+                    
+                    const loginResult = await loginResponse.json();
+                    
+                    if (loginResponse.ok && loginResult.success) {
+                        // Set credentials in auth manager for any direct API calls
+                        this.authManager.setCredentials(username, password);
+                        statusEl.innerHTML = '<i class="fas fa-check"></i> Authentication successful!';
+                        statusEl.style.color = '#27ae60';
+                        
+                        // Update auth button to show authenticated state
+                        this.updateAuthButtonState(true);
+                        
+                        setTimeout(() => {
+                            this.closeAuthModal();
+                            this.showEnhancedDataNotification();
+                            this.refreshData(); // Reload with authenticated access
+                        }, 1000);
+                    } else {
+                        statusEl.textContent = loginResult.error || 'Authentication failed. Please check your credentials.';
+                    }
+                } catch (error) {
+                    console.error('Authentication error:', error);
+                    statusEl.textContent = 'Connection error. Please try again.';
+                }
+            }
+            
+            closeAuthModal() {
+                if (this.authModal) {
+                    document.body.removeChild(this.authModal);
+                    this.authModal = null;
+                }
+            }
+            
+            showEnhancedDataNotification() {
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed; top: 20px; right: 20px; 
+                    background: linear-gradient(135deg, #27ae60, #2ecc71); 
+                    color: white; padding: 1rem 1.5rem; border-radius: 8px; 
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000;
+                    animation: slideIn 0.3s ease-out;
+                `;
+                
+                notification.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-check-circle"></i>
+                        <div>
+                            <strong>Enhanced Data Access Enabled!</strong><br>
+                            <small>Real-time monitoring and detailed analytics now available</small>
+                        </div>
+                        <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; margin-left: 1rem;">&times;</button>
+                    </div>
+                `;
+                
+                document.body.appendChild(notification);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.parentElement.removeChild(notification);
+                    }
+                }, 5000);
+            }
+
+            setupEventListeners() {
+                document.getElementById('searchBox').addEventListener('input', (e) => {
+                    this.filters.search = e.target.value.toLowerCase();
+                    this.applyFilters();
+                });
+
+                document.getElementById('statusFilter').addEventListener('change', (e) => {
+                    this.filters.status = e.target.value;
+                    this.applyFilters();
+                });
+
+                document.getElementById('companyFilter').addEventListener('change', (e) => {
+                    this.filters.company = e.target.value;
+                    this.applyFilters();
+                });
+            }
+
+            async loadData() {
+                try {
+                    // Load all devices with pagination
+                    this.devices = await this.loadAllDevices();
+                    
+                    this.processCompanyData();
+                    this.updateOverviewStats();
+                    this.renderCompanies();
+                    this.populateCompanyFilter();
+                    this.updateConnectionStatus(true);
+                    this.updateLastUpdateTime();
+                    
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                    this.updateConnectionStatus(false);
+                    this.showErrorMessage('Failed to load dashboard data');
+                }
+            }
+
+            async loadAllDevices() {
+                try {
+                    // First, try to get all devices at once with authentication if available
+                    const allDevicesResponse = await this.authManager.authenticatedFetch('/api/devices/enhanced?all=true');
+                    if (allDevicesResponse.ok) {
+                        const responseData = await allDevicesResponse.json();
+                        if (this.reconnectAttempts === 0) {
+                            console.log(`Loaded ${responseData.devices.length} devices (authenticated)`);
+                        }
+                        return responseData.devices;
+                    } else if (allDevicesResponse.status === 401) {
+                        // Fall back to unauthenticated call
+                        const fallbackResponse = await fetch('/api/devices/enhanced?all=true');
+                        if (fallbackResponse.ok) {
+                            const responseData = await fallbackResponse.json();
+                            if (this.reconnectAttempts === 0) {
+                                console.log(`Loaded ${responseData.devices.length} devices (unauthenticated)`);
+                            }
+                            return responseData.devices;
+                        }
+                    }
+                } catch (error) {
+                    console.debug('Using pagination for device loading');
+                }
+
+                // Fallback to pagination
+                return await this.loadDevicesWithPagination();
+            }
+
+            async loadDevicesWithPagination() {
+                const allDevices = [];
+                let offset = 0;
+                const limit = 200; // Load in chunks of 200
+                let hasMore = true;
+                let totalExpected = null;
+
+                // Show loading indicator
+                this.showLoadingProgress(0, 'Loading devices...');
+
+                while (hasMore) {
+                    try {
+                        const response = await fetch(`/api/devices/enhanced?limit=${limit}&offset=${offset}`);
+                        
+                        if (!response.ok) {
+                            // Fallback to regular devices API if enhanced fails
+                            const fallbackResponse = await fetch(`/api/devices?limit=${limit}&offset=${offset}`);
+                            if (fallbackResponse.ok) {
+                                const devices = await fallbackResponse.json();
+                                allDevices.push(...devices);
+                                hasMore = devices.length === limit;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            const responseData = await response.json();
+                            const devices = responseData.devices || responseData;
+                            
+                            allDevices.push(...devices);
+                            
+                            // Check if we have pagination metadata
+                            if (responseData.pagination) {
+                                hasMore = responseData.pagination.hasMore;
+                                totalExpected = responseData.pagination.total;
+                                
+                                // Update loading progress
+                                const progressPercent = Math.min((allDevices.length / totalExpected) * 100, 100);
+                                this.showLoadingProgress(
+                                    progressPercent, 
+                                    `Loading devices... ${allDevices.length}/${totalExpected} (${Math.round(progressPercent)}%)`
+                                );
+                                
+                                console.debug(`Loaded ${devices.length} devices (page ${responseData.pagination.page}/${responseData.pagination.totalPages})`);
+                            } else {
+                                // Legacy response without pagination metadata
+                                hasMore = devices.length === limit;
+                                this.showLoadingProgress(null, `Loaded ${allDevices.length} devices...`);
+                            }
+                        }
+                        
+                        offset += limit;
+                        
+                        // Safety check to prevent infinite loops
+                        if (offset > 10000) {
+                            console.warn('Reached safety limit of 10000 devices');
+                            break;
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error loading devices chunk:', error);
+                        break;
+                    }
+                }
+
+                // Hide loading indicator
+                this.hideLoadingProgress();
+                console.debug(`Total devices loaded: ${allDevices.length}`);
+                return allDevices;
+            }
+
+            showLoadingProgress(percent, message) {
+                let loadingEl = document.getElementById('loadingProgress');
+                if (!loadingEl) {
+                    loadingEl = document.createElement('div');
+                    loadingEl.id = 'loadingProgress';
+                    loadingEl.style.cssText = `
+                        position: fixed; top: 70px; right: 20px; 
+                        background: rgba(52, 73, 94, 0.95); 
+                        padding: 15px 20px; border-radius: 8px;
+                        color: white; font-size: 14px; z-index: 1000;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                        border-left: 4px solid #3498db;
+                    `;
+                    document.body.appendChild(loadingEl);
+                }
+                
+                let progressBar = '';
+                if (percent !== null) {
+                    progressBar = `
+                        <div style="width: 200px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; margin-top: 8px; overflow: hidden;">
+                            <div style="width: ${percent}%; height: 100%; background: #3498db; border-radius: 3px; transition: width 0.3s ease;"></div>
+                        </div>
+                    `;
+                }
+                
+                loadingEl.innerHTML = message + progressBar;
+            }
+
+            hideLoadingProgress() {
+                const loadingEl = document.getElementById('loadingProgress');
+                if (loadingEl) {
+                    loadingEl.remove();
+                }
+            }
+
+            processCompanyData() {
+                this.companies.clear();
+                
+                // Group devices by company
+                this.devices.forEach(device => {
+                    // Use enhanced company data if available, otherwise extract from name
+                    const companyCode = device.companyCode || this.extractCompanyCode(device.name);
+                    const companyName = device.companyName || this.getCompanyName(companyCode);
+                    
+                    if (!this.companies.has(companyCode)) {
+                        this.companies.set(companyCode, {
+                            code: companyCode,
+                            name: companyName,
+                            devices: [],
+                            stats: {
+                                total: 0,
+                                up: 0,
+                                down: 0,
+                                warning: 0,
+                                paused: 0,
+                                unusual: 0
+                            },
+                            sensorStats: {
+                                total: 0,
+                                up: 0,
+                                down: 0,
+                                warning: 0,
+                                paused: 0,
+                                unusual: 0
+                            },
+                            totalAlerts: 0,
+                            avgHealthScore: 0
+                        });
+                    }
+                    
+                    const company = this.companies.get(companyCode);
+                    const enhancedDevice = this.enhanceDeviceData(device);
+                    company.devices.push(enhancedDevice);
+                    company.stats.total++;
+                    
+                    // Update device status counts
+                    const statusKey = this.getStatusKey(device.status);
+                    if (company.stats.hasOwnProperty(statusKey)) {
+                        company.stats[statusKey]++;
+                    }
+                    
+                    // Aggregate sensor statistics if available
+                    if (device.sensorStats) {
+                        company.sensorStats.total += device.sensorStats.total;
+                        company.sensorStats.up += device.sensorStats.up;
+                        company.sensorStats.down += device.sensorStats.down;
+                        company.sensorStats.warning += device.sensorStats.warning;
+                        company.sensorStats.paused += device.sensorStats.paused;
+                        company.sensorStats.unusual += device.sensorStats.unusual;
+                        
+                        company.totalAlerts += (device.alertCount || 0);
+                    }
+                });
+                
+                // Calculate average health scores for companies
+                this.companies.forEach(company => {
+                    if (company.devices.length > 0) {
+                        const totalHealthScore = company.devices.reduce((sum, device) => {
+                            return sum + (device.healthScore || 75); // Default health score
+                        }, 0);
+                        company.avgHealthScore = Math.round(totalHealthScore / company.devices.length);
+                    }
+                });
+            }
+
+            extractCompanyCode(deviceName) {
+                // Extract company codes from device names
+                const patterns = [
+                    /^([A-Z]{2,4})-/,  // VEC-, DEC-, etc.
+                    /^([A-Za-z]+)-/,   // CalTel-, etc.
+                ];
+                
+                for (const pattern of patterns) {
+                    const match = deviceName.match(pattern);
+                    if (match) {
+                        return match[1].toUpperCase();
+                    }
+                }
+                
+                return 'OTHER'; // Default for unmatched devices
+            }
+
+            getCompanyName(companyCode) {
+                const companyNames = {
+                    'AJ': 'AJ Network Solutions',
+                    'ANA': 'Anaheim Communications',
+                    'CALTEL': 'California Telecom',
+                    'COMUNIDAD': 'Comunidad Network',
+                    'CPM': 'Control Point Monitor',
+                    'DEC': 'Digital Edge Communications',
+                    'E': 'E-Networks',
+                    'EBA': 'Enterprise Business Associates',
+                    'GPS': 'GPS Network Systems',
+                    'GRACE': 'Grace Communications',
+                    'MARICOPA': 'Maricopa County Network',
+                    'MBS': 'MBS Communications',
+                    'MBSE': 'MBSE Network Services',
+                    'MUN': 'Municipal Networks',
+                    'PHLABS': 'Phoenix Labs',
+                    'PRESSACAD': 'Press Academy Network',
+                    'PRTG': 'PRTG Core Services',
+                    'SAC': 'Sacramento Communications',
+                    'SANTAN': 'Santan Network Services',
+                    'SEY': 'Seymour Networks',
+                    'SFS': 'SFS Communications',
+                    'SRCO': 'SRCO Network Solutions',
+                    'TBA': 'TBA Communications',
+                    'TCC': 'TCC Network Services',
+                    'TOW': 'Tower Communications',
+                    'VEC': 'Vector Communications',
+                    'VN': 'VN Networks',
+                    'OTHER': 'Unclassified Devices'
+                };
+                
+                return companyNames[companyCode] || `${companyCode} Network`;
+            }
+
+            enhanceDeviceData(device) {
+                return {
+                    ...device,
+                    deviceType: this.getDeviceType(device.name),
+                    criticality: this.getCriticality(device.name),
+                    sensorCount: device.sensors?.length || 0,
+                    alertCount: device.sensors?.filter(s => s.status === 5 || s.status === 4).length || 0
+                };
+            }
+
+            getDeviceType(deviceName) {
+                const types = {
+                    'ESX': 'VMware Server',
+                    'ESXI': 'VMware Server',
+                    'PDU': 'Power Distribution',
+                    'APC': 'UPS/Power',
+                    'CORE': 'Core Switch',
+                    'SW': 'Network Switch',
+                    'FW': 'Firewall',
+                    'AP': 'Access Point',
+                    'WLC': 'Wireless Controller',
+                    'MPLS': 'MPLS Router'
+                };
+                
+                const upperName = deviceName.toUpperCase();
+                for (const [key, value] of Object.entries(types)) {
+                    if (upperName.includes(key)) {
+                        return value;
+                    }
+                }
+                return 'Network Device';
+            }
+
+            getCriticality(deviceName) {
+                const upperName = deviceName.toUpperCase();
+                if (upperName.includes('CORE') || upperName.includes('FW') || upperName.includes('ESXI')) {
+                    return 'high';
+                } else if (upperName.includes('SW') || upperName.includes('PDU') || upperName.includes('APC')) {
+                    return 'medium';
+                } else {
+                    return 'low';
+                }
+            }
+
+            getStatusKey(statusCode) {
+                const statusMap = {
+                    3: 'up',
+                    4: 'warning',
+                    5: 'down',
+                    7: 'paused',
+                    10: 'unusual',
+                    1: 'unusual'
+                };
+                return statusMap[statusCode] || 'unusual';
+            }
+
+            updateOverviewStats() {
+                const stats = {
+                    total: this.devices.length,
+                    companies: this.companies.size,
+                    up: 0,
+                    down: 0,
+                    warning: 0
+                };
+
+                this.devices.forEach(device => {
+                    const statusKey = this.getStatusKey(device.status);
+                    if (stats.hasOwnProperty(statusKey)) {
+                        stats[statusKey]++;
+                    }
+                });
+
+                const overviewHtml = `
+                    <div class="stat-card total">
+                        <div class="stat-number">${stats.total}</div>
+                        <div class="stat-label">Total Devices</div>
+                    </div>
+                    <div class="stat-card companies">
+                        <div class="stat-number">${stats.companies}</div>
+                        <div class="stat-label">Companies</div>
+                    </div>
+                    <div class="stat-card up">
+                        <div class="stat-number">${stats.up}</div>
+                        <div class="stat-label">Online</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="stat-number">${stats.warning}</div>
+                        <div class="stat-label">Warning</div>
+                    </div>
+                    <div class="stat-card down">
+                        <div class="stat-number">${stats.down}</div>
+                        <div class="stat-label">Offline</div>
+                    </div>
+                `;
+
+                document.getElementById('overviewStats').innerHTML = overviewHtml;
+
+                // Update header status indicators
+                this.updateHeaderStats(stats);
+            }
+
+            updateHeaderStats(stats) {
+                const totalDevicesHeader = document.getElementById('totalDevicesHeader');
+                const criticalAlertsHeader = document.getElementById('criticalAlertsHeader');
+                const warningAlertsHeader = document.getElementById('warningAlertsHeader');
+                const healthyDevicesHeader = document.getElementById('healthyDevicesHeader');
+                const healthBar = document.getElementById('healthBar');
+
+                if (totalDevicesHeader) totalDevicesHeader.textContent = stats.total.toLocaleString();
+                if (criticalAlertsHeader) criticalAlertsHeader.textContent = stats.down;
+                if (warningAlertsHeader) warningAlertsHeader.textContent = stats.warning;
+                if (healthyDevicesHeader) healthyDevicesHeader.textContent = stats.up;
+                
+                // Update health bar percentage
+                if (healthBar && stats.total > 0) {
+                    const healthPercent = (stats.up / stats.total) * 100;
+                    healthBar.style.width = healthPercent + '%';
+                    
+                    // Change color based on health level
+                    if (healthPercent >= 90) {
+                        healthBar.style.background = 'linear-gradient(90deg, #27ae60, #2ecc71)';
+                    } else if (healthPercent >= 70) {
+                        healthBar.style.background = 'linear-gradient(90deg, #f39c12, #e67e22)';
+                    } else {
+                        healthBar.style.background = 'linear-gradient(90deg, #e74c3c, #c0392b)';
+                    }
+                }
+                
+                // Update telemetry indicators visibility
+                this.updateTelemetryIndicators(stats);
+            }
+
+            updateTelemetryIndicators(stats) {
+                // Show/hide critical alerts
+                const criticalItem = document.querySelector('.telemetry-item.critical');
+                if (criticalItem) {
+                    criticalItem.style.opacity = stats.down > 0 ? '1' : '0.3';
+                }
+                
+                // Show/hide warnings
+                const warningItem = document.querySelector('.telemetry-item.warning');
+                if (warningItem) {
+                    warningItem.style.opacity = stats.warning > 0 ? '1' : '0.3';
+                }
+            }
+
+            renderCompanies() {
+                const container = document.getElementById('companiesGrid');
+                if (this.companies.size === 0) {
+                    container.innerHTML = '<div class="no-data">No company data available</div>';
+                    return;
+                }
+
+                const companiesArray = Array.from(this.companies.values())
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                const html = companiesArray.map(company => this.renderCompanySection(company)).join('');
+                container.innerHTML = html;
+
+                // Add click listeners for expand/collapse
+                document.querySelectorAll('.company-header').forEach(header => {
+                    header.addEventListener('click', () => {
+                        const section = header.closest('.company-section');
+                        section.classList.toggle('expanded');
+                    });
+                });
+            }
+
+            renderCompanySection(company) {
+                const primaryStatus = company.stats.down > 0 ? 'down' : 
+                                   company.stats.warning > 0 ? 'warning' : 'up';
+                
+                const alertCount = company.stats.down + company.stats.warning;
+
+                return `
+                    <div class="company-section" data-company="${company.code}">
+                        <div class="company-header">
+                            <div class="company-name-container">
+                                <div class="company-name">${company.name}</div>
+                                <div class="company-code">(${company.code})</div>
+                            </div>
+                            <div class="company-stats">
+                                <div class="stat-item">
+                                    <span class="stat-value">${company.stats.total}</span>
+                                    <span class="stat-label">Devices</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-value">${company.devices.reduce((sum, d) => sum + d.sensorCount, 0)}</span>
+                                    <span class="stat-label">Sensors</span>
+                                </div>
+                                <div class="stat-item ${primaryStatus}">
+                                    <span class="stat-value">${company.stats.up}/${company.stats.down}</span>
+                                    <span class="stat-label">UP/DOWN</span>
+                                </div>
+                                <div class="expand-toggle">
+                                    <i class="fas fa-chevron-down"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="company-content">
+                            <div class="devices-grid">
+                                ${company.devices.map(device => this.renderDeviceCard(device)).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            renderDeviceCard(device) {
+                const statusClass = `status-${this.getStatusKey(device.status)}`;
+                const statusText = this.getStatusText(device.status);
+                const statusColor = this.getStatusColor(device.status);
+
+                return `
+                    <div class="device-card ${statusClass}" onclick="showDeviceDetail(${device.id}, '${device.name.replace(/'/g, '\\\'')}')" data-device-id="${device.id}">
+                        <div class="device-header">
+                            <div>
+                                <div class="device-name">${device.name}</div>
+                                <div class="device-type">${device.deviceType}</div>
+                            </div>
+                            <div class="device-status" style="background: ${statusColor}; color: white;">
+                                ${statusText}
+                            </div>
+                        </div>
+                        <div class="device-details">
+                            <div class="device-detail">
+                                <span>Host:</span>
+                                <span>${device.host || 'N/A'}</span>
+                            </div>
+                            <div class="device-detail">
+                                <span>Group:</span>
+                                <span>${device.group || 'Default'}</span>
+                            </div>
+                            <div class="device-detail">
+                                <span>Priority:</span>
+                                <span>${device.priority || 'Normal'}</span>
+                            </div>
+                            <div class="device-detail">
+                                <span>Criticality:</span>
+                                <span class="criticality-badge criticality-${device.criticality}">${device.criticality.toUpperCase()}</span>
+                            </div>
+                        </div>
+                        <div class="sensors-summary">
+                            <span class="sensor-count">${device.sensorCount} Sensors</span>
+                            ${device.alertCount > 0 ? 
+                                `<span class="criticality-badge criticality-high">${device.alertCount} Alerts</span>` : 
+                                `<span class="criticality-badge criticality-low">Healthy</span>`
+                            }
+                        </div>
+                    </div>
+                `;
+            }
+
+            getStatusText(status) {
+                const statusMap = {
+                    3: 'Up',
+                    4: 'Warning',
+                    5: 'Down',
+                    7: 'Paused',
+                    10: 'Unusual',
+                    1: 'Unknown'
+                };
+                return statusMap[status] || 'Unknown';
+            }
+
+            getStatusColor(status) {
+                const colorMap = {
+                    3: '#27ae60',
+                    4: '#f39c12',
+                    5: '#e74c3c',
+                    7: '#95a5a6',
+                    10: '#9b59b6',
+                    1: '#7f8c8d'
+                };
+                return colorMap[status] || '#7f8c8d';
+            }
+
+            populateCompanyFilter() {
+                const select = document.getElementById('companyFilter');
+                select.innerHTML = '<option value="all">All Companies</option>';
+                
+                Array.from(this.companies.values()).sort((a, b) => a.name.localeCompare(b.name)).forEach(company => {
+                    const option = document.createElement('option');
+                    option.value = company.code;
+                    option.textContent = `${company.code} - ${company.name}`;
+                    select.appendChild(option);
+                });
+            }
+
+            applyFilters() {
+                const companies = document.querySelectorAll('.company-section');
+                
+                companies.forEach(section => {
+                    const companyCode = section.dataset.company;
+                    const company = this.companies.get(companyCode);
+                    
+                    let shouldShow = true;
+                    
+                    // Company filter
+                    if (this.filters.company !== 'all' && companyCode !== this.filters.company) {
+                        shouldShow = false;
+                    }
+                    
+                    // Search filter
+                    if (this.filters.search && shouldShow) {
+                        const searchMatch = company.name.toLowerCase().includes(this.filters.search) ||
+                                          company.devices.some(d => d.name.toLowerCase().includes(this.filters.search));
+                        if (!searchMatch) shouldShow = false;
+                    }
+                    
+                    // Status filter
+                    if (this.filters.status !== 'all' && shouldShow) {
+                        const hasMatchingDevices = company.devices.some(d => 
+                            this.getStatusKey(d.status) === this.filters.status
+                        );
+                        if (!hasMatchingDevices) shouldShow = false;
+                    }
+                    
+                    section.style.display = shouldShow ? 'block' : 'none';
+                });
+            }
+
+            connectWebSocket() {
+                // Skip if WebSocket has been disabled due to repeated failures
+                if (this.webSocketDisabled) {
+                    return;
+                }
+                
+                // Close existing WebSocket connection if any
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+                
+                // Determine correct WebSocket URL - use same host/port as current page
+                // This assumes WebSocket is proxied through the same server (Apache/nginx)
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host; // includes port if non-standard
+                
+                // For HTTPS sites, use the same host/port (WebSocket should be proxied)
+                // For direct HTTP access to port 3010, connect directly
+                let wsUrl;
+                if (window.location.protocol === 'https:') {
+                    // HTTPS: Use same host, WebSocket will be proxied at /ws or similar
+                    wsUrl = `${protocol}//${host}`;
+                } else if (window.location.port === '3010') {
+                    // Direct HTTP to port 3010
+                    wsUrl = `${protocol}//${host}`;
+                } else {
+                    // Other HTTP scenarios - try port 3010
+                    wsUrl = `${protocol}//${window.location.hostname}:3010`;
+                }
+                
+                // Debug: Log the actual WebSocket URL being used (only on first attempt)
+                if (this.reconnectAttempts === 0) {
+                    console.log('WebSocket connecting to:', wsUrl, '(protocol:', protocol, 'host:', window.location.host, ')');
+                }
+                
+                try {
+                    this.ws = new WebSocket(wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        // Only log successful connections
+                        if (this.reconnectAttempts > 0) {
+                            console.log('WebSocket reconnected successfully');
+                        }
+                        this.updateConnectionStatus(true);
+                        this.reconnectAttempts = 0;
+                        this.setupHeartbeat();
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.handleWebSocketMessage(data);
+                        } catch (error) {
+                            // Only log parse errors if they're not just heartbeat failures
+                            console.warn('WebSocket message parsing failed');
+                        }
+                    };
+                    
+                    this.ws.onclose = () => {
+                        this.updateConnectionStatus(false);
+                        this.attemptReconnect();
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                        // Reduce error logging - only log if not in retry loop
+                        if (this.reconnectAttempts === 0) {
+                            console.warn('WebSocket connection failed - attempting to reconnect');
+                        }
+                        this.updateConnectionStatus(false);
+                    };
+                } catch (error) {
+                    if (this.reconnectAttempts === 0) {
+                        console.warn('WebSocket connection failed - will retry');
+                    }
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            handleWebSocketMessage(data) {
+                if (data.type === 'dashboard_update') {
+                    this.loadData();
+                } else if (data.type === 'device_update') {
+                    this.updateDeviceData(data.device);
+                }
+            }
+
+            updateDeviceData(updatedDevice) {
+                const index = this.devices.findIndex(d => d.id === updatedDevice.id);
+                if (index !== -1) {
+                    this.devices[index] = updatedDevice;
+                    this.processCompanyData();
+                    this.updateOverviewStats();
+                    this.renderCompanies();
+                }
+            }
+
+            updateConnectionStatus(connected, customMessage = null) {
+                const indicator = document.getElementById('connectionIndicator');
+                const text = document.getElementById('connectionText');
+                
+                if (connected === true || connected === 'connected') {
+                    indicator.classList.add('connected');
+                    text.textContent = customMessage || 'Connected';
+                } else {
+                    indicator.classList.remove('connected');
+                    text.textContent = customMessage || 'Disconnected';
+                }
+            }
+
+            attemptReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    
+                    // Exponential backoff: increase delay with each attempt
+                    const delay = this.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1);
+                    
+                    // Only log every 3rd attempt to reduce console spam
+                    if (this.reconnectAttempts % 3 === 0) {
+                        console.log(`WebSocket reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+                    }
+                    
+                    setTimeout(() => {
+                        this.connectWebSocket();
+                    }, Math.min(delay, 30000)); // Cap at 30 seconds max
+                } else {
+                    console.log('WebSocket disabled - dashboard operating in polling mode');
+                    document.getElementById('connectionText').textContent = 'Polling Mode';
+                    this.webSocketDisabled = true;
+                }
+            }
+
+            setupHeartbeat() {
+                setInterval(() => {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 30000);
+            }
+
+            startAutoRefresh() {
+                setInterval(() => {
+                    this.loadData();
+                }, 60000); // Refresh every minute
+            }
+
+            async refreshData() {
+                const btn = document.querySelector('.refresh-btn');
+                btn.textContent = 'Refreshing...';
+                btn.disabled = true;
+                
+                await this.loadData();
+                
+                btn.textContent = 'Refresh';
+                btn.disabled = false;
+            }
+
+            updateLastUpdateTime() {
+                document.getElementById('updateTime').textContent = new Date().toLocaleTimeString();
+            }
+
+            showErrorMessage(message) {
+                const container = document.getElementById('companiesGrid');
+                container.innerHTML = `<div class="no-data">❌ ${message}</div>`;
+            }
+        }
+
+        // Device Detail Functions
+        async function showDeviceDetail(deviceId, deviceName) {
+            const modal = document.getElementById('deviceDetailModal');
+            const backdrop = document.getElementById('modalBackdrop');
+            const title = document.getElementById('deviceDetailTitle');
+            const content = document.getElementById('deviceDetailContent');
+            
+            // Show modal
+            modal.classList.add('open');
+            backdrop.classList.add('open');
+            title.textContent = deviceName;
+            
+            // Show loading state
+            content.innerHTML = `
+                <div class="loading-detail">
+                    <i class="fas fa-spinner fa-spin"></i> Loading detailed information...
+                </div>
+            `;
+            
+            try {
+                // Fetch device details with authentication for enhanced data
+                const authManager = window.dashboard.authManager;
+                const [deviceResponse, sensorResponse, alertResponse, metadataResponse] = await Promise.allSettled([
+                    authManager.authenticatedFetch(`/api/devices/${deviceId}`),
+                    authManager.authenticatedFetch(`/api/sensors?deviceId=${deviceId}&limit=50`),
+                    authManager.authenticatedFetch(`/api/alerts?hours=24&limit=10`),
+                    fetch(`/api/devices/${deviceId}/metadata`)
+                ]);
+                
+                let deviceData = null;
+                let sensorsData = { sensors: [] };
+                let alertsData = { alerts: [] };
+                let metadataData = null;
+                
+                if (deviceResponse.status === 'fulfilled' && deviceResponse.value.ok) {
+                    deviceData = await deviceResponse.value.json();
+                }
+                
+                if (sensorResponse.status === 'fulfilled' && sensorResponse.value.ok) {
+                    sensorsData = await sensorResponse.value.json();
+                }
+                
+                if (alertResponse.status === 'fulfilled' && alertResponse.value.ok) {
+                    alertsData = await alertResponse.value.json();
+                }
+                
+                if (metadataResponse.status === 'fulfilled' && metadataResponse.value.ok) {
+                    metadataData = await metadataResponse.value.json();
+                }
+                
+                // Render detailed content
+                renderDeviceDetailContent(deviceData, sensorsData, alertsData, metadataData, deviceId, deviceName);
+                
+            } catch (error) {
+                console.error('Error loading device details:', error);
+                content.innerHTML = `
+                    <div class="detail-section">
+                        <div class="detail-section-title">Error</div>
+                        <p>Failed to load device details. Please try again.</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderDeviceDetailContent(deviceData, sensorsData, alertsData, metadataData, deviceId, deviceName) {
+            const content = document.getElementById('deviceDetailContent');
+            
+            const device = deviceData || { id: deviceId, name: deviceName };
+            const sensors = sensorsData?.sensors || [];
+            const alerts = alertsData?.alerts || [];
+            const metadata = metadataData?.expandable_sections || {};
+            
+            const sensorStats = {
+                total: sensors.length,
+                up: sensors.filter(s => s.status === 3).length,
+                down: sensors.filter(s => s.status === 5).length,
+                warning: sensors.filter(s => s.status === 4).length,
+                paused: sensors.filter(s => s.status === 7).length,
+                unusual: sensors.filter(s => s.status === 10).length
+            };
+            
+            content.innerHTML = `
+                <!-- Device Overview -->
+                <div class="detail-section">
+                    <div class="detail-section-title">Device Overview</div>
+                    <div class="detail-grid">
+                        <div class="detail-label">Device ID</div>
+                        <div class="detail-value">${device.id}</div>
+                        <div class="detail-label">Host Address</div>
+                        <div class="detail-value">${device.host || 'N/A'}</div>
+                        <div class="detail-label">Device Type</div>
+                        <div class="detail-value">${device.deviceType || 'Unknown'}</div>
+                        <div class="detail-label">Status</div>
+                        <div class="detail-value">${getStatusText(device.status) || 'Unknown'}</div>
+                        <div class="detail-label">Priority</div>
+                        <div class="detail-value">${device.priority || 'Normal'}</div>
+                        <div class="detail-label">Last Seen</div>
+                        <div class="detail-value">${device.lastSeen ? new Date(device.lastSeen).toLocaleString() : 'N/A'}</div>
+                    </div>
+                </div>
+                
+                <!-- Sensor Statistics -->
+                <div class="detail-section">
+                    <div class="detail-section-title">Sensor Statistics (${sensorStats.total} Total)</div>
+                    <div class="detail-grid">
+                        <div class="detail-label">🟢 Up/OK</div>
+                        <div class="detail-value" style="color: #27ae60">${sensorStats.up}</div>
+                        <div class="detail-label">🔴 Down/Error</div>
+                        <div class="detail-value" style="color: #e74c3c">${sensorStats.down}</div>
+                        <div class="detail-label">🟡 Warning</div>
+                        <div class="detail-value" style="color: #f39c12">${sensorStats.warning}</div>
+                        <div class="detail-label">⏸️ Paused</div>
+                        <div class="detail-value" style="color: #95a5a6">${sensorStats.paused}</div>
+                        <div class="detail-label">🟣 Unusual</div>
+                        <div class="detail-value" style="color: #9b59b6">${sensorStats.unusual}</div>
+                    </div>
+                </div>
+                
+                <!-- Sensors List -->
+                <div class="detail-section">
+                    <div class="detail-section-title">Sensors</div>
+                    <div class="sensor-list">
+                        ${sensors.slice(0, 20).map(sensor => `
+                            <div class="sensor-item ${getStatusKey(sensor.status)}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
+                                <div class="sensor-name">${sensor.name}</div>
+                                <div class="sensor-details">
+                                    <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
+                                    <span class="sensor-value">${sensor.lastValue || sensor.last_value || 'N/A'}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${sensors.length > 20 ? `<div style="text-align: center; color: #95a5a6; padding: 1rem;">... and ${sensors.length - 20} more sensors</div>` : ''}
+                        ${sensors.length === 0 ? '<div style="text-align: center; color: #95a5a6; padding: 1rem;">No sensors available</div>' : ''}
+                    </div>
+                </div>
+                
+                <!-- Recent Alerts -->
+                ${alerts.length > 0 ? `
+                <div class="detail-section">
+                    <div class="detail-section-title">Recent Alerts (24h)</div>
+                    <div class="alert-list">
+                        ${alerts.slice(0, 10).map(alert => `
+                            <div class="alert-item">
+                                <div class="alert-time">${new Date(alert.timestamp).toLocaleString()}</div>
+                                <div class="alert-message">${alert.message}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+                
+                <!-- Extended Metadata -->
+                ${Object.keys(metadata).length > 0 ? `
+                <div class="detail-section">
+                    <div class="detail-section-title">Extended Metadata</div>
+                    ${Object.entries(metadata).map(([key, section]) => `
+                        <div style="margin-bottom: 1rem;">
+                            <h4 style="color: #3498db; margin-bottom: 0.5rem;">${section.icon || '📊'} ${section.label || key}</h4>
+                            ${renderMetadataSection(section.data)}
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+                
+                <!-- Future Integrations Placeholder -->
+                <div class="detail-section">
+                    <div class="detail-section-title">🔗 External Integrations</div>
+                    <div id="external-integrations-${deviceId}" style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 1rem;">
+                        <div style="text-align: center; color: #95a5a6; padding: 1rem;">
+                            <i class="fas fa-plug"></i><br>
+                            External data sources (ConnectWise, ServiceNow, etc.) will appear here<br>
+                            <small>Ready for integration expansion</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- PRTG Raw Data -->
+                <div class="detail-section">
+                    <div class="detail-section-title">🔧 Technical Details</div>
+                    <div style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 1rem;">
+                        <details>
+                            <summary style="cursor: pointer; color: #3498db; margin-bottom: 0.5rem;">Show Raw PRTG Data</summary>
+                            <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; color: #95a5a6;">${JSON.stringify(device, null, 2)}</pre>
+                        </details>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderMetadataSection(data) {
+            if (!data || typeof data !== 'object') return '<p>No data available</p>';
+            
+            let html = '<div class="detail-grid">';
+            for (const [key, value] of Object.entries(data)) {
+                if (key === 'sensors') continue; // Skip sensors as they're shown separately
+                
+                html += `
+                    <div class="detail-label">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</div>
+                    <div class="detail-value">${Array.isArray(value) ? value.join(', ') : value}</div>
+                `;
+            }
+            html += '</div>';
+            return html;
+        }
+        
+        function closeDeviceDetail() {
+            const modal = document.getElementById('deviceDetailModal');
+            const backdrop = document.getElementById('modalBackdrop');
+            modal.classList.remove('open');
+            backdrop.classList.remove('open');
+        }
+        
+        async function showSensorDetail(sensorId, sensorName) {
+            const content = document.getElementById('deviceDetailContent');
+            
+            // Show loading state
+            content.innerHTML = `
+                <div class="loading-detail">
+                    <i class="fas fa-spinner fa-spin"></i> Loading sensor details...
+                </div>
+            `;
+            
+            try {
+                // Fetch sensor details and readings with authentication for enhanced data
+                const authManager = window.dashboard.authManager;
+                const [sensorResponse, readingsResponse] = await Promise.allSettled([
+                    authManager.authenticatedFetch(`/api/sensors/${sensorId}`),
+                    authManager.authenticatedFetch(`/api/sensors/${sensorId}/readings?hours=24&limit=100`)
+                ]);
+                
+                let sensorData = null;
+                let readingsData = { readings: [] };
+                
+                if (sensorResponse.status === 'fulfilled' && sensorResponse.value.ok) {
+                    sensorData = await sensorResponse.value.json();
+                }
+                
+                if (readingsResponse.status === 'fulfilled' && readingsResponse.value.ok) {
+                    readingsData = await readingsResponse.value.json();
+                }
+                
+                renderSensorDetailContent(sensorData, readingsData, sensorId, sensorName);
+                
+            } catch (error) {
+                console.error('Error loading sensor details:', error);
+                content.innerHTML = `
+                    <div class="detail-section">
+                        <div class="detail-section-title">Error</div>
+                        <p>Failed to load sensor details. Please try again.</p>
+                        <button onclick="showDeviceDetail(${sensorData?.deviceId || 'null'}, 'Device')" style="margin-top: 1rem; background: #3498db; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">← Back to Device</button>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderSensorDetailContent(sensorData, readingsData, sensorId, sensorName) {
+            const content = document.getElementById('deviceDetailContent');
+            const title = document.getElementById('deviceDetailTitle');
+            
+            title.textContent = `Sensor: ${sensorName}`;
+            
+            const sensor = sensorData || { id: sensorId, name: sensorName };
+            const readings = readingsData?.readings || [];
+            
+            // Calculate statistics from readings
+            const values = readings.map(r => parseFloat(r.value)).filter(v => !isNaN(v));
+            const stats = {
+                count: readings.length,
+                min: values.length > 0 ? Math.min(...values) : 0,
+                max: values.length > 0 ? Math.max(...values) : 0,
+                avg: values.length > 0 ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2) : 0,
+                latest: readings.length > 0 ? readings[readings.length - 1] : null
+            };
+            
+            content.innerHTML = `
+                <div style="margin-bottom: 1rem;">
+                    <button onclick="showDeviceDetail(${sensor.deviceId || 'null'}, '${sensor.device?.name || 'Device'}')" style="background: #95a5a6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">← Back to Device</button>
+                </div>
+                
+                <!-- Sensor Overview -->
+                <div class="detail-section">
+                    <div class="detail-section-title">Sensor Information</div>
+                    <div class="detail-grid">
+                        <div class="detail-label">Sensor ID</div>
+                        <div class="detail-value">${sensor.id}</div>
+                        <div class="detail-label">Sensor Type</div>
+                        <div class="detail-value">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</div>
+                        <div class="detail-label">Current Status</div>
+                        <div class="detail-value" style="color: ${getStatusColor(sensor.status)}">${getStatusText(sensor.status)}</div>
+                        <div class="detail-label">Priority</div>
+                        <div class="detail-value">${sensor.priority || 'Normal'}</div>
+                        <div class="detail-label">Current Value</div>
+                        <div class="detail-value">${sensor.lastValue || sensor.last_value || 'N/A'}</div>
+                        <div class="detail-label">Last Message</div>
+                        <div class="detail-value">${sensor.lastMessage || sensor.last_message ? (sensor.lastMessage || sensor.last_message).replace(/<[^>]*>/g, '') : 'N/A'}</div>
+                        <div class="detail-label">Last Updated</div>
+                        <div class="detail-value">${sensor.lastSeen ? new Date(sensor.lastSeen).toLocaleString() : 'N/A'}</div>
+                    </div>
+                </div>
+                
+                <!-- Performance Statistics -->
+                <div class="detail-section">
+                    <div class="detail-section-title">24-Hour Performance Statistics</div>
+                    <div class="detail-grid">
+                        <div class="detail-label">Data Points</div>
+                        <div class="detail-value">${stats.count}</div>
+                        <div class="detail-label">Minimum Value</div>
+                        <div class="detail-value">${stats.min}</div>
+                        <div class="detail-label">Maximum Value</div>
+                        <div class="detail-value">${stats.max}</div>
+                        <div class="detail-label">Average Value</div>
+                        <div class="detail-value">${stats.avg}</div>
+                        <div class="detail-label">Latest Reading</div>
+                        <div class="detail-value">${stats.latest ? `${stats.latest.value} at ${new Date(stats.latest.timestamp).toLocaleString()}` : 'N/A'}</div>
+                    </div>
+                </div>
+                
+                <!-- Recent Readings -->
+                <div class="detail-section">
+                    <div class="detail-section-title">Recent Readings (Last 20)</div>
+                    <div style="background: rgba(0,0,0,0.2); border-radius: 6px; padding: 1rem; max-height: 300px; overflow-y: auto;">
+                        ${readings.length > 0 ? readings.slice(-20).reverse().map(reading => `
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <span style="color: #95a5a6; font-size: 0.8rem;">${new Date(reading.timestamp).toLocaleString()}</span>
+                                <span style="color: ${getStatusColor(reading.status)}; font-weight: 600;">${reading.value} ${reading.valueText || ''}</span>
+                            </div>
+                        `).join('') : '<p style="text-align: center; color: #95a5a6;">No readings available</p>'}
+                    </div>
+                </div>
+                
+                <!-- Threshold Information -->
+                <div class="detail-section">
+                    <div class="detail-section-title">Monitoring Configuration</div>
+                    <div class="detail-grid">
+                        <div class="detail-label">Monitoring Interval</div>
+                        <div class="detail-value">${sensor.interval || 'Unknown'}</div>
+                        <div class="detail-label">Warning Threshold</div>
+                        <div class="detail-value">${sensor.warningThreshold || 'Not configured'}</div>
+                        <div class="detail-label">Error Threshold</div>
+                        <div class="detail-value">${sensor.errorThreshold || 'Not configured'}</div>
+                        <div class="detail-label">Unit</div>
+                        <div class="detail-value">${sensor.unit || 'N/A'}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function getStatusColor(status) {
+            const colorMap = {
+                3: '#27ae60',
+                4: '#f39c12', 
+                5: '#e74c3c',
+                7: '#95a5a6',
+                10: '#9b59b6',
+                1: '#7f8c8d'
+            };
+            return colorMap[status] || '#7f8c8d';
+        }
+        
+        function getStatusKey(status) {
+            const statusMap = {
+                3: 'up',
+                4: 'warning',
+                5: 'down',
+                7: 'paused',
+                10: 'unusual',
+                1: 'unknown'
+            };
+            return statusMap[status] || 'unknown';
+        }
+        
+        function getStatusText(status) {
+            const statusMap = {
+                3: 'Up/OK',
+                4: 'Warning',
+                5: 'Down/Error',
+                7: 'Paused',
+                10: 'Unusual',
+                1: 'Unknown'
+            };
+            return statusMap[status] || 'Unknown';
+        }
+        
+        // View switching functionality
+        function switchView(viewName) {
+            // Update navigation active state
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            
+            // For now, all views show the same content (overview)
+            // In the future, this can be extended to show different views
+            console.debug(`Switched to ${viewName} view`);
+            
+            // You can add view-specific logic here
+            switch(viewName) {
+                case 'overview':
+                    // Already showing overview content
+                    break;
+                case 'topology':
+                    // TODO: Implement network topology view
+                    alert('Topology view coming soon!');
+                    break;
+                case 'alerts':
+                    // TODO: Implement dedicated alerts view
+                    alert('Dedicated alerts view coming soon!');
+                    break;
+                case 'analytics':
+                    // TODO: Implement analytics dashboard
+                    alert('Analytics dashboard coming soon!');
+                    break;
+                case 'reports':
+                    // TODO: Implement reports section
+                    alert('Reports section coming soon!');
+                    break;
+            }
+        }
+
+        // Security and User Menu Functions
+        function toggleUserMenu() {
+            const dropdown = document.getElementById('userMenuDropdown');
+            dropdown.classList.toggle('active');
+            
+            // Close menu when clicking outside
+            document.addEventListener('click', function closeMenu(e) {
+                if (!e.target.closest('.user-menu-container')) {
+                    dropdown.classList.remove('active');
+                    document.removeEventListener('click', closeMenu);
+                }
+            });
+        }
+
+        function showChangePassword() {
+            const modal = document.createElement('div');
+            modal.className = 'security-modal';
+            modal.innerHTML = `
+                <div class="modal-backdrop">
+                    <div class="modal-content" style="max-width: 400px;">
+                        <div class="modal-header">
+                            <h3>Change Password</h3>
+                            <button onclick="closeModal()" style="background: none; border: none; color: #95a5a6; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="changePasswordForm" style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div>
+                                    <label style="display: block; margin-bottom: 0.5rem; color: #bdc3c7;">Current Password</label>
+                                    <input type="password" id="currentPassword" required style="width: 100%; padding: 0.75rem; border: 1px solid #34495e; border-radius: 6px; background: #2c3e50; color: white;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 0.5rem; color: #bdc3c7;">New Password</label>
+                                    <input type="password" id="newPassword" required style="width: 100%; padding: 0.75rem; border: 1px solid #34495e; border-radius: 6px; background: #2c3e50; color: white;">
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 0.5rem; color: #bdc3c7;">Confirm New Password</label>
+                                    <input type="password" id="confirmPassword" required style="width: 100%; padding: 0.75rem; border: 1px solid #34495e; border-radius: 6px; background: #2c3e50; color: white;">
+                                </div>
+                                <div class="password-requirements" style="font-size: 0.75rem; color: #95a5a6;">
+                                    <p>Password requirements:</p>
+                                    <ul style="margin: 0.5rem 0; padding-left: 1rem;">
+                                        <li>At least 8 characters</li>
+                                        <li>At least one uppercase letter</li>
+                                        <li>At least one lowercase letter</li>
+                                        <li>At least one number</li>
+                                    </ul>
+                                </div>
+                                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                                    <button type="button" onclick="closeModal()" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 0.75rem; border-radius: 6px; cursor: pointer;">
+                                        Cancel
+                                    </button>
+                                    <button type="submit" style="flex: 1; background: #3498db; color: white; border: none; padding: 0.75rem; border-radius: 6px; cursor: pointer;">
+                                        Change Password
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Handle form submission
+            document.getElementById('changePasswordForm').onsubmit = function(e) {
+                e.preventDefault();
+                handlePasswordChange();
+            };
+        }
+
+        async function handlePasswordChange() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            // Validate passwords match
+            if (newPassword !== confirmPassword) {
+                alert('New passwords do not match!');
+                return;
+            }
+
+            // Validate password strength
+            if (!validatePasswordStrength(newPassword)) {
+                alert('Password does not meet security requirements!');
+                return;
+            }
+
+            // For PRTG systems, password changes are typically done through PRTG Web Interface
+            // Show appropriate message and instructions
+            closeModal();
+            
+            const infoModal = document.createElement('div');
+            infoModal.className = 'security-modal';
+            infoModal.innerHTML = `
+                <div class="modal-backdrop">
+                    <div class="modal-content" style="max-width: 500px;">
+                        <div class="modal-header">
+                            <h3>Password Change Information</h3>
+                            <button onclick="closeModal()" style="background: none; border: none; color: #95a5a6; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div style="text-align: center; padding: 1rem;">
+                                <i class="fas fa-info-circle" style="font-size: 3rem; color: #3498db; margin-bottom: 1rem;"></i>
+                                <h3>PRTG Password Management</h3>
+                                <p style="margin: 1rem 0; line-height: 1.6;">
+                                    Password changes for PRTG accounts are managed through the PRTG Web Interface or Active Directory (if configured).
+                                </p>
+                                <div style="background: rgba(52, 152, 219, 0.1); border: 1px solid rgba(52, 152, 219, 0.2); border-radius: 6px; padding: 1rem; margin: 1rem 0; text-align: left;">
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #3498db;">To change your password:</h4>
+                                    <ol style="margin: 0; padding-left: 1.5rem; color: #bdc3c7;">
+                                        <li>Access the PRTG Web Interface directly</li>
+                                        <li>Go to Account Settings → Setup → Account Settings</li>
+                                        <li>Update your password in the user management section</li>
+                                        <li>Contact your PRTG administrator if needed</li>
+                                    </ol>
+                                </div>
+                                <button onclick="closeModal()" style="background: #3498db; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; margin-top: 1rem;">
+                                    Understood
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(infoModal);
+        }
+
+        function validatePasswordStrength(password) {
+            const minLength = 8;
+            const hasUpperCase = /[A-Z]/.test(password);
+            const hasLowerCase = /[a-z]/.test(password);
+            const hasNumbers = /\d/.test(password);
+            
+            return password.length >= minLength && hasUpperCase && hasLowerCase && hasNumbers;
+        }
+
+        function showSessionInfo() {
+            const sessionData = window.securityManager.currentUser;
+            const loginTime = sessionData ? new Date(sessionData.loginTime).toLocaleString() : 'Not logged in';
+            const sessionDuration = sessionData ? formatDuration(Date.now() - sessionData.loginTime) : 'N/A';
+            
+            const modal = document.createElement('div');
+            modal.className = 'security-modal';
+            modal.innerHTML = `
+                <div class="modal-backdrop">
+                    <div class="modal-content" style="max-width: 400px;">
+                        <div class="modal-header">
+                            <h3>Session Information</h3>
+                            <button onclick="closeModal()" style="background: none; border: none; color: #95a5a6; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div>
+                                    <label style="display: block; font-weight: 600; color: #bdc3c7; margin-bottom: 0.25rem;">Username</label>
+                                    <div style="color: white;">${sessionData?.username || 'Guest'}</div>
+                                </div>
+                                <div>
+                                    <label style="display: block; font-weight: 600; color: #bdc3c7; margin-bottom: 0.25rem;">Role</label>
+                                    <div style="color: white;">${sessionData?.role || 'Guest'}</div>
+                                </div>
+                                <div>
+                                    <label style="display: block; font-weight: 600; color: #bdc3c7; margin-bottom: 0.25rem;">Login Time</label>
+                                    <div style="color: white;">${loginTime}</div>
+                                </div>
+                                <div>
+                                    <label style="display: block; font-weight: 600; color: #bdc3c7; margin-bottom: 0.25rem;">Session Duration</label>
+                                    <div style="color: white;">${sessionDuration}</div>
+                                </div>
+                                <div>
+                                    <label style="display: block; font-weight: 600; color: #bdc3c7; margin-bottom: 0.25rem;">Session ID</label>
+                                    <div style="color: #95a5a6; font-family: monospace; font-size: 0.8rem;">${sessionData?.sessionId || 'N/A'}</div>
+                                </div>
+                            </div>
+                            <button onclick="closeModal()" style="width: 100%; margin-top: 1.5rem; background: #3498db; color: white; border: none; padding: 0.75rem; border-radius: 6px; cursor: pointer;">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+
+        function formatDuration(ms) {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes % 60}m`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${seconds % 60}s`;
+            } else {
+                return `${seconds}s`;
+            }
+        }
+
+        function closeModal() {
+            const modals = document.querySelectorAll('.security-modal');
+            modals.forEach(modal => modal.remove());
+        }
+
+        // Security handler functions
+        function handleLogout() {
+            try {
+                // Close the user menu first
+                const dropdown = document.getElementById('userMenuDropdown');
+                if (dropdown) {
+                    dropdown.classList.remove('active');
+                }
+                
+                // Execute logout after a brief delay to allow menu to close
+                setTimeout(() => {
+                    try {
+                        if (window.securityManager && typeof window.securityManager.logout === 'function') {
+                            window.securityManager.logout();
+                        } else {
+                            console.error('SecurityManager not properly initialized');
+                            // Try simple confirm as fallback
+                            if (confirm('Are you sure you want to logout?')) {
+                                localStorage.removeItem('securitySession');
+                                sessionStorage.clear();
+                                window.location.reload();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error during logout:', error);
+                        // Fallback logout
+                        if (confirm('An error occurred. Force logout?')) {
+                            localStorage.removeItem('securitySession');
+                            sessionStorage.clear();
+                            window.location.reload();
+                        }
+                    }
+                }, 100);
+            } catch (error) {
+                console.error('Error in handleLogout:', error);
+            }
+        }
+
+        async function handleSessionInfo() {
+            if (window.securityManager) {
+                try {
+                    const sessionInfo = await window.securityManager.getSessionInfo();
+                    showEDRSessionInfo(sessionInfo);
+                } catch (error) {
+                    console.error('Failed to get session info:', error);
+                    alert('Failed to retrieve session information');
+                }
+            } else {
+                alert('Session information not available');
+            }
+        }
+
+        function showEDRSessionInfo(sessionInfo) {
+            const riskLevel = sessionInfo.riskScore < 25 ? 'Low' : 
+                             sessionInfo.riskScore < 50 ? 'Medium' : 
+                             sessionInfo.riskScore < 75 ? 'High' : 'Critical';
+            
+            const riskColor = sessionInfo.riskScore < 25 ? '#27ae60' : 
+                             sessionInfo.riskScore < 50 ? '#f39c12' : 
+                             sessionInfo.riskScore < 75 ? '#e67e22' : '#e74c3c';
+
+            const modal = document.createElement('div');
+            modal.className = 'security-modal';
+            modal.innerHTML = `
+                <div class="modal-backdrop">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3><i class="fas fa-shield-alt"></i> EDR Session Information</h3>
+                            <button onclick="closeModal()" style="background: none; border: none; color: #95a5a6; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div style="display: grid; gap: 1rem;">
+                                <!-- Session Details -->
+                                <div style="background: linear-gradient(135deg, #34495e, #2c3e50); padding: 1rem; border-radius: 8px;">
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #3498db;"><i class="fas fa-user"></i> Session Details</h4>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem;">
+                                        <div><strong>Username:</strong> ${sessionInfo.username}</div>
+                                        <div><strong>Role:</strong> ${sessionInfo.role}</div>
+                                        <div><strong>Session ID:</strong> ${sessionInfo.sessionId.substr(0, 16)}...</div>
+                                        <div><strong>Duration:</strong> ${sessionInfo.durationMinutes} minutes</div>
+                                        <div><strong>Login Time:</strong> ${new Date(sessionInfo.loginTime).toLocaleString()}</div>
+                                        <div><strong>Last Activity:</strong> ${new Date(sessionInfo.lastActivity).toLocaleString()}</div>
+                                    </div>
+                                </div>
+
+                                <!-- Security Status -->
+                                <div style="background: linear-gradient(135deg, #2c3e50, #34495e); padding: 1rem; border-radius: 8px;">
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #e74c3c;"><i class="fas fa-shield-alt"></i> Security Status</h4>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem;">
+                                        <div><strong>Risk Score:</strong> <span style="color: ${riskColor}; font-weight: bold;">${sessionInfo.riskScore}/100 (${riskLevel})</span></div>
+                                        <div><strong>Security Events:</strong> ${sessionInfo.securityEvents}</div>
+                                        <div><strong>IP Address:</strong> ${sessionInfo.ipAddress}</div>
+                                        <div><strong>Anomalies:</strong> ${sessionInfo.anomalies}</div>
+                                    </div>
+                                    <div style="margin-top: 0.5rem;">
+                                        <div style="background: rgba(0,0,0,0.3); border-radius: 4px; height: 8px; overflow: hidden;">
+                                            <div style="background: ${riskColor}; height: 100%; width: ${sessionInfo.riskScore}%; transition: width 0.3s;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Technical Details -->
+                                <div style="background: linear-gradient(135deg, #34495e, #2c3e50); padding: 1rem; border-radius: 8px;">
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #9b59b6;"><i class="fas fa-desktop"></i> Technical Details</h4>
+                                    <div style="font-size: 0.8rem; color: #bdc3c7;">
+                                        <div style="margin-bottom: 0.5rem;"><strong>User Agent:</strong><br>${sessionInfo.userAgent}</div>
+                                    </div>
+                                </div>
+
+                                <!-- Recent Activities -->
+                                <div style="background: linear-gradient(135deg, #2c3e50, #34495e); padding: 1rem; border-radius: 8px;">
+                                    <h4 style="margin: 0 0 0.5rem 0; color: #f39c12;"><i class="fas fa-history"></i> Recent Activities</h4>
+                                    <div style="max-height: 150px; overflow-y: auto; font-size: 0.8rem;">
+                                        ${sessionInfo.activities.map(activity => `
+                                            <div style="padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                                <span style="color: #3498db;">${new Date(activity.timestamp).toLocaleTimeString()}</span> - 
+                                                ${activity.action} ${activity.details ? '(' + activity.details + ')' : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <!-- Actions -->
+                                <div style="text-align: center; padding-top: 1rem;">
+                                    <button onclick="closeModal()" style="background: #3498db; color: white; border: none; padding: 0.75rem 2rem; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                                        <i class="fas fa-check"></i> Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+
+        function handleChangePassword() {
+            if (window.securityManager) {
+                showChangePassword();
+            } else {
+                alert('Password change not available');
+            }
+        }
+
+        function handleRefresh() {
+            if (window.dashboard) {
+                // Add visual feedback
+                const refreshBtn = document.querySelector('.refresh-btn');
+                if (refreshBtn) {
+                    const icon = refreshBtn.querySelector('i');
+                    if (icon) {
+                        icon.classList.add('fa-spin');
+                        setTimeout(() => icon.classList.remove('fa-spin'), 2000);
+                    }
+                }
+                
+                window.dashboard.refreshData();
+            } else {
+                console.error('Dashboard not initialized');
+                window.location.reload(); // Fallback
+            }
+        }
+
+        // Initialize dashboard when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.dashboard = new SOCDashboard();
+            window.securityManager = new SecurityManager();
+        });
+    </script>
+
+    <!-- Device Detail Modal -->
+    <div class="modal-backdrop" id="modalBackdrop" onclick="closeDeviceDetail()"></div>
+    <div class="device-detail-modal" id="deviceDetailModal">
+        <div class="detail-header">
+            <div class="detail-title" id="deviceDetailTitle">Device Details</div>
+            <button class="close-detail" onclick="closeDeviceDetail()">&times;</button>
+        </div>
+        <div class="detail-content" id="deviceDetailContent">
+            <div class="loading-detail">
+                <i class="fas fa-spinner fa-spin"></i> Loading device details...
+            </div>
+        </div>
+    </div>
+</body>
+</html>

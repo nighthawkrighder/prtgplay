@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRTG Login - Unified Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a, #2c3e50);
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            background: rgba(52, 73, 94, 0.9);
+            border-radius: 12px;
+            padding: 3rem;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .login-header {
+            margin-bottom: 2rem;
+        }
+
+        .login-header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .login-header p {
+            opacity: 0.8;
+            font-size: 0.9rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #ecf0f1;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            color: #ffffff;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .form-group input::placeholder {
+            color: rgba(255,255,255,0.5);
+        }
+
+        .login-button {
+            width: 100%;
+            padding: 0.75rem;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 1rem;
+        }
+
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+        }
+
+        .login-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-message {
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid #e74c3c;
+            color: #e74c3c;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .success-message {
+            background: rgba(39, 174, 96, 0.1);
+            border: 1px solid #27ae60;
+            color: #27ae60;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 1rem;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #3498db;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: rgba(52, 152, 219, 0.1);
+            border: 1px solid #3498db;
+            color: #3498db;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 2rem;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .info-box strong {
+            color: #ecf0f1;
+        }
+
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 2rem;
+                margin: 1rem;
+            }
+
+            .login-header h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>PRTG Dashboard</h1>
+            <p>Enter your PRTG credentials to access the unified monitoring dashboard</p>
+        </div>
+
+        <div class="info-box">
+            <strong>Authentication:</strong> Use your PRTG username and <strong>passhash</strong> (not password). 
+            You can find your passhash in PRTG under Account Settings → My Account.
+        </div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">PRTG Username</label>
+                <input type="text" id="username" name="username" placeholder="Enter your PRTG username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">PRTG Passhash</label>
+                <input type="password" id="password" name="password" placeholder="Enter your PRTG passhash" required>
+            </div>
+
+            <button type="submit" class="login-button" id="loginButton">
+                Sign In
+            </button>
+
+            <div class="loading" id="loading">
+                <div class="loading-spinner"></div>
+                <span>Authenticating...</span>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+            <div class="success-message" id="successMessage"></div>
+        </form>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('loginForm');
+            const loginButton = document.getElementById('loginButton');
+            const loading = document.getElementById('loading');
+            const errorMessage = document.getElementById('errorMessage');
+            const successMessage = document.getElementById('successMessage');
+
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value.trim();
+                const password = document.getElementById('password').value.trim();
+                
+                if (!username || !password) {
+                    showError('Please enter both username and passhash');
+                    return;
+                }
+
+                try {
+                    setLoading(true);
+                    hideMessages();
+
+                    const response = await fetch('/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ username, password })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                        showSuccess('Authentication successful! Redirecting...');
+                        setTimeout(() => {
+                            window.location.href = '/';
+                        }, 1500);
+                    } else {
+                        showError(data.error || 'Authentication failed');
+                    }
+
+                } catch (error) {
+                    console.error('Login error:', error);
+                    showError('Connection error. Please try again.');
+                } finally {
+                    setLoading(false);
+                }
+            });
+
+            function setLoading(isLoading) {
+                loginButton.disabled = isLoading;
+                loading.style.display = isLoading ? 'block' : 'none';
+                loginButton.style.display = isLoading ? 'none' : 'block';
+            }
+
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+            }
+
+            function showSuccess(message) {
+                successMessage.textContent = message;
+                successMessage.style.display = 'block';
+                errorMessage.style.display = 'none';
+            }
+
+            function hideMessages() {
+                errorMessage.style.display = 'none';
+                successMessage.style.display = 'none';
+            }
+
+            // Auto-focus username field
+            document.getElementById('username').focus();
+        });
+    </script>
+</body>
+</html>
