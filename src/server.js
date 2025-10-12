@@ -5,6 +5,7 @@ const path = require('path');
 const cors = require('cors');
 const session = require('express-session');
 const config = require('./config');
+const cookieParser = require('cookie-parser');
 const logger = require('./utils/logger');
 const SequelizeStore = require('connect-session-sequelize')(session.Store);
 const { sequelize, testConnection } = require('./config/database');
@@ -13,6 +14,10 @@ const apiRoutes = require('./routes/api');
 const PRTGClient = require('./services/prtgClient');
 const PRTGCollector = require('./collectors/prtgCollector');
 const crypto = require('crypto');
+const EDRSessionManager = require('./services/edrSessionManager');
+
+// Initialize EDR session manager
+const edrManager = new EDRSessionManager();
 
 const app = express();
 const server = http.createServer(app);
@@ -38,6 +43,8 @@ const sessionConfig = {
   }
 };
 
+// If behind a proxy (Apache/Nginx), trust it to get correct IPs and secure cookies
+app.set('trust proxy', 1);
 app.use(session(sessionConfig));
 
 // Middleware
@@ -48,6 +55,9 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// Remove duplicate session initialization (we already configured session above)
 
 // Add session fingerprint middleware to persist session identity across hard refreshes
 app.use((req, res, next) => {
@@ -122,7 +132,20 @@ app.post('/login', async (req, res) => {
     if (authSuccess) {
       req.session.authenticated = true;
       req.session.username = username;
+      req.session.role = config.adminUsers.includes(username) ? 'admin' : 'user';
       logger.info(`User authenticated: ${username}`, { sessionId: req.sessionID });
+
+      // Create EDR session and bind it to express session
+  const { sessionId: edrSessionId } = await edrManager.createSession({ username, role: req.session.role }, req);
+      req.session.edrSessionId = edrSessionId;
+      // Also set an HttpOnly cookie for auto-restore
+      res.cookie('edr.sid', edrSessionId, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: false, // set true if HTTPS
+        maxAge: 24 * 60 * 60 * 1000
+      });
+
       res.json({ success: true, message: 'Authentication successful' });
     } else {
       logger.warn(`Authentication failed for user: ${username}`);
@@ -135,19 +158,103 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// Auto-restore session middleware (runs before requireAuth)
+app.use(async (req, res, next) => {
+  try {
+    if (!req.session.authenticated) {
+      const edrCookie = req.cookies?.['edr.sid'];
+      if (edrCookie) {
+        const validation = await edrManager.validateSession(edrCookie, req);
+        if (validation.valid) {
+          // Restore express session from EDR info
+          req.session.authenticated = true;
+          req.session.username = validation.session.username;
+          req.session.role = config.adminUsers.includes(validation.session.username) ? 'admin' : 'user';
+          req.session.edrSessionId = edrCookie;
+          logger.info('Session auto-restored from EDR session', { edrSessionId: edrCookie, sessionId: req.sessionID });
+        }
+      }
+    }
+  } catch (e) {
+    logger.error('Auto-restore session failed', { error: e.message });
+  } finally {
+    next();
+  }
+});
+
+// Admin guard middleware
+function requireAdmin(req, res, next) {
+  if (req.session?.authenticated && req.session?.role === 'admin') return next();
+  return res.status(403).json({ error: 'Admin access required' });
+}
+
 app.post('/logout', (req, res) => {
+  const sessionId = req.sessionID;
+  const edrSessionId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
   req.session.destroy((err) => {
     if (err) {
       logger.error('Logout error:', err);
       return res.status(500).json({ error: 'Logout failed' });
     }
-    res.json({ success: true, message: 'Logged out successfully' });
+    // Clear session cookie
+    res.clearCookie('connect.sid');
+    // Terminate EDR session and clear cookie
+    if (edrSessionId) {
+      edrManager.terminateSession(edrSessionId, 'user_logout').catch(err => logger.error('EDR terminate failed', { error: err.message }));
+      res.clearCookie('edr.sid');
+    }
+    // Redirect to logout page with session details
+    res.redirect(`/logout.html?sessionId=${encodeURIComponent(sessionId)}`);
   });
 });
 
 // Login page
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/login.html'));
+});
+
+// EDR metadata ingestion (post-login enhancement)
+app.post('/edr/metadata', async (req, res) => {
+  try {
+    const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
+    if (!edrId) return res.status(204).end();
+    const { UserSession } = require('./models');
+    const session = await UserSession.findByPk(edrId);
+    if (!session) return res.status(204).end();
+    const meta = Object.assign({}, session.session_metadata || {}, { client: req.body });
+    await session.update({ session_metadata: meta });
+    res.status(204).end();
+  } catch (e) {
+    logger.error('Failed to save EDR metadata', { error: e.message });
+    res.status(204).end();
+  }
+});
+
+// EDR activity refresher: for authenticated users, refresh EDR last_activity on each request
+app.use(async (req, res, next) => {
+  try {
+    if (req.session?.authenticated) {
+      const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
+      if (edrId) {
+        const validation = await edrManager.validateSession(edrId, req);
+        if (!validation.valid) {
+          // Session expired due to inactivity: teardown and redirect
+          const reason = 'Session expired due to inactivity';
+          req.session.destroy(() => {
+            res.clearCookie('connect.sid');
+            res.clearCookie('edr.sid');
+            return res.redirect('/login');
+          });
+          return; // stop pipeline
+        }
+        // If valid, validateSession already refreshed last_activity
+      }
+    }
+  } catch (e) {
+    logger.error('EDR refresh failed', { error: e.message });
+  } finally {
+    next();
+  }
 });
 
 // Root route - serve SOC dashboard (protected) - MUST be before static middleware
@@ -160,8 +267,73 @@ app.get('/legacy', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// Admin console routes (protected)
+const adminStaticPath = path.join(__dirname, '../secure/admin');
+app.get('/admin', requireAuth, requireAdmin, (req, res) => {
+  res.sendFile(path.join(adminStaticPath, 'index.html'));
+});
+app.use('/admin', requireAuth, requireAdmin, express.static(adminStaticPath));
+
 // API Routes (protected)
 app.use('/api', requireAuth, apiRoutes);
+
+// Session status endpoint (unprotected: returns minimal info)
+app.get('/api/session/status', async (req, res) => {
+  try {
+    const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
+    const restoredFromCache = !req.session?.authenticated && !!edrId ? true : !!(req.session?.authenticated && req.session?.restoredFromCache);
+    let expiresAt = null;
+    let timeLeftMs = null;
+    let valid = false;
+    if (edrId) {
+      const validation = await edrManager.validateSession(edrId, req);
+      valid = validation.valid;
+      if (validation.valid) {
+        // Expiry is inactivity-based only; timer resets on activity
+        const last = new Date(validation.session.last_activity).getTime();
+        const inactivityExpiry = last + edrManager.sessionTimeout;
+        expiresAt = new Date(inactivityExpiry).toISOString();
+        timeLeftMs = Math.max(0, inactivityExpiry - Date.now());
+      }
+    }
+    res.json({
+      authenticated: !!req.session?.authenticated || valid,
+      username: req.session?.username || null,
+      role: req.session?.role || (validation.valid ? validation.session.user_role || 'user' : null),
+      edrSessionId: edrId || null,
+      restoredFromCache: restoredFromCache,
+      expiresAt,
+      timeLeftMs
+    });
+  } catch (e) {
+    logger.error('Session status failed', { error: e.message });
+    res.json({ authenticated: false });
+  }
+});
+
+// Admin session endpoints (protected)
+app.post('/api/admin/sessions/purge', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await edrManager.purgeExpiredAndOldSessions();
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/admin/sessions/stats', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { UserSession } = require('./models');
+    const total = await UserSession.count();
+    const active = await UserSession.count({ where: { session_status: 'active' } });
+    const expired = await UserSession.count({ where: { session_status: 'expired' } });
+    const loggedOut = await UserSession.count({ where: { session_status: 'logged_out' } });
+    const terminated = await UserSession.count({ where: { session_status: 'terminated' } });
+    res.json({ total, active, expired, loggedOut, terminated, retentionHours: edrManager.retentionHours });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Static files (serve login.html and other assets publicly) - MUST be after specific routes
 app.use(express.static(path.join(__dirname, '../public')));
@@ -470,11 +642,11 @@ async function startServer() {
  * Returns JSON if Accept: application/json, else serves health.html page
  */
 app.get('/health', (req, res) => {
-  if (req.accepts('html')) {
-    res.sendFile(path.join(__dirname, '../public/health.html'));
-  } else {
-    res.status(200).json({ status: 'ok', uptime: process.uptime() });
+  const wantsJson = req.query.format === 'json' || req.accepts(['json', 'html']) === 'json';
+  if (wantsJson) {
+    return res.status(200).json({ status: 'ok', uptime: process.uptime() });
   }
+  res.sendFile(path.join(__dirname, '../public/health.html'));
 });
 
 /**

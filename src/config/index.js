@@ -82,7 +82,12 @@ const config = {
   polling: {
     interval: parseInt(process.env.POLL_INTERVAL || '5000', 10),
     wsHeartbeat: parseInt(process.env.WEBSOCKET_HEARTBEAT || '30000', 10)
-  }
+  },
+  // Admin users allowlist (comma-separated usernames)
+  adminUsers: (process.env.ADMIN_USERS || '')
+    .split(',')
+    .map(u => u.trim())
+    .filter(Boolean)
 };
 
 /**

@@ -6,6 +6,23 @@ const EDRSessionManager = require('../services/edrSessionManager');
 
 const router = express.Router();
 
+function ensureAdmin(req, res, next) {
+  if (req.session?.role === 'admin') {
+    return next();
+  }
+  return res.status(403).json({ error: 'Admin access required' });
+}
+
+function ensureAdminOrSessionOwner(req, res, next) {
+  if (req.session?.role === 'admin') {
+    return next();
+  }
+  if (req.session?.edrSessionId && req.session.edrSessionId === req.params.sessionId) {
+    return next();
+  }
+  return res.status(403).json({ error: 'Access denied' });
+}
+
 // ============================================
 // Dashboard Summary
 // ============================================
@@ -126,8 +143,7 @@ router.get('/devices/enhanced', async (req, res) => {
       search, 
       limit = 100,  // Increased default limit
       offset = 0,
-      all = false,   // New parameter to get all devices
-      includeSensors = 'true'  // Allow excluding sensors for performance
+      all = false   // New parameter to get all devices
     } = req.query;
     
     const deviceWhere = {};
@@ -162,19 +178,15 @@ router.get('/devices/enhanced', async (req, res) => {
             'device_category', 'device_type_full', 'vendor', 'model',
             'environment', 'criticality', 'tags', 'raw_metadata', 'extraction_confidence'
           ]
+        },
+        {
+          model: Sensor,
+          as: 'sensors',
+          required: false,
+          attributes: ['id', 'status', 'sensor_type', 'priority', 'last_message']
         }
       ]
     };
-
-    // Only include sensors if explicitly requested (improves performance for large datasets)
-    if (includeSensors === 'true') {
-      queryOptions.include.push({
-        model: Sensor,
-        as: 'sensors',
-        required: false,
-        attributes: ['id', 'status', 'sensor_type', 'priority', 'last_message']
-      });
-    }
 
     // Apply pagination only if not requesting all devices
     if (all !== 'true') {
@@ -210,17 +222,15 @@ router.get('/devices/enhanced', async (req, res) => {
       // Extract company information
       const companyCode = extractCompanyCode(deviceData.name);
       
-      // Calculate sensor statistics only if sensors are included
+      // Calculate sensor statistics
       const sensors = deviceData.sensors || [];
-      const sensorStats = includeSensors === 'true' ? {
+      const sensorStats = {
         total: sensors.length,
         up: sensors.filter(s => s.status === 3).length,
         down: sensors.filter(s => s.status === 5).length,
         warning: sensors.filter(s => s.status === 4).length,
         paused: sensors.filter(s => s.status === 7).length,
         unusual: sensors.filter(s => s.status === 10).length
-      } : {
-        total: 0, up: 0, down: 0, warning: 0, paused: 0, unusual: 0
       };
       
       // Determine device type and criticality
@@ -963,7 +973,7 @@ router.post('/sessions/logout', async (req, res) => {
 });
 
 // Get session info
-router.get('/sessions/:sessionId', async (req, res) => {
+router.get('/sessions/:sessionId', ensureAdminOrSessionOwner, async (req, res) => {
   try {
     const session = await UserSession.findByPk(req.params.sessionId);
     
@@ -999,7 +1009,7 @@ router.get('/sessions/:sessionId', async (req, res) => {
 });
 
 // Get session analytics (EDR dashboard)
-router.get('/sessions/analytics/:timeframe?', async (req, res) => {
+router.get('/sessions/analytics/:timeframe?', ensureAdmin, async (req, res) => {
   try {
     const timeframe = parseInt(req.params.timeframe) || 24;
     const analytics = await sessionManager.getSessionAnalytics(timeframe);
@@ -1012,7 +1022,7 @@ router.get('/sessions/analytics/:timeframe?', async (req, res) => {
 });
 
 // Get active sessions (admin only)
-router.get('/sessions/active/list', async (req, res) => {
+router.get('/sessions/active/list', ensureAdmin, async (req, res) => {
   try {
     const activeSessions = await UserSession.findAll({
       where: { session_status: 'active' },
@@ -1028,7 +1038,7 @@ router.get('/sessions/active/list', async (req, res) => {
 });
 
 // Force terminate session (admin only)
-router.post('/sessions/:sessionId/terminate', async (req, res) => {
+router.post('/sessions/:sessionId/terminate', ensureAdmin, async (req, res) => {
   try {
     const { reason = 'admin_terminated' } = req.body;
     const success = await sessionManager.terminateSession(req.params.sessionId, reason);

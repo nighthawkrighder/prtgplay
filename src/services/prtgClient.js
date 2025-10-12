@@ -79,7 +79,7 @@ class PRTGClient {
         'objid', 'name', 'status', 'status_raw', 'host', 'device',
         'group', 'groupid', 'probe', 'probeid', 'priority',
         'lastup', 'lastdown', 'downtimesince', 'lastcheck',
-        'access', 'comments', 'favorite', 'tags', 'active', 'message'
+        'access', 'comments', 'favorite', 'tags', 'active'
       ].join(','),
       ...filters
     };

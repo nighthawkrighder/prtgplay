@@ -62,10 +62,6 @@ const Device = sequelize.define('Device', {
     type: DataTypes.STRING(50),
     field: 'status_text'
   },
-  message: {
-    type: DataTypes.TEXT,
-    field: 'message'
-  },
   priority: DataTypes.INTEGER,
   lastSeen: {
     type: DataTypes.DATE,

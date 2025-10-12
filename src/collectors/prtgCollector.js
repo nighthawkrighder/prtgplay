@@ -229,7 +229,6 @@ class PRTGCollector {
           deviceType: device.devicetype || null,
           status: status,
           statusText: this.getStatusText(status),
-          message: device.message || null,
           priority: parseInt(device.priority) || 3,
           lastSeen: new Date()
         });

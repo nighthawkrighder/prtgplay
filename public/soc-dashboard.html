@@ -66,6 +66,92 @@
             gap: 1rem;
         }
 
+        .session-expiry-flag {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(243, 156, 18, 0.15);
+            border: 1px solid rgba(243, 156, 18, 0.4);
+            color: #f1c40f;
+            font-size: 0.8rem;
+        }
+        .session-expiry-flag.critical {
+            background: rgba(231, 76, 60, 0.15);
+            border-color: rgba(231, 76, 60, 0.5);
+            color: #e74c3c;
+        }
+
+        .admin-quick-menu {
+            position: relative;
+        }
+
+        .admin-portal-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #f5f5f5;
+            padding: 0.55rem 0.65rem;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .admin-portal-btn:hover,
+        .admin-portal-btn.active {
+            background: rgba(39, 174, 96, 0.2);
+            border-color: rgba(39, 174, 96, 0.6);
+            color: #2ecc71;
+        }
+
+        .admin-quick-dropdown {
+            position: absolute;
+            top: 130%;
+            right: 0;
+            min-width: 200px;
+            background: rgba(30, 30, 50, 0.95);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+            backdrop-filter: blur(12px);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-8px);
+            transition: all 0.2s ease;
+            z-index: 150;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .admin-quick-dropdown.open {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .admin-quick-dropdown .admin-link {
+            padding: 0.65rem 0.9rem;
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            color: #d0d6ff;
+            text-decoration: none;
+            font-size: 0.85rem;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+        }
+
+        .admin-quick-dropdown .admin-link:last-child {
+            border-bottom: none;
+        }
+
+        .admin-quick-dropdown .admin-link:hover {
+            background: rgba(39, 174, 96, 0.15);
+            color: #2ecc71;
+        }
+
         .user-menu-container {
             position: relative;
         }
@@ -1392,6 +1478,20 @@
                     <div class="connection-indicator" id="connectionIndicator"></div>
                     <span id="connectionText">Connecting...</span>
                 </div>
+                <div class="session-expiry-flag" id="sessionExpiryFlag" title="Session established from cached client properties">
+                    <i class="fas fa-hourglass-half"></i>
+                    <span id="sessionExpiryText">Session: 00:00</span>
+                </div>
+                <div class="admin-quick-menu" id="adminQuickMenu" style="display: none;">
+                    <button class="admin-portal-btn" id="adminPortalBtn" title="Admin shortcuts" onclick="toggleAdminQuickMenu(event)">
+                        <i class="fas fa-shield-alt"></i>
+                    </button>
+                    <div class="admin-quick-dropdown" id="adminQuickDropdown">
+                        <a href="/admin" class="admin-link"><i class="fas fa-toolbox"></i> Admin Console</a>
+                        <a href="/admin/sessions.html" class="admin-link"><i class="fas fa-users-gear"></i> Session Intelligence</a>
+                        <a href="/admin/telemetry.html" class="admin-link"><i class="fas fa-chart-line"></i> Telemetry Overview</a>
+                    </div>
+                </div>
                 <div class="user-menu-container">
                     <button class="user-menu-btn" onclick="toggleUserMenu()" title="User Menu">
                         <i class="fas fa-user-circle"></i>
@@ -1405,7 +1505,7 @@
                             </div>
                             <div class="user-details">
                                 <div class="user-name" id="userNameMenu">Guest User</div>
-                                <div class="user-role">Administrator</div>
+                                <div class="user-role" id="userRoleBadge">Standard User</div>
                             </div>
                         </div>
                         <div class="menu-separator"></div>
@@ -1416,6 +1516,19 @@
                         <button class="menu-item" onclick="handleSessionInfo()">
                             <i class="fas fa-info-circle"></i>
                             Session Info
+                        </button>
+                        <div class="menu-separator admin-only" id="adminMenuSeparator" style="display: none;"></div>
+                        <button class="menu-item admin-only" id="adminDashboardLink" style="display: none;" onclick="navigateToAdmin('/admin')">
+                            <i class="fas fa-toolbox"></i>
+                            Admin Console
+                        </button>
+                        <button class="menu-item admin-only" id="adminSessionsLink" style="display: none;" onclick="navigateToAdmin('/admin/sessions.html')">
+                            <i class="fas fa-users-gear"></i>
+                            Session Intelligence
+                        </button>
+                        <button class="menu-item admin-only" id="adminTelemetryLink" style="display: none;" onclick="navigateToAdmin('/admin/telemetry.html')">
+                            <i class="fas fa-chart-line"></i>
+                            Telemetry Overview
                         </button>
                         <div class="menu-separator"></div>
                         <button class="menu-item logout" onclick="handleLogout()">
@@ -1512,6 +1625,54 @@
     </div>
 
     <script>
+    let adminQuickOutsideHandler = null;
+
+    function setAdminMenuVisibility(isAdmin) {
+            const separator = document.getElementById('adminMenuSeparator');
+            const dashboardLink = document.getElementById('adminDashboardLink');
+            const sessionsLink = document.getElementById('adminSessionsLink');
+            const telemetryLink = document.getElementById('adminTelemetryLink');
+            const quickMenu = document.getElementById('adminQuickMenu');
+            const displayMap = isAdmin ? { separator: 'block', link: 'flex' } : { separator: 'none', link: 'none' };
+            if (separator) separator.style.display = displayMap.separator;
+            if (dashboardLink) dashboardLink.style.display = displayMap.link;
+            if (sessionsLink) sessionsLink.style.display = displayMap.link;
+            if (telemetryLink) telemetryLink.style.display = displayMap.link;
+            if (quickMenu) {
+                quickMenu.style.display = isAdmin ? 'block' : 'none';
+                if (!isAdmin) closeAdminQuickMenu();
+            }
+        }
+
+        function applySessionContext(context = {}) {
+            const username = context.username || 'Guest';
+            const role = (context.role || 'user').toLowerCase();
+            const usernameDisplay = document.getElementById('usernameDisplay');
+            const userNameMenu = document.getElementById('userNameMenu');
+            const roleBadge = document.getElementById('userRoleBadge');
+            if (usernameDisplay) usernameDisplay.textContent = username;
+            if (userNameMenu) userNameMenu.textContent = username;
+            if (roleBadge) roleBadge.textContent = role === 'admin' ? 'Administrator' : 'Standard User';
+            setAdminMenuVisibility(role === 'admin');
+        }
+
+        async function syncSessionContext() {
+            try {
+                const res = await fetch('/api/session/status', { credentials: 'include' });
+                if (!res.ok) return null;
+                const data = await res.json();
+                applySessionContext({ username: data.username, role: data.role });
+                if (window.securityManager) {
+                    if (data.role) window.securityManager.setRole(data.role);
+                    if (data.edrSessionId) window.securityManager.setSessionId(data.edrSessionId);
+                }
+                return data;
+            } catch (error) {
+                console.debug('Failed to synchronise session context', error);
+                return null;
+            }
+        }
+
         // Authentication Manager for Dynamic API Access
         class AuthManager {
             constructor() {
@@ -1596,17 +1757,11 @@
             }
 
             initializeSession() {
-                // Check for existing session
-                const sessionData = localStorage.getItem('securitySession');
-                if (sessionData) {
-                    try {
-                        const session = JSON.parse(sessionData);
-                        if (this.isValidSession(session)) {
-                            this.restoreSession(session);
-                        } else {
-                            this.clearSession();
-                        }
-                    } catch (e) {
+                const stored = this.getStoredSession();
+                if (stored) {
+                    if (this.isValidSession(stored)) {
+                        this.restoreSession(stored);
+                    } else {
                         this.clearSession();
                     }
                 }
@@ -1631,27 +1786,27 @@
                 }
             }
 
-            login(username, password) {
+            login(username, password, context = {}) {
                 const sessionData = {
                     username: username,
                     loginTime: Date.now(),
-                    sessionId: this.generateSessionId(),
-                    role: 'Administrator' // This would come from API
+                    sessionId: context.sessionId || this.generateSessionId(),
+                    role: (context.role || 'user').toLowerCase()
                 };
+
+                if (context.remember) {
+                    sessionData.extendedSession = true;
+                    sessionData.password = password;
+                }
 
                 this.currentUser = sessionData;
                 this.loginTime = sessionData.loginTime;
                 this.lastActivity = Date.now();
 
-                // Store session
-                localStorage.setItem('securitySession', JSON.stringify(sessionData));
-                
-                // Update UI
+                this.saveSession(sessionData);
                 this.updateUserDisplay();
-                
-                // Start session management
                 this.startSessionTimer();
-                
+
                 return sessionData;
             }
 
@@ -1765,7 +1920,7 @@
             }
 
             clearSession() {
-                localStorage.removeItem('securitySession');
+                this.saveSession(null);
                 sessionStorage.clear();
                 this.currentUser = null;
                 this.loginTime = null;
@@ -1781,8 +1936,13 @@
             }
 
             restoreSession(session) {
-                this.currentUser = session;
-                this.loginTime = session.loginTime;
+                const normalized = {
+                    ...session,
+                    role: (session.role || 'user').toLowerCase()
+                };
+                this.currentUser = normalized;
+                this.loginTime = normalized.loginTime;
+                this.saveSession(normalized);
                 this.updateUserDisplay();
                 this.startSessionTimer();
             }
@@ -1811,13 +1971,63 @@
                 return 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
             }
 
+            saveSession(session) {
+                try {
+                    if (session) {
+                        localStorage.setItem('securitySession', JSON.stringify(session));
+                    } else {
+                        localStorage.removeItem('securitySession');
+                    }
+                } catch (error) {
+                    console.warn('Unable to persist security session', error);
+                }
+            }
+
+            getStoredSession() {
+                try {
+                    const raw = localStorage.getItem('securitySession');
+                    return raw ? JSON.parse(raw) : null;
+                } catch (error) {
+                    console.warn('Unable to parse stored security session', error);
+                    return null;
+                }
+            }
+
+            setRole(role = 'user') {
+                const targetRole = (role || 'user').toLowerCase();
+                const stored = this.getStoredSession() || {};
+                const merged = {
+                    ...stored,
+                    ...(this.currentUser || {}),
+                    role: targetRole
+                };
+                this.currentUser = merged;
+                this.saveSession(merged);
+                this.updateUserDisplay();
+            }
+
+            setSessionId(sessionId) {
+                if (!sessionId) return;
+                const stored = this.getStoredSession() || {};
+                const merged = {
+                    ...stored,
+                    ...(this.currentUser || {}),
+                    sessionId
+                };
+                if (!merged.loginTime) merged.loginTime = Date.now();
+                if (!merged.role) merged.role = 'user';
+                this.currentUser = merged;
+                this.saveSession(merged);
+            }
+
             updateUserDisplay() {
-                const usernameDisplay = document.getElementById('usernameDisplay');
-                const userNameMenu = document.getElementById('userNameMenu');
-                
                 if (this.currentUser) {
-                    if (usernameDisplay) usernameDisplay.textContent = this.currentUser.username;
-                    if (userNameMenu) userNameMenu.textContent = this.currentUser.username;
+                    applySessionContext({
+                        username: this.currentUser.username,
+                        role: this.currentUser.role
+                    });
+                } else {
+                    applySessionContext({ username: 'Guest', role: 'user' });
                 }
             }
 
@@ -2018,44 +2228,34 @@
             
             async initializeAuthentication() {
                 // Check for existing valid session
-                const sessionData = localStorage.getItem('securitySession');
-                if (sessionData) {
+                const storedSession = window.securityManager?.getStoredSession?.() || null;
+                if (storedSession) {
                     try {
-                        const session = JSON.parse(sessionData);
-                        if (this.isValidSession(session) && session.password) {
-                            console.debug('Restoring session for:', session.username);
-                            
-                            // Set credentials in auth manager
-                            this.authManager.setCredentials(session.username, session.password);
-                            
-                            // Restore security session
-                            if (window.securityManager) {
-                                window.securityManager.restoreSession(session);
-                            }
-                            
-                            // Try to validate session with server
+                        if (this.isValidSession(storedSession) && storedSession.password) {
+                            console.debug('Restoring session for:', storedSession.username);
+
+                            this.authManager.setCredentials(storedSession.username, storedSession.password);
+                            window.securityManager.restoreSession(storedSession);
+
                             try {
                                 const testResponse = await this.authManager.authenticatedFetch('/api/devices/enhanced?limit=1');
-                                
                                 if (testResponse.ok) {
                                     console.debug('Valid session restored - authenticated access granted');
-                                    
-                                    // Show main content
+
                                     const mainContent = document.querySelector('.main-content');
                                     if (mainContent) {
                                         mainContent.style.display = 'block';
                                         mainContent.classList.add('authenticated');
                                     }
-                                    
+
                                     this.updateAuthButtonState(true);
                                     this.updateConnectionStatus('connected', 'Authenticated & Connected');
-                                    
-                                    // Load dashboard data
+
                                     await this.loadData();
+                                    await syncSessionContext();
                                     return;
-                                } else {
-                                    console.debug('Session validation failed - credentials may be invalid');
                                 }
+                                console.debug('Session validation failed - credentials may be invalid');
                             } catch (error) {
                                 console.debug('Session validation error:', error);
                             }
@@ -2194,14 +2394,7 @@
                         
                         // Initialize security session
                         if (window.securityManager) {
-                            const sessionData = window.securityManager.login(username, password);
-                            
-                            // Set extended session if remember me is checked
-                            if (rememberSession) {
-                                sessionData.extendedSession = true;
-                                sessionData.password = password; // Store for session restoration
-                                localStorage.setItem('securitySession', JSON.stringify(sessionData));
-                            }
+                            window.securityManager.login(username, password, { remember: rememberSession });
                         }
                         
                         // Remove authentication screen
@@ -2225,6 +2418,7 @@
                         
                         // Load dashboard data with authenticated access
                         await this.loadData();
+                        await syncSessionContext();
                         
                         // Update final status
                         this.updateConnectionStatus('connected', 'Connected & Authenticated');
@@ -3854,6 +4048,53 @@
             }
         }
 
+        // Session expiry polling and flag display
+        (function initSessionExpiryWatcher(){
+            const flag = document.getElementById('sessionExpiryFlag');
+            const text = document.getElementById('sessionExpiryText');
+            let intervalId = null;
+
+            async function fetchStatus(){
+                try {
+                    const res = await fetch('/api/session/status', { credentials: 'same-origin' });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data.restoredFromCache && data.timeLeftMs != null) {
+                        // Show flag and update countdown
+                        flag.style.display = 'flex';
+                        updateCountdown(data.timeLeftMs);
+                        if (!intervalId) {
+                            intervalId = setInterval(async () => {
+                                try {
+                                    const r = await fetch('/api/session/status', { credentials: 'same-origin' });
+                                    if (!r.ok) return;
+                                    const d = await r.json();
+                                    if (d.timeLeftMs != null) updateCountdown(d.timeLeftMs);
+                                } catch {}
+                            }, 30000);
+                        }
+                    } else {
+                        flag.style.display = 'none';
+                        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+                    }
+                } catch (e) {
+                    // silent
+                }
+            }
+
+            function updateCountdown(ms){
+                const totalSec = Math.max(0, Math.floor(ms/1000));
+                const min = Math.floor(totalSec/60);
+                const sec = totalSec%60;
+                text.textContent = `Session: ${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+                // Toggle critical styling under 2 minutes
+                if (ms <= 120000) flag.classList.add('critical'); else flag.classList.remove('critical');
+            }
+
+            // Initial check
+            fetchStatus();
+        })();
+
         function showEDRSessionInfo(sessionInfo) {
             const riskLevel = sessionInfo.riskScore < 25 ? 'Low' : 
                              sessionInfo.riskScore < 50 ? 'Medium' : 
@@ -3966,10 +4207,47 @@
             }
         }
 
+        function navigateToAdmin(path) {
+            closeAdminQuickMenu();
+            window.location.href = path;
+        }
+
+        function toggleAdminQuickMenu(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('adminQuickDropdown');
+            const button = document.getElementById('adminPortalBtn');
+            if (!dropdown || !button) return;
+            const willOpen = !dropdown.classList.contains('open');
+            if (willOpen) {
+                dropdown.classList.add('open');
+                button.classList.add('active');
+                adminQuickOutsideHandler = (e) => {
+                    if (!dropdown.contains(e.target) && e.target !== button) {
+                        closeAdminQuickMenu();
+                    }
+                };
+                document.addEventListener('click', adminQuickOutsideHandler);
+            } else {
+                closeAdminQuickMenu();
+            }
+        }
+
+        function closeAdminQuickMenu() {
+            const dropdown = document.getElementById('adminQuickDropdown');
+            const button = document.getElementById('adminPortalBtn');
+            if (dropdown) dropdown.classList.remove('open');
+            if (button) button.classList.remove('active');
+            if (adminQuickOutsideHandler) {
+                document.removeEventListener('click', adminQuickOutsideHandler);
+                adminQuickOutsideHandler = null;
+            }
+        }
+
         // Initialize dashboard when page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            window.dashboard = new SOCDashboard();
+        document.addEventListener('DOMContentLoaded', async () => {
             window.securityManager = new SecurityManager();
+            window.dashboard = new SOCDashboard();
+            await syncSessionContext();
         });
     </script>
 

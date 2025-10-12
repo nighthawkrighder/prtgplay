@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ControlPoint MONITOR – Admin Console</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-fnqH4t9LobBHQwZ0pniS3pSke1Mt2rt7NmBGG99nmHn7+O+kO5RAwOB1p5MNDoAuCEi0aKBslZx2drXr4I8Xg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e293b, #0f172a);
+            color: #e2e8f0;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        header h1 i {
+            color: #38bdf8;
+        }
+        header .user-chip {
+            background: rgba(79, 70, 229, 0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 999px;
+            border: 1px solid rgba(129, 140, 248, 0.3);
+            font-size: 0.85rem;
+        }
+        main {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .intro-card {
+            background: linear-gradient(135deg, rgba(56,189,248,0.1), rgba(79,70,229,0.15));
+            border: 1px solid rgba(56,189,248,0.2);
+            border-radius: 16px;
+            padding: 1.75rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+        }
+        .intro-card h2 {
+            margin: 0 0 0.5rem;
+            font-size: 1.5rem;
+            color: #38bdf8;
+        }
+        .intro-card p {
+            margin: 0.35rem 0;
+            color: #e2e8f0;
+            line-height: 1.5;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.5rem;
+        }
+        .tile {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.1rem;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+        .tile:hover {
+            transform: translateY(-6px);
+            border-color: rgba(56,189,248,0.45);
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+        }
+        .tile-icon {
+            font-size: 2.3rem;
+            color: #38bdf8;
+        }
+        .tile h3 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: #e0f2fe;
+        }
+        .tile p {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #cbd5f5;
+            line-height: 1.5;
+        }
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .chip {
+            background: rgba(56,189,248,0.12);
+            border: 1px solid rgba(56,189,248,0.25);
+            color: #bae6fd;
+            padding: 0.3rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        footer {
+            text-align: center;
+            font-size: 0.8rem;
+            padding: 1rem 0 2rem;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><i class="fas fa-shield-halved"></i> ControlPoint Admin Console</h1>
+        <div class="user-chip" id="adminUserChip">Authenticated Administrator</div>
+    </header>
+    <main>
+        <section class="intro-card">
+            <h2>Privileged Toolset</h2>
+            <p>Welcome to the secure administration console for the Unified Monitoring platform. These utilities are restricted to accounts present in the admin allowlist (<code>ADMIN_USERS</code>).</p>
+            <p>Use the curated tools below to inspect EDR session activity, manage stale sessions, and monitor system health. Additional modules will surface here as they are enabled.</p>
+            <div class="chips">
+                <span class="chip">Live Sessions</span>
+                <span class="chip">Security Insights</span>
+                <span class="chip">Platform Health</span>
+            </div>
+        </section>
+        <section class="grid" id="adminToolGrid">
+            <a class="tile" href="/admin/sessions.html">
+                <div class="tile-icon"><i class="fas fa-users-gear"></i></div>
+                <h3>Session Intelligence</h3>
+                <p>Inspect active EDR sessions, view risk profiles, and terminate anomalous activity in real time.</p>
+            </a>
+            <a class="tile" href="/admin/telemetry.html">
+                <div class="tile-icon"><i class="fas fa-chart-line"></i></div>
+                <h3>Telemetry Overview</h3>
+                <p>Visualise aggregated device and sensor health, then pivot to raw payloads for auditing.</p>
+            </a>
+            <a class="tile" href="/health?format=json">
+                <div class="tile-icon"><i class="fas fa-heart-pulse"></i></div>
+                <h3>Service Health JSON</h3>
+                <p>Open the API-friendly health report to verify process uptime, API reachability, and collector status.</p>
+            </a>
+            <a class="tile" href="/api/dashboard/summary" target="_blank" rel="noopener noreferrer">
+                <div class="tile-icon"><i class="fas fa-chart-pie"></i></div>
+                <h3>Dashboard Summary API</h3>
+                <p>Review the raw JSON payload that powers the overview widgets. Useful for sanity checks and integrations.</p>
+            </a>
+        </section>
+    </main>
+    <footer>
+        ControlPoint MONITOR • Admin Console • &copy; 2025 LANAIR Group
+    </footer>
+    <script>
+        (async function hydrateAdminChip(){
+            try {
+                const res = await fetch('/api/session/status', { credentials: 'include' });
+                if (!res.ok) return;
+                const data = await res.json();
+                const chip = document.getElementById('adminUserChip');
+                if (chip && data.username) {
+                    const roleLabel = data.role === 'admin' ? 'Administrator' : (data.role || 'User');
+                    chip.textContent = `${data.username} • ${roleLabel}`;
+                }
+            } catch (e) {
+                console.debug('Unable to hydrate admin chip', e);
+            }
+        })();
+    </script>
+</body>
+</html>

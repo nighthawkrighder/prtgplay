@@ -221,41 +221,75 @@
     </div>
 
     <div class="dashboard">
-        <div class="summary-cards" id="summaryCards">
-            <div class="summary-card up">
-                <h3 id="upCount">-</h3>
-                <p>Up</p>
+        <div class="tab-bar" id="tabBar" style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+            <button class="tab-btn" data-tab="topology" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;">Topology</button>
+            <button class="tab-btn" data-tab="alerts" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;">Alerts</button>
+            <button class="tab-btn" data-tab="analytics" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;">Analytics</button>
+            <button class="tab-btn" data-tab="reports" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;">Reports</button>
+        </div>
+
+        <div id="tabContent-topology" class="tab-content">
+            <h2 style="margin-bottom:1rem;">Network Topology</h2>
+            <div style="background:rgba(52,73,94,0.5);padding:2rem;border-radius:8px;text-align:center;">
+                <p>[Placeholder] Network diagram or device list will appear here.</p>
             </div>
-            <div class="summary-card down">
-                <h3 id="downCount">-</h3>
-                <p>Down</p>
+        </div>
+        <div id="tabContent-alerts" class="tab-content" style="display:none;">
+            <h2 style="margin-bottom:1rem;">Alerts</h2>
+            <div style="background:rgba(231,76,60,0.1);padding:2rem;border-radius:8px;text-align:center;">
+                <p>[Placeholder] Recent alerts will appear here.</p>
             </div>
-            <div class="summary-card warning">
-                <h3 id="warningCount">-</h3>
-                <p>Warning</p>
+        </div>
+        <div id="tabContent-analytics" class="tab-content" style="display:none;">
+            <h2 style="margin-bottom:1rem;">Analytics</h2>
+            <div style="background:rgba(39,174,96,0.1);padding:2rem;border-radius:8px;text-align:center;">
+                <p>[Placeholder] Analytics charts and statistics will appear here.</p>
             </div>
-            <div class="summary-card paused">
-                <h3 id="pausedCount">-</h3>
-                <p>Paused</p>
-            </div>
-            <div class="summary-card unusual">
-                <h3 id="unusualCount">-</h3>
-                <p>Unusual</p>
-            </div>
-            <div class="summary-card unknown">
-                <h3 id="unknownCount">-</h3>
-                <p>Unknown</p>
+        </div>
+        <div id="tabContent-reports" class="tab-content" style="display:none;">
+            <h2 style="margin-bottom:1rem;">Reports</h2>
+            <div style="background:rgba(52,152,219,0.1);padding:2rem;border-radius:8px;text-align:center;">
+                <p>[Placeholder] Reports and export options will appear here.</p>
             </div>
         </div>
 
-        <div id="sensorsContainer">
-            <div class="loading">
-                <p>Loading sensor data...</p>
+        <div id="mainDashboardContent">
+            <div class="summary-cards" id="summaryCards">
+                <div class="summary-card up">
+                    <h3 id="upCount">-</h3>
+                    <p>Up</p>
+                </div>
+                <div class="summary-card down">
+                    <h3 id="downCount">-</h3>
+                    <p>Down</p>
+                </div>
+                <div class="summary-card warning">
+                    <h3 id="warningCount">-</h3>
+                    <p>Warning</p>
+                </div>
+                <div class="summary-card paused">
+                    <h3 id="pausedCount">-</h3>
+                    <p>Paused</p>
+                </div>
+                <div class="summary-card unusual">
+                    <h3 id="unusualCount">-</h3>
+                    <p>Unusual</p>
+                </div>
+                <div class="summary-card unknown">
+                    <h3 id="unknownCount">-</h3>
+                    <p>Unknown</p>
+                </div>
             </div>
-        </div>
 
-        <div class="last-update">
-            <p>Last updated: <span id="lastUpdate">Never</span></p>
+            <div id="sensorsContainer">
+                <div class="loading">
+                    <p>Loading sensor data...</p>
+                </div>
+            </div>
+
+            <div class="last-update">
+                <p>Last updated: <span id="lastUpdate">Never</span></p>
+            </div>
         </div>
     </div>
 
@@ -448,20 +482,47 @@
             }
         }
 
-        // Initialize dashboard when page loads
+        // Initialize dashboard and tab switching when page loads
         document.addEventListener('DOMContentLoaded', () => {
             window.dashboard = new PRTGDashboard();
-            
+
+            // Tab switching logic
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            const mainDashboardContent = document.getElementById('mainDashboardContent');
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Remove active from all
+                    tabBtns.forEach(b => b.style.background = '#34495e');
+                    tabContents.forEach(tc => tc.style.display = 'none');
+                    mainDashboardContent.style.display = 'none';
+
+                    // Set active
+                    btn.style.background = '#2980b9';
+                    const tab = btn.getAttribute('data-tab');
+                    document.getElementById('tabContent-' + tab).style.display = 'block';
+                });
+            });
+
+            // Default: show main dashboard, hide tab contents
+            tabContents.forEach(tc => tc.style.display = 'none');
+            mainDashboardContent.style.display = 'block';
+            tabBtns.forEach(b => b.style.background = '#34495e');
+
             // Setup logout functionality
             document.getElementById('logoutBtn').addEventListener('click', async () => {
                 try {
                     const response = await fetch('/logout', {
                         method: 'POST',
-                        credentials: 'same-origin'
+                        credentials: 'same-origin',
+                        redirect: 'follow'
                     });
-                    
-                    if (response.ok) {
-                        window.location.href = '/login';
+                    // If redirected, browser will follow to /logout.html?sessionId=...
+                    if (response.redirected) {
+                        window.location.href = response.url;
+                    } else if (response.ok) {
+                        window.location.href = '/logout.html';
                     } else {
                         console.error('Logout failed');
                     }

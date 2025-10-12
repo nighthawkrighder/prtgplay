@@ -213,7 +213,7 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('loginForm');
             const loginButton = document.getElementById('loginButton');
             const loading = document.getElementById('loading');
@@ -247,10 +247,27 @@
                     const data = await response.json();
 
                     if (response.ok && data.success) {
+                        try {
+                            // Try to collect simple client metadata
+                            const metadata = {
+                                computerName: (window.navigator && window.navigator.userAgentData && window.navigator.userAgentData.platform) || null,
+                                userAgent: navigator.userAgent,
+                                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                                screen: { w: window.screen.width, h: window.screen.height },
+                                ts: Date.now()
+                            };
+                            await fetch('/edr/metadata', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'same-origin',
+                                body: JSON.stringify(metadata)
+                            });
+                        } catch (e) {
+                            // Non-blocking
+                            console.debug('Metadata post failed', e);
+                        }
                         showSuccess('Authentication successful! Redirecting...');
-                        setTimeout(() => {
-                            window.location.href = '/';
-                        }, 1500);
+                        setTimeout(() => { window.location.href = '/'; }, 800);
                     } else {
                         showError(data.error || 'Authentication failed');
                     }

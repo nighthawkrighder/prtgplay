@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Telemetry Overview</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-fnqH4t9LobBHQwZ0pniS3pSke1Mt2rt7NmBGG99nmHn7+O+kO5RAwOB1p5MNDoAuCEi0aKBslZx2drXr4I8Xg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(160deg, #0f172a, #111827 60%, #0b1120);
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 1.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: #38bdf8;
+        }
+        header nav a {
+            color: #94a3b8;
+            text-decoration: none;
+            margin-left: 1.2rem;
+            font-size: 0.9rem;
+        }
+        header nav a:hover {
+            color: #e2e8f0;
+        }
+        main {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .summary-band {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2rem;
+        }
+        .card {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 18px 40px rgba(8, 15, 40, 0.35);
+        }
+        .card h2 {
+            margin: 0;
+            font-size: 0.85rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #94a3b8;
+        }
+        .card .metric {
+            margin-top: 0.6rem;
+            font-size: 2.2rem;
+            color: #e0f2fe;
+        }
+        .card .meta {
+            margin-top: 0.35rem;
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+        .card.multi {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+            gap: 0.75rem;
+        }
+        .card.multi h3 {
+            margin: 0;
+            font-size: 0.75rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #94a3b8;
+        }
+        .card.multi .metric {
+            font-size: 1.6rem;
+        }
+        .good { color: #34d399; }
+        .warn { color: #fbbf24; }
+        .bad { color: #f87171; }
+        .paused { color: #c4b5fd; }
+        .unknown { color: #a5b4fc; }
+        .panel {
+            background: rgba(15, 23, 42, 0.78);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            border-radius: 18px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 20px 45px rgba(8, 15, 40, 0.28);
+        }
+        .panel header {
+            padding: 0;
+            border: none;
+            margin-bottom: 1rem;
+            justify-content: space-between;
+        }
+        .panel header h2 {
+            margin: 0;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .panel header h2 i { color: #38bdf8; }
+        .panel header .meta {
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        .actions {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        button.action {
+            padding: 0.6rem 1.2rem;
+            border-radius: 10px;
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            background: rgba(37, 99, 235, 0.18);
+            color: #bfdbfe;
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        button.action:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 22px rgba(37, 99, 235, 0.25);
+        }
+        pre {
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 12px;
+            padding: 1rem;
+            overflow-x: auto;
+            color: #cbd5f5;
+            font-size: 0.85rem;
+            line-height: 1.45;
+        }
+        details summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #38bdf8;
+            margin-bottom: 0.75rem;
+        }
+        footer {
+            text-align: center;
+            font-size: 0.8rem;
+            padding: 1.25rem 0 2rem;
+            color: #64748b;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><i class="fas fa-chart-line"></i> Telemetry Overview</h1>
+        <nav>
+            <a href="/admin">&larr; Back to Admin Console</a>
+            <a href="/api/dashboard/summary" target="_blank" rel="noopener noreferrer">Raw Summary JSON</a>
+        </nav>
+    </header>
+    <main>
+        <section class="summary-band" id="telemetrySummary">
+            <div class="card"><h2>Total PRTG Servers</h2><div class="metric" id="serversTotal">--</div><div class="meta">Enabled & responding</div></div>
+            <div class="card"><h2>Total Devices</h2><div class="metric" id="devicesTotal">--</div><div class="meta">Across all monitored tenants</div></div>
+            <div class="card"><h2>Total Sensors</h2><div class="metric" id="sensorsTotal">--</div><div class="meta">Cumulative live sensors</div></div>
+            <div class="card"><h2>Unacknowledged Alerts</h2><div class="metric bad" id="alertsUnacked">--</div><div class="meta">Outstanding incidents</div></div>
+        </section>
+
+        <section class="summary-band">
+            <div class="card multi" id="deviceBreakdown">
+                <div>
+                    <h3>Devices Up</h3>
+                    <div class="metric good" id="devicesUp">--</div>
+                </div>
+                <div>
+                    <h3>Devices Warning</h3>
+                    <div class="metric warn" id="devicesWarning">--</div>
+                </div>
+                <div>
+                    <h3>Devices Down</h3>
+                    <div class="metric bad" id="devicesDown">--</div>
+                </div>
+            </div>
+            <div class="card multi" id="sensorBreakdown">
+                <div>
+                    <h3>Sensors Up</h3>
+                    <div class="metric good" id="sensorsUp">--</div>
+                </div>
+                <div>
+                    <h3>Sensors Warning</h3>
+                    <div class="metric warn" id="sensorsWarning">--</div>
+                </div>
+                <div>
+                    <h3>Sensors Down</h3>
+                    <div class="metric bad" id="sensorsDown">--</div>
+                </div>
+                <div>
+                    <h3>Sensors Paused</h3>
+                    <div class="metric paused" id="sensorsPaused">--</div>
+                </div>
+                <div>
+                    <h3>Sensors Unusual</h3>
+                    <div class="metric warn" id="sensorsUnusual">--</div>
+                </div>
+                <div>
+                    <h3>Sensors Unknown</h3>
+                    <div class="metric unknown" id="sensorsUnknown">--</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <header>
+                <h2><i class="fas fa-magnifying-glass-chart"></i> Alert Activity</h2>
+                <div class="meta">Last 24 hours</div>
+            </header>
+            <div class="card" style="margin:0; background: rgba(8, 15, 40, 0.45); border-radius: 12px;">
+                <h2>Alerts in 24h</h2>
+                <div class="metric warn" id="alertsLast24">--</div>
+                <div class="meta">Number of alert events raised in the rolling 24-hour window.</div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <header>
+                <h2><i class="fas fa-code"></i> Raw Payload</h2>
+                <div class="actions">
+                    <button class="action" id="refreshBtn"><i class="fas fa-rotate"></i> Refresh</button>
+                    <span class="meta" id="lastUpdated">Last updated: --</span>
+                </div>
+            </header>
+            <details open>
+                <summary>Toggle raw JSON payload</summary>
+                <pre id="rawPayload">Loading summary...</pre>
+            </details>
+        </section>
+    </main>
+    <footer>ControlPoint MONITOR • Telemetry Overview • &copy; 2025 LANAIR Group</footer>
+
+    <script>
+        const timeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+
+        function setMetric(id, value, fallback = '--') {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = typeof value === 'number' ? value.toLocaleString() : (value ?? fallback);
+        }
+
+        async function fetchSummary() {
+            const response = await fetch('/api/dashboard/summary', { credentials: 'include' });
+            if (!response.ok) {
+                throw new Error(`API responded with ${response.status}`);
+            }
+            return response.json();
+        }
+
+        function renderSummary(summary) {
+            setMetric('serversTotal', summary.servers);
+            setMetric('devicesTotal', summary.devices?.total);
+            setMetric('devicesUp', summary.devices?.up);
+            setMetric('devicesWarning', summary.devices?.warning);
+            setMetric('devicesDown', summary.devices?.down);
+
+            setMetric('sensorsTotal', summary.sensors?.total);
+            setMetric('sensorsUp', summary.sensors?.up);
+            setMetric('sensorsWarning', summary.sensors?.warning);
+            setMetric('sensorsDown', summary.sensors?.down);
+            setMetric('sensorsPaused', summary.sensors?.paused);
+            setMetric('sensorsUnusual', summary.sensors?.unusual);
+            setMetric('sensorsUnknown', summary.sensors?.unknown);
+
+            setMetric('alertsUnacked', summary.alerts?.unacknowledged);
+            setMetric('alertsLast24', summary.alerts?.last24h);
+
+            const rawEl = document.getElementById('rawPayload');
+            if (rawEl) {
+                rawEl.textContent = JSON.stringify(summary, null, 2);
+            }
+
+            const updatedEl = document.getElementById('lastUpdated');
+            if (updatedEl) {
+                updatedEl.textContent = `Last updated: ${timeFormatter.format(new Date())}`;
+            }
+        }
+
+        async function loadTelemetry() {
+            try {
+                const summary = await fetchSummary();
+                renderSummary(summary);
+            } catch (error) {
+                console.error('Failed to load telemetry summary', error);
+                const rawEl = document.getElementById('rawPayload');
+                if (rawEl) {
+                    rawEl.textContent = `Failed to load summary: ${error.message}`;
+                }
+            }
+        }
+
+        document.getElementById('refreshBtn').addEventListener('click', loadTelemetry);
+
+        loadTelemetry();
+        setInterval(loadTelemetry, 60000);
+    </script>
+</body>
+</html>

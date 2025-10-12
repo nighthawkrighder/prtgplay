@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Logged Out</title>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        .logout-box {
+            background: #222c;
+            padding: 2rem 3rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .logout-box h1 {
+            color: #e74c3c;
+            margin-bottom: 1rem;
+        }
+        .logout-details {
+            margin-top: 1rem;
+            font-size: 1rem;
+            color: #aaa;
+        }
+        .back-btn {
+            margin-top: 2rem;
+            padding: 0.5rem 1.5rem;
+            background: #2980b9;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .back-btn:hover {
+            background: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="logout-box">
+        <h1>Logged Out</h1>
+        <p>You have been successfully logged out.</p>
+        <div class="logout-details" id="logoutDetails"></div>
+        <button class="back-btn" onclick="window.location.href='/login'">Back to Login</button>
+    </div>
+    <script>
+        // Display session details if available
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('sessionId')) {
+            document.getElementById('logoutDetails').textContent = `Session ID torn down: ${params.get('sessionId')}`;
+        }
+    </script>
+</body>
+</html>

@@ -1,10 +1,13 @@
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 const { UserSession } = require('../models');
 const logger = require('../utils/logger');
 
 class EDRSessionManager {
     constructor() {
-        this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
+        // Inactivity window for auto-restore. Default to 24h.
+        this.retentionHours = parseInt(process.env.USER_SESSION_RETENTION_HOURS || '24', 10);
+        this.sessionTimeout = this.retentionHours * 60 * 60 * 1000;
         this.maxConcurrentSessions = 5;
         this.riskThresholds = {
             low: 25,
@@ -34,7 +37,7 @@ class EDRSessionManager {
                 session_id: sessionId,
                 user_id: userData.user_id || userData.username,
                 username: userData.username,
-                user_role: userData.role || 'administrator',
+                user_role: userData.role || 'user',
                 ip_address: this.getClientIP(req),
                 user_agent: req.headers['user-agent'] || 'Unknown',
                 device_fingerprint: deviceFingerprint,
@@ -82,7 +85,7 @@ class EDRSessionManager {
                 return { valid: false, reason: 'Session not found or inactive' };
             }
 
-            // Check session timeout
+            // Check inactivity timeout (24h by default)
             const lastActivity = new Date(session.last_activity);
             const now = new Date();
             if (now - lastActivity > this.sessionTimeout) {
@@ -418,16 +421,64 @@ class EDRSessionManager {
                     {
                         where: {
                             session_status: 'active',
-                            last_activity: {
-                                [require('sequelize').Op.lt]: expiredTime
-                            }
+                            last_activity: { [Op.lt]: expiredTime }
                         }
                     }
                 );
+
+                // Purge sessions older than retention window (24h by default)
+                const retentionCutoff = new Date(Date.now() - this.retentionHours * 60 * 60 * 1000);
+                const deleted = await UserSession.destroy({
+                    where: {
+                        [Op.or]: [
+                            // Any non-active session with logout_time older than cutoff
+                            {
+                                session_status: { [Op.ne]: 'active' },
+                                logout_time: { [Op.ne]: null, [Op.lt]: retentionCutoff }
+                            },
+                            // Non-active sessions with last update older than cutoff
+                            {
+                                session_status: { [Op.in]: ['expired', 'terminated', 'logged_out'] },
+                                updated_at: { [Op.lt]: retentionCutoff }
+                            }
+                        ]
+                    }
+                });
+                if (deleted > 0) {
+                    logger.info('Purged old user sessions', { count: deleted, retentionHours: this.retentionHours });
+                }
             } catch (error) {
                 logger.error('Session cleanup failed', { error: error.message });
             }
         }, 5 * 60 * 1000);
+    }
+
+    /**
+     * Purge expired sessions and delete historical sessions older than retention
+     * Returns { expiredUpdated, deletedOld }
+     */
+    async purgeExpiredAndOldSessions() {
+        try {
+            const expiredTime = new Date(Date.now() - this.sessionTimeout);
+            const [expiredUpdated] = await UserSession.update(
+                { session_status: 'expired', logout_time: new Date() },
+                { where: { session_status: 'active', last_activity: { [Op.lt]: expiredTime } } }
+            );
+
+            const retentionCutoff = new Date(Date.now() - this.retentionHours * 60 * 60 * 1000);
+            const deletedOld = await UserSession.destroy({
+                where: {
+                    [Op.or]: [
+                        { session_status: { [Op.ne]: 'active' }, logout_time: { [Op.ne]: null, [Op.lt]: retentionCutoff } },
+                        { session_status: { [Op.in]: ['expired', 'terminated', 'logged_out'] }, updated_at: { [Op.lt]: retentionCutoff } }
+                    ]
+                }
+            });
+            return { expiredUpdated, deletedOld };
+        } catch (error) {
+            logger.error('Manual purge failed', { error: error.message });
+            throw error;
+        }
     }
 }
 

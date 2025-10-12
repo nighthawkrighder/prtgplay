@@ -68,7 +68,6 @@ async function initDatabase() {
         device_type VARCHAR(100),
         status INT NOT NULL,
         status_text VARCHAR(50),
-        message TEXT,
         priority INT,
         last_seen DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -80,16 +79,6 @@ async function initDatabase() {
       ) ENGINE=InnoDB
     `);
     console.log('  ✓ devices');
-    
-    // Add message column to devices table if it doesn't exist
-    try {
-      await connection.query(`
-        ALTER TABLE devices ADD COLUMN IF NOT EXISTS message TEXT
-      `);
-      console.log('  ✓ devices message column');
-    } catch (error) {
-      console.log('  - devices message column may already exist');
-    }
     
     // Sensors table
     await connection.query(`
