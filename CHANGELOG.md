@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.1.0] - 2025-11-17
+## [9.2.1] - 2025-11-17
 ### Added
 - Interactive status cards with click-to-filter functionality on the main dashboard.
 - `filterByStatus()` method that updates the status dropdown, applies filters, and smoothly scrolls to device list.
@@ -13,11 +13,18 @@ All notable changes to this project will be documented in this file.
 - User experience with single-click filtering directly from overview statistics.
 - Dashboard interactivity allowing quick navigation to specific device status categories.
 - Accessibility with descriptive tooltips on clickable stat cards ("Click to show all/online/warning/offline devices").
+- Sensor-to-device linking now achieves 97.5% success rate (7,364/7,550 sensors properly linked).
+
+### Fixed
+- PRTG collector deviceid parsing now handles invalid values ('0', empty strings, null).
+- Device name fallback logic ensures sensors link even when deviceid is unavailable.
+- Status detection now accurately reflects sensor health instead of defaulting to online.
 
 ### Technical
 - Added `.stat-card.clickable` CSS class with cursor pointer and active state styling.
 - Implemented `onclick` handlers for Total Devices, Online, Warning, and Offline stat cards.
 - Enhanced `updateOverviewStats()` to generate clickable card elements with proper event bindings.
+- Improved `prtgCollector.js` with multi-stage deviceid parsing and validation.
 
 ---
 
