@@ -4,6 +4,7 @@ Enterprise dashboard that consolidates data from multiple PRTG Network Monitor i
 
 ## Highlights
 
+- **Interactive status cards** – Click Total Devices, Online, Warning, or Offline cards to instantly filter the device list with automatic scrolling.
 - **Multi-PRTG aggregation** – Ingests from any number of PRTG servers defined via environment variables.
 - **Database-backed sessions** – Sessions persist across refreshes with inactivity-based expiry and EDR-style tracking.
 - **Admin quick access** – Shield icon in the header exposes shortcuts to the Admin Console, Session Intelligence, and Telemetry Overview when an allow-listed user is signed in.

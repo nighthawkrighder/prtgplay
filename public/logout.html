@@ -58,6 +58,29 @@
         if (params.has('sessionId')) {
             document.getElementById('logoutDetails').textContent = `Session ID torn down: ${params.get('sessionId')}`;
         }
+
+        // Ensure cookies are completely cleared client-side as well
+        document.cookie.split(";").forEach(function(c) { 
+            const cookieName = c.trim().split("=")[0];
+            if (cookieName === 'connect.sid' || cookieName === 'cva.sid' || cookieName === 'edr.sid') {
+                // Clear with path only
+                document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                // Clear with domain for cross-domain cookies
+                document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.lanairgroup.com';
+                // Clear with specific subdomain
+                document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + window.location.hostname;
+                console.log('Cleared cookie:', cookieName);
+            }
+        });
+
+        // Also clear sessionStorage and localStorage for good measure
+        try {
+            sessionStorage.clear();
+            localStorage.removeItem('sessionId');
+            localStorage.removeItem('edrSessionId');
+        } catch (e) {
+            console.debug('Storage cleanup error:', e);
+        }
     </script>
 </body>
 </html>

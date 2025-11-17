@@ -300,13 +300,119 @@
                 this.reconnectAttempts = 0;
                 this.maxReconnectAttempts = 5;
                 this.reconnectInterval = 5000;
+                this.dataFetchAttempts = 0;
+                this.maxDataFetchAttempts = 3;
                 
                 this.init();
             }
 
-            init() {
+            async init() {
+                // Show initial loading state
+                this.showInitialLoadingState();
+                
+                // Small delay to ensure cookies are fully processed after navigation
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                await this.fetchInitialData();
                 this.connectWebSocket();
                 this.setupHeartbeat();
+            }
+
+            showInitialLoadingState() {
+                const container = document.getElementById('sensorsContainer');
+                container.innerHTML = `
+                    <div class="loading" style="padding: 4rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem; color: #3498db;">⏳</div>
+                        <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">Loading Sensor Data...</p>
+                        <p style="font-size: 0.9rem; opacity: 0.7;">Fetching real-time network status</p>
+                    </div>
+                `;
+            }
+
+            // Fetch initial data via HTTP as fallback before WebSocket connects
+            async fetchInitialData() {
+                try {
+                    // Add 30-second timeout to prevent indefinite hanging
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000);
+                    
+                    const response = await fetch('/api/sensors/current', {
+                        credentials: 'include',
+                        headers: {
+                            'Accept': 'application/json'
+                        },
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.sensors && data.summary) {
+                            this.updateSensorData({
+                                type: 'sensor-update',
+                                sensors: data.sensors,
+                                summary: data.summary,
+                                timestamp: data.timestamp || new Date().toISOString()
+                            });
+                            this.dataFetchAttempts = 0; // Reset on success
+                            return true;
+                        }
+                    } else if (response.status === 401 || response.status === 403) {
+                        // Authentication issue - retry with exponential backoff
+                        this.dataFetchAttempts++;
+                        if (this.dataFetchAttempts < this.maxDataFetchAttempts) {
+                            const delay = Math.min(1000 * Math.pow(2, this.dataFetchAttempts - 1), 5000);
+                            console.log(`Auth not ready, retrying in ${delay}ms (attempt ${this.dataFetchAttempts}/${this.maxDataFetchAttempts})`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            return this.fetchInitialData();
+                        } else {
+                            console.warn('Max data fetch attempts reached, waiting for WebSocket...');
+                        }
+                    }
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.warn('Initial data fetch timeout after 30s');
+                        this.showTimeoutMessage();
+                    } else {
+                        console.log('Initial data fetch failed (will wait for WebSocket):', error);
+                    }
+                    
+                    // Retry on network errors
+                    this.dataFetchAttempts++;
+                    if (this.dataFetchAttempts < this.maxDataFetchAttempts) {
+                        const delay = Math.min(1000 * Math.pow(2, this.dataFetchAttempts - 1), 5000);
+                        console.log(`Network error, retrying in ${delay}ms (attempt ${this.dataFetchAttempts}/${this.maxDataFetchAttempts})`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return this.fetchInitialData();
+                    } else {
+                        this.showErrorMessage();
+                    }
+                }
+                return false;
+            }
+
+            showTimeoutMessage() {
+                const container = document.getElementById('sensorsContainer');
+                container.innerHTML = `
+                    <div class="loading" style="padding: 4rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem; color: #f39c12;">⚠️</div>
+                        <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">Connection Timeout</p>
+                        <p style="font-size: 0.9rem; opacity: 0.7;">Waiting for WebSocket connection...</p>
+                    </div>
+                `;
+            }
+
+            showErrorMessage() {
+                const container = document.getElementById('sensorsContainer');
+                container.innerHTML = `
+                    <div class="loading" style="padding: 4rem; text-align: center;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem; color: #e74c3c;">❌</div>
+                        <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">Failed to Load Sensor Data</p>
+                        <p style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 1rem;">Waiting for WebSocket connection...</p>
+                        <button onclick="location.reload()" style="padding: 0.75rem 1.5rem; background: #3498db; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 1rem;">Retry</button>
+                    </div>
+                `;
             }
 
             connectWebSocket() {

@@ -39,6 +39,11 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: DataTypes.NOW
     },
+    expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Absolute session expiration time - does not reset on activity'
+    },
     logout_time: {
       type: DataTypes.DATE,
       allowNull: true

@@ -17,6 +17,30 @@ class PRTGCollector {
     this.collectionInterval = null;
     this.metadataParser = new MetadataParser();
     this.currentCollectionPromise = null;
+    this.progressTracker = null;
+    this.startupProgressRange = { start: 65, end: 95 };
+    this.initialCollectionCompleted = false;
+  }
+
+  setProgressTracker(tracker, range = null) {
+    this.progressTracker = tracker;
+    if (range && typeof range.start === 'number' && typeof range.end === 'number') {
+      this.startupProgressRange = range;
+    }
+  }
+
+  reportStartupProgress(fraction, message) {
+    if (!this.progressTracker || this.initialCollectionCompleted) {
+      return;
+    }
+    const { start, end } = this.startupProgressRange || { start: 65, end: 95 };
+    const clampedFraction = Math.max(0, Math.min(1, fraction || 0));
+    const percentage = start + (end - start) * clampedFraction;
+    this.progressTracker.update({
+      phase: 'collector',
+      message,
+      percentage
+    });
   }
 
   /**
@@ -30,9 +54,19 @@ class PRTGCollector {
 
     logger.info('Starting PRTG data collection...');
     this.isRunning = true;
+    this.initialCollectionCompleted = false;
 
     // Run initial collection immediately
+    this.reportStartupProgress(0, 'Beginning initial PRTG data collection');
     await this.collectAllData();
+    if (this.progressTracker && !this.initialCollectionCompleted) {
+      this.progressTracker.update({
+        phase: 'collector',
+        message: 'Initial PRTG data collection complete',
+        percentage: this.startupProgressRange?.end || 95
+      });
+    }
+    this.initialCollectionCompleted = true;
 
     // Schedule periodic collection
     this.collectionInterval = setInterval(async () => {
@@ -90,6 +124,8 @@ class PRTGCollector {
 
     this.currentCollectionPromise = (async () => {
       logger.info('Starting data collection cycle...');
+      const totalServers = config.prtgServers.length || 1;
+      let serverIndex = 0;
       
       for (const serverConfig of config.prtgServers) {
         if (!this.isRunning) {
@@ -98,7 +134,9 @@ class PRTGCollector {
         }
 
         try {
-          await this.collectServerData(serverConfig);
+          serverIndex += 1;
+          await this.collectServerData(serverConfig, { serverIndex, totalServers });
+          this.reportStartupProgress(serverIndex / totalServers, `Completed collection for ${serverConfig.id}`);
         } catch (error) {
           logger.error(`Error collecting data from server ${serverConfig.id}:`, error);
           
@@ -122,13 +160,18 @@ class PRTGCollector {
   /**
    * Collect data from a specific PRTG server
    */
-  async collectServerData(serverConfig) {
+  async collectServerData(serverConfig, progressContext = {}) {
     if (!this.isRunning) {
       return;
     }
 
     logger.info(`Collecting data from PRTG server: ${serverConfig.id}`);
     const serverStart = Date.now();
+    const totalServers = progressContext.totalServers || config.prtgServers.length || 1;
+    const serverIndex = progressContext.serverIndex || 1;
+    const baseFraction = totalServers ? (serverIndex - 1) / totalServers : 0;
+    const rangeFraction = totalServers ? 1 / totalServers : 1;
+    this.reportStartupProgress(baseFraction, `Collecting devices from ${serverConfig.id}`);
     
     const client = new PRTGClient(serverConfig);
     
@@ -147,6 +190,7 @@ class PRTGCollector {
       if (this.isRunning && devicesData && devicesData.devices) {
         logger.info(`Collected ${devicesData.devices.length} devices from PRTG server ${serverConfig.id}`);
         await this.processDevices(serverConfig.id, devicesData.devices);
+        this.reportStartupProgress(baseFraction + rangeFraction * 0.35, `Collecting sensors from ${serverConfig.id}`);
       }
 
       // Collect sensors - use large count to get ALL sensors (not just 500)
@@ -160,6 +204,7 @@ class PRTGCollector {
       if (this.isRunning && sensorsData && sensorsData.sensors) {
         logger.info(`Collected ${sensorsData.sensors.length} sensors from PRTG server ${serverConfig.id}`);
         await this.processSensors(serverConfig.id, sensorsData.sensors);
+        this.reportStartupProgress(baseFraction + rangeFraction * 0.7, `Finalizing ${serverConfig.id} metrics`);
       }
 
       // Update successful poll timestamp
@@ -309,7 +354,30 @@ class PRTGCollector {
         }
 
         // Parse device ID with null handling
-        const deviceId = sensor.deviceid && sensor.deviceid !== '0' ? parseInt(sensor.deviceid) : null;
+        // PRTG returns deviceid as a string that might be '0', empty, or the actual device objid
+        let deviceId = null;
+        if (sensor.deviceid && sensor.deviceid !== '0' && sensor.deviceid !== '' && sensor.deviceid !== 'null') {
+          const parsedDeviceId = parseInt(sensor.deviceid);
+          if (!isNaN(parsedDeviceId) && parsedDeviceId > 0) {
+            deviceId = parsedDeviceId;
+          }
+        }
+        
+        // If deviceid is still null, try to match device by name
+        // The sensor.device field contains the device name, which should match a Device.name
+        if (!deviceId && sensor.device) {
+          try {
+            const device = await Device.findOne({
+              where: { name: sensor.device },
+              attributes: ['id']
+            });
+            if (device) {
+              deviceId = device.id;
+            }
+          } catch (err) {
+            // Silently continue if device lookup fails
+          }
+        }
         
         const status = this.parseStatus(sensor.status);
         const sensorId = parseInt(sensor.objid);

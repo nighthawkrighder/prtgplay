@@ -33,6 +33,8 @@ class EDRSessionManager {
             await this.enforceConcurrentSessionLimit(userData.username);
             const riskScore = await this.calculateInitialRiskScore(userData, req);
             
+            const expiresAt = new Date(Date.now() + this.sessionTimeout);
+            
             const session = await UserSession.create({
                 session_id: sessionId,
                 user_id: userData.user_id || userData.username,
@@ -51,7 +53,8 @@ class EDRSessionManager {
                     ip_address: this.getClientIP(req)
                 }],
                 risk_score: riskScore,
-                anomaly_flags: []
+                anomaly_flags: [],
+                expires_at: expiresAt
             });
 
             logger.info('EDR Session created', {
@@ -65,7 +68,7 @@ class EDRSessionManager {
             return {
                 sessionId,
                 session: session,
-                expiresAt: new Date(Date.now() + this.sessionTimeout)
+                expiresAt: expiresAt
             };
 
         } catch (error) {
@@ -81,16 +84,24 @@ class EDRSessionManager {
         try {
             const session = await UserSession.findByPk(sessionId);
             
-            if (!session || session.session_status !== 'active') {
-                return { valid: false, reason: 'Session not found or inactive' };
+            if (!session) {
+                return { valid: false, reason: 'Session not found' };
             }
 
-            // Check inactivity timeout (24h by default)
-            const lastActivity = new Date(session.last_activity);
-            const now = new Date();
-            if (now - lastActivity > this.sessionTimeout) {
-                await this.terminateSession(sessionId, 'timeout');
-                return { valid: false, reason: 'Session expired' };
+            // Check session status - do not validate logged_out, expired, or terminated sessions
+            if (session.session_status !== 'active') {
+                return { valid: false, reason: `Session status is ${session.session_status}` };
+            }
+
+            // Check absolute expiry time (does not reset on activity)
+            if (session.expires_at) {
+                const expiresAt = new Date(session.expires_at);
+                const now = new Date();
+                
+                if (now >= expiresAt) {
+                    await this.terminateSession(sessionId, 'expired');
+                    return { valid: false, reason: 'Session expired' };
+                }
             }
 
             // Update activity and perform security checks
@@ -123,9 +134,9 @@ class EDRSessionManager {
                 endpoint: req.path || 'unknown'
             };
 
-            // Add security events if any
-            let securityEvents = session.security_events || [];
-            let anomalyFlags = session.anomaly_flags || [];
+            // Add security events if any, ensuring arrays are normalized for legacy data
+            let securityEvents = this.coerceArray(session.security_events);
+            let anomalyFlags = this.coerceArray(session.anomaly_flags);
             
             if (securityCheck && securityCheck.events.length > 0) {
                 securityEvents = [...securityEvents, ...securityCheck.events];
@@ -137,7 +148,7 @@ class EDRSessionManager {
             }
 
             // Update activity log (keep last 100 entries)
-            let activityLog = session.activity_log || [];
+            let activityLog = this.coerceArray(session.activity_log);
             activityLog.push(activityEntry);
             if (activityLog.length > 100) {
                 activityLog = activityLog.slice(-100);
@@ -408,6 +419,21 @@ class EDRSessionManager {
         }
     }
 
+    coerceArray(value) {
+        if (Array.isArray(value)) return [...value];
+        if (!value) return [];
+        if (typeof value === 'string') {
+            try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? [...parsed] : [];
+            } catch (error) {
+                logger.debug('Failed to parse legacy array payload', { error: error.message });
+                return [];
+            }
+        }
+        return [];
+    }
+
     startCleanupInterval() {
         // Clean up expired sessions every 5 minutes
         setInterval(async () => {
@@ -479,6 +505,42 @@ class EDRSessionManager {
             logger.error('Manual purge failed', { error: error.message });
             throw error;
         }
+    }
+
+    async getSessionDetails(sessionId) {
+        if (!sessionId) return null;
+        const session = await UserSession.findByPk(sessionId);
+        if (!session) return null;
+
+        const plain = session.get({ plain: true });
+        const activityLog = this.coerceArray(plain.activity_log).slice(-50);
+        const securityEvents = this.coerceArray(plain.security_events);
+        const anomalyFlags = this.coerceArray(plain.anomaly_flags);
+
+        const loginTime = plain.login_time ? new Date(plain.login_time) : null;
+        const lastActivity = plain.last_activity ? new Date(plain.last_activity) : null;
+        const logoutTime = plain.logout_time ? new Date(plain.logout_time) : null;
+        const now = new Date();
+        const durationMs = loginTime ? ((logoutTime || now) - loginTime) : 0;
+
+        return {
+            sessionId: plain.session_id,
+            username: plain.username,
+            role: plain.user_role || 'user',
+            status: plain.session_status,
+            loginTime: loginTime ? loginTime.toISOString() : null,
+            lastActivity: lastActivity ? lastActivity.toISOString() : null,
+            logoutTime: logoutTime ? logoutTime.toISOString() : null,
+            logoutReason: plain.logout_reason || null,
+            ipAddress: plain.ip_address,
+            userAgent: plain.user_agent,
+            riskScore: plain.risk_score || 0,
+            anomalyFlags,
+            securityEvents,
+            activityLog,
+            durationMinutes: Math.round(durationMs / 60000),
+            metadata: plain.session_metadata || {}
+        };
     }
 }
 

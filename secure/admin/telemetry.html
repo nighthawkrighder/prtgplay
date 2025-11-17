@@ -23,11 +23,16 @@
             border-bottom: 1px solid rgba(148, 163, 184, 0.18);
             display: flex;
             flex-wrap: wrap;
-            gap: 1rem;
+            gap: 1.25rem;
             align-items: center;
             justify-content: space-between;
         }
-        header h1 {
+        .header-main {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .header-title {
             margin: 0;
             font-size: 1.75rem;
             display: flex;
@@ -35,14 +40,33 @@
             gap: 0.75rem;
             color: #38bdf8;
         }
-        header nav a {
-            color: #94a3b8;
-            text-decoration: none;
-            margin-left: 1.2rem;
-            font-size: 0.9rem;
+        nav.header-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
         }
-        header nav a:hover {
-            color: #e2e8f0;
+        nav.header-nav a {
+            color: #cbd5f5;
+            text-decoration: none;
+            font-size: 0.9rem;
+            padding: 0.4rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.55);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+        nav.header-nav a:hover {
+            color: #f1f5ff;
+            border-color: rgba(56,189,248,0.45);
+            background: rgba(56,189,248,0.18);
+        }
+        nav.header-nav a.active {
+            color: #38bdf8;
+            border-color: rgba(56,189,248,0.6);
+            background: rgba(56,189,248,0.22);
         }
         main {
             flex: 1;
@@ -181,11 +205,16 @@
 </head>
 <body>
     <header>
-        <h1><i class="fas fa-chart-line"></i> Telemetry Overview</h1>
-        <nav>
-            <a href="/admin">&larr; Back to Admin Console</a>
-            <a href="/api/dashboard/summary" target="_blank" rel="noopener noreferrer">Raw Summary JSON</a>
-        </nav>
+        <div class="header-main">
+            <h1 class="header-title"><i class="fas fa-chart-line"></i> Telemetry Overview</h1>
+            <nav class="header-nav" aria-label="Admin navigation">
+                <a href="/" class="nav-link"><i class="fas fa-home"></i> Monitoring Home</a>
+                <a href="/admin" class="nav-link"><i class="fas fa-grip"></i> Admin Console</a>
+                <a href="/admin/sessions.html" class="nav-link"><i class="fas fa-users-gear"></i> Session Intelligence</a>
+                <a href="/admin/telemetry.html" class="nav-link active"><i class="fas fa-chart-line"></i> Telemetry Overview</a>
+                <a href="/api/dashboard/summary" target="_blank" rel="noopener noreferrer" class="nav-link"><i class="fas fa-code"></i> Raw Summary JSON</a>
+            </nav>
+        </div>
     </header>
     <main>
         <section class="summary-band" id="telemetrySummary">

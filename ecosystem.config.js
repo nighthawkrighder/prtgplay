@@ -2,7 +2,7 @@ module.exports = {
   apps: [{
     name: 'prtg-dashboard',
     script: './src/server.js',
-    cwd: '/srv/www/htdocs/cpm',
+    cwd: '/srv/www/htdocs/cva/cpm',
     instances: 1,
     exec_mode: 'fork',
     env: {

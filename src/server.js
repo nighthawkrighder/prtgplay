@@ -2,22 +2,140 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+const fs = require('fs');
 const cors = require('cors');
 const session = require('express-session');
+const MySQLStore = require('express-mysql-session')(session);
 const config = require('./config');
 const cookieParser = require('cookie-parser');
 const logger = require('./utils/logger');
-const SequelizeStore = require('connect-session-sequelize')(session.Store);
 const { sequelize, testConnection } = require('./config/database');
 const { PRTGServer, Device, Sensor } = require('./models');
 const apiRoutes = require('./routes/api');
-const PRTGClient = require('./services/prtgClient');
 const PRTGCollector = require('./collectors/prtgCollector');
 const crypto = require('crypto');
 const EDRSessionManager = require('./services/edrSessionManager');
+const progressTracker = require('./utils/progressTracker');
+const { URL } = require('url');
+
+const returnToHostSuffix = (process.env.RETURN_TO_HOST_SUFFIX || '.lanairgroup.com').toLowerCase();
+const strippedReturnSuffix = returnToHostSuffix.replace(/^\.+/, '').toLowerCase();
+const extraReturnHosts = (process.env.RETURN_TO_ALLOWED_HOSTS || '')
+  .split(',')
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+let cvaLoginUrlDetails = null;
+
+function isHostAllowedForReturn(hostname, requestHost) {
+  if (!hostname) return false;
+  const normalizedHost = hostname.toLowerCase();
+  if (normalizedHost === (requestHost || '').toLowerCase()) {
+    return true;
+  }
+  if (extraReturnHosts.includes(normalizedHost)) {
+    return true;
+  }
+  if (!strippedReturnSuffix) {
+    return false;
+  }
+  return normalizedHost.endsWith(strippedReturnSuffix);
+}
+
+function normalizeReturnTarget(req, rawValue, depth = 0) {
+  if (!rawValue || typeof rawValue !== 'string') {
+    return null;
+  }
+
+  const trimmed = rawValue.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  if (depth > 3) {
+    logger.warn('normalizeReturnTarget recursion limit reached', { value: trimmed });
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const requestHost = (req.hostname || '').toLowerCase();
+    const hostname = (parsed.hostname || '').toLowerCase();
+    const matchesRequestHost = hostname === requestHost;
+    const matchesSuffix = strippedReturnSuffix ? hostname.endsWith(strippedReturnSuffix) : false;
+    const matchesExtraHost = extraReturnHosts.includes(hostname);
+
+    if (cvaLoginUrlDetails && hostname === cvaLoginUrlDetails.hostname.toLowerCase()) {
+      if (parsed.pathname === cvaLoginUrlDetails.pathname) {
+        const nested = parsed.searchParams.get('returnTo');
+        if (nested) {
+          return normalizeReturnTarget(req, nested, depth + 1);
+        }
+        return null;
+      }
+    }
+
+    if (!isHostAllowedForReturn(hostname, requestHost)) {
+      return null;
+    }
+
+    if ((matchesSuffix || matchesExtraHost) && (!parsed.protocol || parsed.protocol === 'http:')) {
+      parsed.protocol = 'https:';
+    }
+
+    if (!matchesRequestHost && parsed.protocol !== 'https:') {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch (error) {
+    logger.debug('normalizeReturnTarget failed', { value: rawValue, error: error.message });
+    return null;
+  }
+}
 
 // Initialize EDR session manager
 const edrManager = new EDRSessionManager();
+
+function normalizeBaseUrl(url) {
+  if (!url) return '';
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+function joinBaseAndPath(base, targetPath) {
+  if (!base) return targetPath;
+  if (!targetPath) return base;
+  const normalizedPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+  return `${base}${normalizedPath}`;
+}
+
+function deriveCvaLoginUrl() {
+  const configured = process.env.CVA_LOGIN_PATH;
+  const baseCandidate = normalizeBaseUrl(
+    process.env.CVA_LOGIN_BASE_URL || process.env.CVA_BASE_URL || process.env.BASE_URL || ''
+  );
+
+  if (configured && /^https?:\/\//i.test(configured)) {
+    return configured;
+  }
+
+  if (configured && baseCandidate) {
+    return joinBaseAndPath(baseCandidate, configured);
+  }
+
+  if (configured) {
+    return joinBaseAndPath('https://cva.lanairgroup.com', configured);
+  }
+
+  if (baseCandidate) {
+    return joinBaseAndPath(baseCandidate, '/login');
+  }
+
+  return 'https://cva.lanairgroup.com/login';
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -28,20 +146,62 @@ const wss = new WebSocket.Server({ server });
 // Store active WebSocket connections
 const clients = new Set();
 
-// Persistent session store using Sequelize (MySQL)
-const sessionStore = new SequelizeStore({ db: sequelize });
+// Shared CVA session store (MySQL-backed)
+const defaultCookieDomain = config.env === 'production' ? '.lanairgroup.com' : null;
+const sessionCookieName = process.env.CVA_SESSION_COOKIE_NAME || process.env.SESSION_COOKIE_NAME || 'cva.sid';
+const sessionCookieSecure = (process.env.CVA_SESSION_COOKIE_SECURE || process.env.SESSION_COOKIE_SECURE || 'false').toString().toLowerCase() === 'true';
+
+const sessionStoreOptions = {
+  host: process.env.CVA_SESSION_DB_HOST || process.env.CVA_DB_HOST || process.env.DB_HOST || config.database.host,
+  port: parseInt(process.env.CVA_SESSION_DB_PORT || process.env.CVA_DB_PORT || process.env.DB_PORT || config.database.port, 10),
+  user: process.env.CVA_SESSION_DB_USER || process.env.CVA_DB_USER || process.env.DB_USER || config.database.user,
+  password: process.env.CVA_SESSION_DB_PASSWORD || process.env.CVA_DB_PASSWORD || process.env.DB_PASSWORD || config.database.password,
+  database: process.env.CVA_SESSION_DB_NAME || process.env.CVA_DB_NAME || process.env.DB_NAME || config.database.name,
+  clearExpired: true,
+  checkExpirationInterval: 15 * 60 * 1000,
+  expiration: parseInt(process.env.CVA_SESSION_MAX_AGE || '1800000', 10),
+  createDatabaseTable: false,
+  schema: {
+    tableName: process.env.CVA_SESSION_TABLE || 'sessions'
+  }
+};
+
+const sessionStore = new MySQLStore(sessionStoreOptions);
+const sessionStoreReady = sessionStore.onReady();
+sessionStoreReady
+  .then(() => {
+    logger.info('CVA shared session store ready', { table: sessionStoreOptions.schema.tableName });
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize CVA shared session store', { error: error?.message || error });
+  });
 
 // Session configuration
+const sessionCookieSameSite = process.env.CVA_SESSION_COOKIE_SAMESITE || process.env.SESSION_COOKIE_SAMESITE || 'lax';
+const sessionCookieDomain = process.env.CVA_SESSION_COOKIE_DOMAIN || process.env.SESSION_COOKIE_DOMAIN || defaultCookieDomain;
+const sessionCookieMaxAge = parseInt(process.env.CVA_SESSION_MAX_AGE || process.env.SESSION_MAX_AGE || '1800000', 10);
+
+const sessionSecretUsed = process.env.SESSION_SECRET || process.env.CVA_SESSION_SECRET || 'prtg-dashboard-secret-key-change-in-production';
+console.log('[PRTG CONFIG] SESSION_SECRET loaded, length:', sessionSecretUsed.length, 'first 10 chars:', sessionSecretUsed.substring(0, 10));
+
 const sessionConfig = {
-  secret: process.env.SESSION_SECRET || 'prtg-dashboard-secret-key-change-in-production',
+  key: sessionCookieName,
+  secret: sessionSecretUsed,
   resave: false,
   saveUninitialized: false,
   store: sessionStore,
+  rolling: true, // refresh cookie expiry on each request to avoid unexpected timeouts
   cookie: {
-    secure: false, // Set to true if using HTTPS
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    secure: sessionCookieSecure,
+    httpOnly: true,
+    sameSite: sessionCookieSameSite,
+    maxAge: Number.isFinite(sessionCookieMaxAge) ? sessionCookieMaxAge : 1800000
   }
 };
+
+if (sessionCookieDomain) {
+  sessionConfig.cookie.domain = sessionCookieDomain;
+}
 
 // If behind a proxy (Apache/Nginx), trust it to get correct IPs and secure cookies
 app.set('trust proxy', 1);
@@ -57,126 +217,287 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+const edrCookieOptions = {
+  httpOnly: true,
+  sameSite: sessionConfig.cookie.sameSite,
+  secure: sessionCookieSecure,
+  maxAge: sessionConfig.cookie.maxAge,
+  path: '/'
+};
+const clearEdrCookieOptions = {
+  httpOnly: true,
+  sameSite: sessionConfig.cookie.sameSite,
+  secure: sessionCookieSecure,
+  path: '/'
+};
+const clearSessionCookieOptions = {
+  httpOnly: true,
+  sameSite: sessionConfig.cookie.sameSite,
+  secure: sessionCookieSecure,
+  path: '/'
+};
+
+if (sessionCookieDomain) {
+  edrCookieOptions.domain = sessionCookieDomain;
+  clearEdrCookieOptions.domain = sessionCookieDomain;
+  clearSessionCookieOptions.domain = sessionCookieDomain;
+}
+
+function isUserAuthenticated(req) {
+  return Boolean(req.session?.isAuthenticated && req.session?.user);
+}
+
+function getSessionUserIdentifier(req) {
+  const sessionUser = req.session?.user || {};
+  return sessionUser.email || sessionUser.displayName || sessionUser.id || null;
+}
+
+function resolveUserRole(identifier) {
+  if (!identifier) return 'user';
+  const normalized = String(identifier).toLowerCase();
+  return config.adminUsers.some((admin) => String(admin).toLowerCase() === normalized) ? 'admin' : 'user';
+}
+
+function determineAbsoluteReturnUrl(req) {
+  const rawProto = (req.headers['x-forwarded-proto'] || '').split(',')[0]?.trim();
+  const protocol = rawProto || req.protocol || 'https';
+  const rawHost = (req.headers['x-forwarded-host'] || '').split(',')[0]?.trim();
+  const host = rawHost || req.headers.host;
+  const path = req.originalUrl || req.path || '/';
+  if (!host) {
+    return path.startsWith('/') ? path : `/${path}`;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${protocol}://${host}${normalizedPath}`;
+}
+
+function buildLoginRedirectTarget(base, returnTo) {
+  const fallbackBase = base || 'https://cva.lanairgroup.com/login';
+  const resolverOrigin = fallbackBase.startsWith('http') ? undefined : 'https://cva.lanairgroup.com';
+  let redirectUrl;
+
+  try {
+    redirectUrl = resolverOrigin ? new URL(fallbackBase, resolverOrigin) : new URL(fallbackBase);
+  } catch (error) {
+    logger.warn('Failed to parse CVA login path, falling back to default', { error: error.message });
+    redirectUrl = new URL('https://cva.lanairgroup.com/login');
+  }
+
+  if (!redirectUrl.searchParams.has('from')) {
+    redirectUrl.searchParams.append('from', 'cpm');
+  }
+
+  if (returnTo) {
+    redirectUrl.searchParams.set('returnTo', returnTo);
+  }
+
+  return redirectUrl.toString();
+}
+
+const cvaLoginUrl = deriveCvaLoginUrl();
+
+try {
+  cvaLoginUrlDetails = new URL(cvaLoginUrl);
+} catch (error) {
+  logger.warn('Failed to parse CVA login URL for return normalization', {
+    cvaLoginUrl,
+    error: error.message
+  });
+  cvaLoginUrlDetails = null;
+}
+
+// Align CPM session metadata with CVA authentication context
+app.use((req, res, next) => {
+  try {
+    if (isUserAuthenticated(req)) {
+      const identifier = getSessionUserIdentifier(req);
+      if (identifier) {
+        req.session.username = identifier;
+        req.session.role = resolveUserRole(identifier);
+      }
+      if (!req.session.loginTime) {
+        req.session.loginTime = Date.now();
+      }
+    }
+  } catch (error) {
+    logger.error('Failed to synchronize CVA auth context', { error: error.message });
+  } finally {
+    next();
+  }
+});
+
 // Remove duplicate session initialization (we already configured session above)
 
 // Add session fingerprint middleware to persist session identity across hard refreshes
 app.use((req, res, next) => {
-  const fingerprint = crypto.createHash('sha256')
-    .update(req.ip + (req.headers['user-agent'] || ''))
-    .digest('hex');
+  const normalizeIp = (value = '') => {
+    if (!value) return '';
+    const trimmed = value.split(',')[0].trim();
+    if (trimmed === '::1') return '127.0.0.1';
+    if (trimmed.startsWith('::ffff:')) return trimmed.substring(7);
+    return trimmed;
+  };
+
+  const ipFromHeader = req.headers['x-forwarded-for'];
+  const candidateIp = ipFromHeader || req.socket?.remoteAddress || req.connection?.remoteAddress || req.ip || '';
+  const ipAddress = normalizeIp(candidateIp);
+  const userAgent = req.headers['user-agent'] || '';
+  const fingerprintSource = `${ipAddress}|${userAgent}`;
+  const fingerprint = crypto.createHash('sha256').update(fingerprintSource).digest('hex');
+
   if (!req.session.fingerprint) {
     req.session.fingerprint = fingerprint;
-    logger.info('Session fingerprint set for new session');
+    req.session.fingerprintMeta = { ip: ipAddress, userAgent };
+    logger.debug('Session fingerprint set for new session', { sessionId: req.sessionID, ipAddress });
   } else if (req.session.fingerprint !== fingerprint) {
-    logger.warn('Fingerprint mismatch: destroying session');
-    req.session.destroy(err => {
-      if (err) logger.error('Failed to destroy session on fingerprint mismatch:', err);
-      return res.status(403).send('Session verification failed.');
-    });
-    return;
+    const previousMeta = req.session.fingerprintMeta || {};
+    if (previousMeta.userAgent === userAgent) {
+      logger.warn('Session IP drift detected, refreshing fingerprint', {
+        sessionId: req.sessionID,
+        previousIp: previousMeta.ip,
+        newIp: ipAddress
+      });
+      req.session.fingerprint = fingerprint;
+      req.session.fingerprintMeta = { ip: ipAddress, userAgent };
+    } else {
+      logger.warn('Fingerprint mismatch: destroying session', {
+        sessionId: req.sessionID,
+        previousIp: previousMeta.ip,
+        newIp: ipAddress
+      });
+      req.session.destroy(err => {
+        if (err) logger.error('Failed to destroy session on fingerprint mismatch:', err);
+        return res.status(403).send('Session verification failed.');
+      });
+      return;
+    }
   }
   next();
 });
 
 // Authentication middleware
 function requireAuth(req, res, next) {
-  logger.debug(`Auth check for ${req.path}:`, { 
-    session: req.session?.authenticated || false,
-    sessionId: req.sessionID 
+  const authenticated = isUserAuthenticated(req);
+  const sessionUser = req.session?.user?.email || req.session?.user?.displayName;
+
+  // Enhanced logging for debugging
+  console.log(`[PRTG AUTH] ========== AUTH CHECK START ==========`);
+  console.log(`[PRTG AUTH] Path: ${req.path}`);
+  console.log(`[PRTG AUTH] Session ID: ${req.sessionID}`);
+  console.log(`[PRTG AUTH] Authenticated: ${authenticated}`);
+  console.log(`[PRTG AUTH] Session user: ${sessionUser || 'none'}`);
+  console.log(`[PRTG AUTH] Cookies:`, req.cookies);
+  console.log(`[PRTG AUTH] Session data:`, {
+    isAuthenticated: req.session?.isAuthenticated,
+    user: req.session?.user,
+    hasSession: !!req.session
   });
-  
-  if (req.session && req.session.authenticated) {
-    next();
-  } else {
-    if (req.path.startsWith('/api/')) {
-      res.status(401).json({ error: 'Authentication required' });
-    } else {
-      res.redirect('/login');
-    }
+  console.log(`[PRTG AUTH] ========== AUTH CHECK END ==========`);
+
+  logger.debug(`Auth check for ${req.path}:`, {
+    authenticated,
+    sessionId: req.sessionID,
+    user: sessionUser || 'anonymous'
+  });
+
+  if (authenticated) {
+    return next();
   }
+
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const rawReturnTo = determineAbsoluteReturnUrl(req);
+  const normalizedReturnTo =
+    normalizeReturnTarget(req, rawReturnTo) ||
+    normalizeReturnTarget(req, req.session?.returnTo) ||
+    '/';
+
+  if (req.session) {
+    req.session.returnTo = normalizedReturnTo;
+  }
+
+  const redirectTarget = buildLoginRedirectTarget(cvaLoginUrl, normalizedReturnTo);
+  return res.redirect(redirectTarget);
 }
 
 // Authentication routes
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
+app.post('/login', (req, res) => {
+  logger.warn('Direct CPM login attempt blocked; CVA handles authentication');
+  const candidateReturnTo = req.session?.returnTo || req.query?.returnTo || determineAbsoluteReturnUrl(req);
+  const normalizedReturnTo =
+    normalizeReturnTarget(req, candidateReturnTo) ||
+    normalizeReturnTarget(req, req.session?.returnTo) ||
+    '/';
+  const redirectTarget = buildLoginRedirectTarget(cvaLoginUrl, normalizedReturnTo);
+  if (req.session) {
+    req.session.returnTo = normalizedReturnTo;
   }
-  
-  try {
-    // Test authentication against any configured PRTG server
-    let authSuccess = false;
-    
-    for (const serverConfig of config.prtgServers) {
-      try {
-        // Create a test client with provided credentials
-        const testClient = new PRTGClient({
-          id: 'auth-test',
-          url: serverConfig.url,
-          username: username,
-          passhash: password, // In PRTG, this should be the passhash, not plain password
-          enabled: true
-        });
-        
-        // Test authentication by making a simple API call
-        await testClient.request('/api/table.json', { content: 'servers', count: 1 });
-        authSuccess = true;
-        break;
-      } catch (error) {
-        // Continue to next server if auth fails
-        logger.debug(`Auth failed for server ${serverConfig.id}: ${error.message}`);
-      }
-    }
-    
-    if (authSuccess) {
-      req.session.authenticated = true;
-      req.session.username = username;
-      req.session.role = config.adminUsers.includes(username) ? 'admin' : 'user';
-      logger.info(`User authenticated: ${username}`, { sessionId: req.sessionID });
 
-      // Create EDR session and bind it to express session
-  const { sessionId: edrSessionId } = await edrManager.createSession({ username, role: req.session.role }, req);
-      req.session.edrSessionId = edrSessionId;
-      // Also set an HttpOnly cookie for auto-restore
-      res.cookie('edr.sid', edrSessionId, {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: false, // set true if HTTPS
-        maxAge: 24 * 60 * 60 * 1000
-      });
-
-      res.json({ success: true, message: 'Authentication successful' });
-    } else {
-      logger.warn(`Authentication failed for user: ${username}`);
-      res.status(401).json({ error: 'Invalid PRTG credentials' });
-    }
-    
-  } catch (error) {
-    logger.error('Authentication error:', error);
-    res.status(500).json({ error: 'Authentication service error' });
+  if (req.xhr || (req.headers.accept || '').includes('application/json')) {
+    return res.status(403).json({
+      error: 'Authentication is managed by CVA. Please use the primary CVA login flow.',
+      redirect: redirectTarget
+    });
   }
+
+  return res.redirect(redirectTarget);
 });
 
-// Auto-restore session middleware (runs before requireAuth)
+// Auto-restore session middleware (runs before route guards)
 app.use(async (req, res, next) => {
   try {
-    if (!req.session.authenticated) {
-      const edrCookie = req.cookies?.['edr.sid'];
-      if (edrCookie) {
-        const validation = await edrManager.validateSession(edrCookie, req);
-        if (validation.valid) {
-          // Restore express session from EDR info
-          req.session.authenticated = true;
-          req.session.username = validation.session.username;
-          req.session.role = config.adminUsers.includes(validation.session.username) ? 'admin' : 'user';
-          req.session.edrSessionId = edrCookie;
-          logger.info('Session auto-restored from EDR session', { edrSessionId: edrCookie, sessionId: req.sessionID });
-        }
+    const authenticated = isUserAuthenticated(req);
+    const existingEdrId = req.session?.edrSessionId;
+    const edrCookie = req.cookies?.['edr.sid'];
+
+    if (existingEdrId) {
+      if (!edrCookie || edrCookie !== existingEdrId) {
+        res.cookie('edr.sid', existingEdrId, edrCookieOptions);
       }
+      return next();
     }
-  } catch (e) {
-    logger.error('Auto-restore session failed', { error: e.message });
+
+    if (edrCookie) {
+      const validation = await edrManager.validateSession(edrCookie, req);
+      if (validation.valid && validation.session?.session_status === 'active') {
+        req.session.edrSessionId = edrCookie;
+        req.session.restoredFromCache = true;
+
+        if (authenticated) {
+          const identifier = req.session.username || getSessionUserIdentifier(req) || validation.session.username;
+          req.session.username = identifier;
+          req.session.role = req.session.role || resolveUserRole(identifier);
+          if (!req.session.loginTime && validation.session.login_time) {
+            req.session.loginTime = new Date(validation.session.login_time).getTime();
+          }
+        }
+
+        res.cookie('edr.sid', edrCookie, edrCookieOptions);
+        logger.info('Session auto-restored from EDR session', { edrSessionId: edrCookie, sessionId: req.sessionID });
+        return next();
+      }
+
+      logger.debug('Invalid EDR session during auto-restore', { edrSessionId: edrCookie, reason: validation.reason });
+      res.clearCookie('edr.sid', clearEdrCookieOptions);
+    }
+
+    if (authenticated) {
+      const identifier = req.session.username || getSessionUserIdentifier(req);
+      if (!identifier) {
+        logger.warn('Authenticated CVA session missing identifier; skipping EDR bootstrap');
+        return next();
+      }
+
+      const role = req.session.role || resolveUserRole(identifier);
+      const { sessionId: edrSessionId } = await edrManager.createSession({ username: identifier, role }, req);
+      req.session.edrSessionId = edrSessionId;
+      req.session.restoredFromCache = false;
+      res.cookie('edr.sid', edrSessionId, edrCookieOptions);
+    }
+  } catch (error) {
+    logger.error('EDR session synchronization failed', { error: error.message });
   } finally {
     next();
   }
@@ -184,33 +505,198 @@ app.use(async (req, res, next) => {
 
 // Admin guard middleware
 function requireAdmin(req, res, next) {
-  if (req.session?.authenticated && req.session?.role === 'admin') return next();
+  if (isUserAuthenticated(req) && req.session?.role === 'admin') return next();
   return res.status(403).json({ error: 'Admin access required' });
 }
 
-app.post('/logout', (req, res) => {
+app.post('/logout', async (req, res) => {
   const sessionId = req.sessionID;
   const edrSessionId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
-  req.session.destroy((err) => {
-    if (err) {
-      logger.error('Logout error:', err);
+  const accepts = (req.headers['accept'] || '').toLowerCase();
+  const wantsJson = accepts.includes('application/json') || req.headers['x-requested-with'] === 'XMLHttpRequest';
+  const isBeacon = req.headers['content-type'] === 'text/plain;charset=UTF-8'; // sendBeacon signature
+  const redirectUrl = `/logout.html?sessionId=${encodeURIComponent(sessionId || '')}`;
+
+  logger.info('Logout initiated', { sessionId, edrSessionId, isBeacon });
+
+  try {
+    // Terminate EDR session FIRST
+    if (edrSessionId) {
+      try {
+        await edrManager.terminateSession(edrSessionId, 'user_logout');
+        logger.info('EDR session terminated successfully', { edrSessionId });
+      } catch (err) {
+        logger.error('EDR terminate failed', { error: err.message, edrSessionId });
+      }
+    }
+
+    // Destroy express session
+    if (req.session) {
+      await new Promise((resolve, reject) => {
+        req.session.destroy((err) => {
+          if (err) {
+            logger.error('Session destroy error', { error: err.message });
+            reject(err);
+          } else {
+            logger.info('Session destroyed successfully', { sessionId });
+            resolve();
+          }
+        });
+      });
+    }
+
+    // Check if headers already sent before clearing cookies
+    if (res.headersSent) {
+      logger.warn('Headers already sent, cannot clear cookies or send logout response');
+      return;
+    }
+
+    // Clear cookies AFTER session is destroyed
+    res.clearCookie(sessionCookieName, clearSessionCookieOptions);
+    res.clearCookie('edr.sid', clearEdrCookieOptions);
+    
+    // Also clear the session cookie with explicit domain for cross-domain logout
+    if (sessionCookieDomain) {
+      res.clearCookie(sessionCookieName, { ...clearSessionCookieOptions, domain: sessionCookieDomain });
+      res.clearCookie('edr.sid', { ...clearEdrCookieOptions, domain: sessionCookieDomain });
+    }
+
+    // Regenerate a fresh session to prevent stale session reuse
+    await new Promise((resolve) => {
+      req.session.regenerate(() => resolve());
+    });
+
+    // Send response based on request type
+    if (isBeacon) {
+      // sendBeacon doesn't care about response, but send 204 No Content
+      return res.status(204).end();
+    }
+    
+    if (wantsJson) {
+      return res.json({ success: true, redirect: redirectUrl, sessionId });
+    }
+    return res.redirect(redirectUrl);
+
+  } catch (error) {
+    logger.error('Logout error:', error);
+    
+    // Check if headers already sent before error response
+    if (res.headersSent) {
+      logger.warn('Headers already sent, cannot send error response');
+      return;
+    }
+    
+    if (wantsJson || isBeacon) {
       return res.status(500).json({ error: 'Logout failed' });
     }
-    // Clear session cookie
-    res.clearCookie('connect.sid');
-    // Terminate EDR session and clear cookie
+    return res.status(500).send('Logout failed');
+  }
+});
+
+// Also support GET for logout (for simple links)
+app.get('/logout', async (req, res) => {
+  const sessionId = req.sessionID;
+  const edrSessionId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
+  
+  logger.info('Logout initiated via GET', { sessionId, edrSessionId });
+
+  try {
+    // Terminate EDR session
     if (edrSessionId) {
-      edrManager.terminateSession(edrSessionId, 'user_logout').catch(err => logger.error('EDR terminate failed', { error: err.message }));
-      res.clearCookie('edr.sid');
+      try {
+        await edrManager.terminateSession(edrSessionId, 'user_logout');
+        logger.info('EDR session terminated successfully', { edrSessionId });
+      } catch (err) {
+        logger.error('EDR terminate failed', { error: err.message, edrSessionId });
+      }
     }
-    // Redirect to logout page with session details
-    res.redirect(`/logout.html?sessionId=${encodeURIComponent(sessionId)}`);
-  });
+
+    // Destroy express session
+    if (req.session) {
+      await new Promise((resolve, reject) => {
+        req.session.destroy((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
+
+    // Check if headers already sent before clearing cookies
+    if (res.headersSent) {
+      logger.warn('Headers already sent in GET logout, cannot clear cookies or redirect');
+      return;
+    }
+
+    // Clear cookies
+    res.clearCookie(sessionCookieName, clearSessionCookieOptions);
+    res.clearCookie('edr.sid', clearEdrCookieOptions);
+    
+    // Also clear the session cookie with explicit domain for cross-domain logout
+    if (sessionCookieDomain) {
+      res.clearCookie(sessionCookieName, { ...clearSessionCookieOptions, domain: sessionCookieDomain });
+      res.clearCookie('edr.sid', { ...clearEdrCookieOptions, domain: sessionCookieDomain });
+    }
+
+    // Regenerate a fresh session to prevent stale session reuse
+    await new Promise((resolve) => {
+      req.session.regenerate(() => resolve());
+    });
+
+    // Redirect to logout page
+    return res.redirect(`/logout.html?sessionId=${encodeURIComponent(sessionId || '')}`);
+
+  } catch (error) {
+    logger.error('Logout GET error:', error);
+    
+    // Check if headers already sent before error response
+    if (res.headersSent) {
+      logger.warn('Headers already sent in GET logout error, cannot redirect');
+      return;
+    }
+    
+    const fallbackReturn = normalizeReturnTarget(req, determineAbsoluteReturnUrl(req)) || '/';
+    const fallbackTarget = buildLoginRedirectTarget(cvaLoginUrl, fallbackReturn);
+    return res.redirect(fallbackTarget);
+  }
 });
 
 // Login page
 app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/login.html'));
+  // If user is already authenticated, redirect to destination instead of re-authenticating
+  if (isUserAuthenticated(req)) {
+    const destination = req.query.next || req.session?.returnTo || '/';
+    logger.info(`User already authenticated, redirecting to: ${destination}`);
+    return res.redirect(destination);
+  }
+
+  const candidateReturnTo = req.session?.returnTo || req.query?.returnTo || determineAbsoluteReturnUrl(req);
+  const normalizedReturnTo =
+    normalizeReturnTarget(req, candidateReturnTo) ||
+    normalizeReturnTarget(req, req.session?.returnTo) ||
+    '/';
+
+  if (req.session) {
+    req.session.returnTo = normalizedReturnTo;
+  }
+
+  const redirectTarget = buildLoginRedirectTarget(cvaLoginUrl, normalizedReturnTo);
+
+  try {
+    const parsedTarget = new URL(redirectTarget);
+    const currentHost = req.headers.host;
+    if (currentHost && parsedTarget.host === currentHost) {
+      logger.error('CVA login URL points back to CPM. Update CVA_LOGIN_PATH/CVA_BASE_URL to the CVA portal.');
+      return res.status(502).send('CVA authentication endpoint is misconfigured. Please contact an administrator.');
+    }
+  } catch (error) {
+    logger.error('Failed to validate CVA login redirect target', { error: error.message, redirectTarget });
+  }
+
+  res.redirect(redirectTarget);
+});
+
+app.get('/api/system/progress', (req, res) => {
+  res.json(progressTracker.getState());
 });
 
 // EDR metadata ingestion (post-login enhancement)
@@ -233,38 +719,106 @@ app.post('/edr/metadata', async (req, res) => {
 // EDR activity refresher: for authenticated users, refresh EDR last_activity on each request
 app.use(async (req, res, next) => {
   try {
-    if (req.session?.authenticated) {
-      const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
-      if (edrId) {
-        const validation = await edrManager.validateSession(edrId, req);
-        if (!validation.valid) {
-          // Session expired due to inactivity: teardown and redirect
-          const reason = 'Session expired due to inactivity';
-          req.session.destroy(() => {
-            res.clearCookie('connect.sid');
-            res.clearCookie('edr.sid');
-            return res.redirect('/login');
-          });
-          return; // stop pipeline
+    if (!isUserAuthenticated(req)) {
+      return next();
+    }
+
+    const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
+    if (!edrId) {
+      return next();
+    }
+
+    const validation = await edrManager.validateSession(edrId, req);
+    if (validation.valid) {
+      return next();
+    }
+
+    logger.warn('EDR validation failed during activity refresh; redirecting to CVA login', {
+      sessionId: req.sessionID,
+      edrSessionId: edrId,
+      reason: validation.reason
+    });
+
+    const edrReturnTo = normalizeReturnTarget(req, determineAbsoluteReturnUrl(req)) || '/';
+    const redirectTarget = buildLoginRedirectTarget(cvaLoginUrl, edrReturnTo);
+
+    res.clearCookie(sessionCookieName, clearSessionCookieOptions);
+    res.clearCookie('edr.sid', clearEdrCookieOptions);
+
+    if (!res.headersSent) {
+      res.redirect(redirectTarget);
+    }
+
+    if (req.session && typeof req.session.destroy === 'function') {
+      req.session.destroy((err) => {
+        if (err) {
+          logger.error('Session destroy failed during EDR validation redirect', { error: err.message });
         }
-        // If valid, validateSession already refreshed last_activity
-      }
+      });
     }
   } catch (e) {
     logger.error('EDR refresh failed', { error: e.message });
-  } finally {
-    next();
+    if (!res.headersSent) {
+      res.status(500).send('Session validation failed');
+    }
   }
 });
 
 // Root route - serve SOC dashboard (protected) - MUST be before static middleware
-app.get('/', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/soc-dashboard.html'));
+app.get('/', requireAuth, async (req, res, next) => {
+  // Prevent any caching or multiple processing
+  if (res.headersSent) {
+    console.log('[ROOT ROUTE] Headers already sent, aborting');
+    return;
+  }
+  
+  try {
+    const filePath = path.join(__dirname, '../protected/soc-dashboard.html');
+    console.log('[ROOT ROUTE] Reading file:', filePath);
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    console.log('[ROOT ROUTE] File read successfully, length:', content.length);
+    
+    if (res.headersSent) {
+      console.log('[ROOT ROUTE] Headers sent after read, aborting');
+      return;
+    }
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+    console.log('[ROOT ROUTE] Response sent successfully');
+  } catch (err) {
+    logger.error('[ROOT ROUTE] Error loading SOC dashboard:', err);
+    console.error('[ROOT ROUTE] Error details:', err.message, err.stack);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading dashboard');
+    }
+  }
 });
 
-// Legacy dashboard route
-app.get('/legacy', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+// Legacy sensor dashboard route
+app.get('/legacy', requireAuth, async (req, res, next) => {
+  if (res.headersSent) {
+    return;
+  }
+  
+  try {
+    const filePath = path.join(__dirname, '../protected/index.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    
+    if (res.headersSent) {
+      return;
+    }
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading legacy dashboard:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading dashboard');
+    }
+  }
 });
 
 // Admin console routes (protected)
@@ -281,33 +835,78 @@ app.use('/api', requireAuth, apiRoutes);
 app.get('/api/session/status', async (req, res) => {
   try {
     const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
-    const restoredFromCache = !req.session?.authenticated && !!edrId ? true : !!(req.session?.authenticated && req.session?.restoredFromCache);
+    const isSessionAuthenticated = isUserAuthenticated(req);
+    const restoredFromCache = Boolean(req.session?.restoredFromCache);
     let expiresAt = null;
     let timeLeftMs = null;
     let valid = false;
+    let validationResult = null;
+    let loginTimeIso = req.session?.loginTime ? new Date(req.session.loginTime).toISOString() : null;
+    let lastActivityIso = null;
+    let sessionStatus = null;
+    let riskScore = null;
     if (edrId) {
-      const validation = await edrManager.validateSession(edrId, req);
-      valid = validation.valid;
-      if (validation.valid) {
-        // Expiry is inactivity-based only; timer resets on activity
-        const last = new Date(validation.session.last_activity).getTime();
-        const inactivityExpiry = last + edrManager.sessionTimeout;
-        expiresAt = new Date(inactivityExpiry).toISOString();
-        timeLeftMs = Math.max(0, inactivityExpiry - Date.now());
+      validationResult = await edrManager.validateSession(edrId, req);
+      valid = validationResult.valid;
+      if (validationResult.valid) {
+        // Use the absolute expires_at timestamp from database (does not reset on activity)
+        if (validationResult.session.expires_at) {
+          expiresAt = new Date(validationResult.session.expires_at).toISOString();
+          timeLeftMs = Math.max(0, new Date(validationResult.session.expires_at).getTime() - Date.now());
+        }
+        if (validationResult.session.login_time) {
+          loginTimeIso = new Date(validationResult.session.login_time).toISOString();
+        }
+        if (validationResult.session.last_activity) {
+          lastActivityIso = new Date(validationResult.session.last_activity).toISOString();
+        }
+        sessionStatus = validationResult.session.session_status;
+        riskScore = validationResult.session.risk_score;
+        req.session.username = req.session.username || validationResult.session.username;
+        req.session.role = req.session.role || validationResult.session.user_role || resolveUserRole(validationResult.session.username);
+        req.session.edrSessionId = req.session.edrSessionId || edrId;
+        if (!req.session.loginTime && validationResult.session.login_time) {
+          req.session.loginTime = new Date(validationResult.session.login_time).getTime();
+        }
       }
     }
     res.json({
-      authenticated: !!req.session?.authenticated || valid,
-      username: req.session?.username || null,
-      role: req.session?.role || (validation.valid ? validation.session.user_role || 'user' : null),
+      authenticated: isSessionAuthenticated || valid,
+      username: req.session?.username || validationResult?.session?.username || null,
+      role: req.session?.role || (validationResult?.valid ? validationResult.session.user_role || 'user' : null),
       edrSessionId: edrId || null,
       restoredFromCache: restoredFromCache,
       expiresAt,
-      timeLeftMs
+      timeLeftMs,
+      loginTime: loginTimeIso,
+      lastActivity: lastActivityIso,
+      sessionStatus,
+      riskScore
     });
   } catch (e) {
     logger.error('Session status failed', { error: e.message });
-    res.json({ authenticated: false });
+    if (!res.headersSent) {
+      res.json({ authenticated: false });
+    }
+  }
+});
+
+app.get('/api/session/details', requireAuth, async (req, res) => {
+  try {
+    const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
+    if (!edrId) {
+      return res.status(404).json({ error: 'No active session found' });
+    }
+    const details = await edrManager.getSessionDetails(edrId);
+    if (!details) {
+      return res.status(404).json({ error: 'Session not found or expired' });
+    }
+    res.json(details);
+  } catch (e) {
+    logger.error('Failed to fetch session details', { error: e.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Unable to retrieve session details' });
+    }
   }
 });
 
@@ -317,6 +916,24 @@ app.post('/api/admin/sessions/purge', requireAuth, requireAdmin, async (req, res
     const result = await edrManager.purgeExpiredAndOldSessions();
     res.json({ success: true, ...result });
   } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.delete('/api/admin/sessions/:sessionId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { reason = 'admin_termination' } = req.body;
+    
+    const success = await edrManager.terminateSession(sessionId, reason);
+    if (success) {
+      logger.info('Admin terminated session', { sessionId, reason, adminUser: req.session.username });
+      res.json({ success: true, message: 'Session terminated successfully' });
+    } else {
+      res.status(404).json({ success: false, error: 'Session not found' });
+    }
+  } catch (e) {
+    logger.error('Failed to terminate session', { error: e.message });
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -335,6 +952,15 @@ app.get('/api/admin/sessions/stats', requireAuth, requireAdmin, async (req, res)
   }
 });
 
+// Middleware to prevent static serving of protected HTML files
+app.use((req, res, next) => {
+  const protectedFiles = ['/soc-dashboard.html', '/index.html'];
+  if (protectedFiles.includes(req.path)) {
+    return res.status(404).send('Not Found');
+  }
+  next();
+});
+
 // Static files (serve login.html and other assets publicly) - MUST be after specific routes
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -347,8 +973,12 @@ wss.on('connection', (ws, req) => {
   clients.add(ws);
   logger.info('New WebSocket client connected');
   
-  // Send initial sensor data
-  sendSensorUpdate(ws);
+  // Send initial sensor data after a short delay to ensure client is ready
+  setTimeout(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      sendSensorUpdate(ws);
+    }
+  }, 100);
   
   // Handle client messages
   ws.on('message', (message) => {
@@ -502,6 +1132,7 @@ async function gracefulShutdown(signal = 'UNKNOWN') {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('Received shutdown signal, closing server gracefully...', { signal });
+  progressTracker.update({ phase: 'shutdown', message: 'Shutting down services', ready: false });
 
   // Block new requests
   app.use((req, res, next) => {
@@ -563,38 +1194,58 @@ process.on('unhandledRejection', (reason, promise) => {
 // Start server
 async function startServer() {
   try {
+    console.log('[PRTG DEBUG] startServer() called');
+    console.log('[PRTG DEBUG] About to call logger.info()');
     logger.info('Starting PRTG Unified Dashboard...');
+    console.log('[PRTG DEBUG] About to reset progressTracker');
+    progressTracker.reset({ message: 'Bootstrapping services', percentage: 2, ready: false });
+    console.log('[PRTG DEBUG] About to test database connection');
     
     // Test database connection
     const dbConnected = await testConnection();
     if (!dbConnected) {
       logger.error('Failed to connect to database. Exiting...');
+      progressTracker.update({ phase: 'error', message: 'Database connection failed', percentage: 5, ready: false });
       process.exit(1);
     }
+    progressTracker.update({ phase: 'startup', message: 'Database connection established', percentage: 15, ready: false });
 
     if (shuttingDown) {
       logger.warn('Shutdown initiated during startup; aborting server start.');
+      progressTracker.update({ phase: 'shutdown', message: 'Startup aborted during shutdown', ready: false });
       return;
     }
     
-  // Sync session store tables before app models
+  // Ensure shared session store is ready before proceeding
     if (!shuttingDown) {
-      await sessionStore.sync();
-      logger.info('Session store synchronized');
+      try {
+        await sessionStoreReady;
+        logger.info('Session store ready for CVA auth sessions');
+        progressTracker.update({ phase: 'startup', message: 'Session store ready', percentage: 25, ready: false });
+      } catch (storeError) {
+        logger.error('Session store failed to initialize', { error: storeError?.message || storeError });
+        progressTracker.update({ phase: 'error', message: 'Session store initialization failed', percentage: 20, ready: false });
+        process.exit(1);
+      }
     }
 
   // Sync database models
     if (!shuttingDown) {
       await sequelize.sync();
       logger.info('Database models synchronized');
+      progressTracker.update({ phase: 'startup', message: 'Database models synchronized', percentage: 40, ready: false });
     }
     
     // Initialize PRTG servers in database if they don't exist
+    const totalServers = config.prtgServers.length || 1;
+    let serverIndex = 0;
     for (const serverConfig of config.prtgServers) {
       if (shuttingDown) {
         logger.warn('Shutdown initiated during server initialization; aborting.');
+        progressTracker.update({ phase: 'shutdown', message: 'Startup aborted during server initialization', ready: false });
         return;
       }
+      serverIndex += 1;
       const [server] = await PRTGServer.findOrCreate({
         where: { id: serverConfig.id },
         defaults: {
@@ -604,20 +1255,19 @@ async function startServer() {
         }
       });
       logger.info(`PRTG Server initialized: ${server.id} - ${server.url}`);
+      const serverProgress = 40 + Math.round((serverIndex / totalServers) * 15);
+      progressTracker.update({
+        phase: 'startup',
+        message: `Initialized PRTG server ${server.id}`,
+        percentage: Math.min(serverProgress, 60),
+        ready: false
+      });
     }
     
-    // Initialize and start PRTG data collector
-    const collector = new PRTGCollector();
-    if (!shuttingDown) {
-      await collector.start();
-    }
-    
-    // Store collector instance for graceful shutdown
-    global.prtgCollector = collector;
-    
-    // Start HTTP server
+    // Start HTTP server FIRST to accept connections immediately
     if (shuttingDown) {
       logger.warn('Shutdown initiated before HTTP server start; aborting listen.');
+      progressTracker.update({ phase: 'shutdown', message: 'Startup aborted before server listen', ready: false });
       return;
     }
 
@@ -625,7 +1275,32 @@ async function startServer() {
       logger.info(`PRTG Dashboard server running on port ${config.port}`);
       logger.info(`WebSocket server ready for real-time updates`);
       logger.info(`Dashboard available at: http://localhost:${config.port}`);
+      progressTracker.update({
+        phase: 'ready',
+        message: `Dashboard online on port ${config.port}`,
+        percentage: 70,
+        ready: false
+      });
     });
+    
+    // Initialize and start PRTG data collector in background (non-blocking)
+    const collector = new PRTGCollector();
+    collector.setProgressTracker(progressTracker, { start: 70, end: 95 });
+    progressTracker.update({ phase: 'collector', message: 'Starting PRTG data collector', percentage: 70, ready: false });
+    
+    // Store collector instance for graceful shutdown
+    global.prtgCollector = collector;
+    
+    // Start collector in background without blocking
+    if (!shuttingDown) {
+      collector.start().then(() => {
+        logger.info('Initial PRTG data collection complete');
+        progressTracker.update({ phase: 'collector', message: 'Initial PRTG data collected', percentage: 100, ready: true });
+      }).catch(error => {
+        logger.error('Initial PRTG data collection failed:', error);
+        progressTracker.update({ phase: 'error', message: 'Data collection failed, but server is online', percentage: 100, ready: true });
+      });
+    }
     
   } catch (error) {
     if (shuttingDown) {
@@ -633,6 +1308,7 @@ async function startServer() {
       return;
     }
     logger.error('Failed to start server:', error);
+    progressTracker.update({ phase: 'error', message: 'Server failed to start', ready: false });
     process.exit(1);
   }
 }
@@ -662,6 +1338,13 @@ app.get('/health', (req, res) => {
 module.exports = { app, server, wss, sendSensorUpdate, sendServerUpdate };
 
 // Start the server if this file is run directly
+console.log('[PRTG DEBUG] require.main:', require.main?.filename);
+console.log('[PRTG DEBUG] module:', module.filename);
+console.log('[PRTG DEBUG] require.main === module:', require.main === module);
+
 if (require.main === module) {
+  console.log('[PRTG DEBUG] Starting server...');
   startServer();
+} else {
+  console.log('[PRTG DEBUG] NOT starting server (module being required)');
 }

@@ -22,16 +22,21 @@
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 1rem;
+            gap: 1.25rem;
         }
-        header h1 {
+        .header-main {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .header-title {
             margin: 0;
             font-size: 1.8rem;
             display: flex;
             align-items: center;
             gap: 0.75rem;
         }
-        header h1 i {
+        .header-title i {
             color: #38bdf8;
         }
         header .user-chip {
@@ -40,6 +45,34 @@
             border-radius: 999px;
             border: 1px solid rgba(129, 140, 248, 0.3);
             font-size: 0.85rem;
+        }
+        nav.header-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        nav.header-nav a {
+            color: #cbd5f5;
+            text-decoration: none;
+            font-size: 0.9rem;
+            padding: 0.4rem 0.85rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.55);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.2s ease;
+        }
+        nav.header-nav a:hover {
+            color: #f1f5ff;
+            border-color: rgba(56,189,248,0.45);
+            background: rgba(56,189,248,0.18);
+        }
+        nav.header-nav a.active {
+            color: #38bdf8;
+            border-color: rgba(56,189,248,0.6);
+            background: rgba(56,189,248,0.22);
         }
         main {
             flex: 1;
@@ -127,7 +160,15 @@
 </head>
 <body>
     <header>
-        <h1><i class="fas fa-shield-halved"></i> ControlPoint Admin Console</h1>
+        <div class="header-main">
+            <h1 class="header-title"><i class="fas fa-shield-halved"></i> ControlPoint Admin Console</h1>
+            <nav class="header-nav" aria-label="Admin navigation">
+                <a href="/" class="nav-link"><i class="fas fa-home"></i> Monitoring Home</a>
+                <a href="/admin" class="nav-link active"><i class="fas fa-grip"></i> Admin Console</a>
+                <a href="/admin/sessions.html" class="nav-link"><i class="fas fa-users-gear"></i> Session Intelligence</a>
+                <a href="/admin/telemetry.html" class="nav-link"><i class="fas fa-chart-line"></i> Telemetry Overview</a>
+            </nav>
+        </div>
         <div class="user-chip" id="adminUserChip">Authenticated Administrator</div>
     </header>
     <main>

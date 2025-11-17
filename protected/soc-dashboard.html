@@ -16,40 +16,191 @@
             box-sizing: border-box;
         }
 
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.85; }
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 4px 25px rgba(0,0,0,0.6), 0 0 30px rgba(52, 152, 219, 0.2); }
+            50% { box-shadow: 0 4px 25px rgba(0,0,0,0.6), 0 0 50px rgba(52, 152, 219, 0.4); }
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f0f23, #1a1a2e, #16213e);
+            background: linear-gradient(135deg, #0f0f23, #1a1a2e, #16213e, #0f1e30);
+            background-size: 400% 400%;
+            animation: gradientShift 20s ease infinite;
             color: #ffffff;
             overflow-x: hidden;
             min-height: 100vh;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 50% 50%, rgba(52, 152, 219, 0.08) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .startup-progress-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 18, 36, 0.92);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .startup-progress-overlay.visible {
+            display: flex;
+            opacity: 1;
+        }
+
+        .startup-progress-card {
+            width: min(400px, 90vw);
+            background: linear-gradient(135deg, rgba(52, 73, 94, 0.85), rgba(44, 62, 80, 0.95));
+            border: 1px solid rgba(46, 134, 222, 0.4);
+            border-radius: 16px;
+            padding: 1.75rem;
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+            text-align: center;
+        }
+
+        .spinner-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            margin: 1.5rem 0;
+            height: 40px;
+        }
+
+        .spinner-ball {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3498db, #2ecc71);
+            animation: bounce 1.4s infinite ease-in-out both;
+            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4);
+        }
+
+        .spinner-ball:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .spinner-ball:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0) translateY(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1) translateY(-20px);
+                opacity: 1;
+            }
+        }
+
+        .startup-progress-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #eaf2ff;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .startup-progress-message {
+            font-size: 0.95rem;
+            color: #cfd9ff;
+            margin-bottom: 1.25rem;
+            min-height: 1.2rem;
+        }
+
+        .startup-progress-bar {
+            width: 100%;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 0.75rem;
+        }
+
+        .startup-progress-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(135deg, #2ecc71, #3498db);
+            border-radius: 999px;
+            transition: width 0.4s ease;
+        }
+
+        .startup-progress-percent {
+            font-size: 0.9rem;
+            color: #9ac2ff;
+            letter-spacing: 0.05em;
         }
 
         .header {
             background: linear-gradient(135deg, #1a1a2e, #16213e, #0f0f23);
+            background-size: 200% 200%;
+            animation: gradientShift 15s ease infinite;
             border-bottom: 3px solid #3498db;
             box-shadow: 0 4px 25px rgba(0,0,0,0.6);
             position: sticky;
             top: 0;
             z-index: 100;
+            animation: glow 6s ease-in-out infinite;
+        }
+            z-index: 100;
         }
 
         .header-top {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
             align-items: center;
             padding: 1rem 2rem;
+            gap: 2rem;
         }
 
         .header-brand {
             display: flex;
             align-items: center;
             gap: 1.5rem;
+            justify-self: start;
         }
 
         .controlpoint-logo {
             height: 45px;
             width: auto;
             filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2));
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        .controlpoint-logo:hover {
+            transform: scale(1.05);
+            opacity: 0.9;
         }
 
         .brand-text h1 {
@@ -64,6 +215,7 @@
             display: flex;
             align-items: center;
             gap: 1rem;
+            justify-self: end;
         }
 
         .session-expiry-flag {
@@ -560,13 +712,14 @@
             background: rgba(0,0,0,0.1);
             border-top: 1px solid rgba(255,255,255,0.1);
             border-bottom: 1px solid rgba(255,255,255,0.1);
-            height: 50px;
+            min-height: 50px;
         }
 
         .telemetry-indicators {
             display: flex;
             align-items: center;
             gap: 1.5rem;
+            flex: 0 0 auto;
         }
 
         .telemetry-item {
@@ -640,6 +793,20 @@
             display: flex;
             gap: 1rem;
             align-items: center;
+            flex: 1 1 auto;
+            justify-content: flex-end;
+            min-width: 0;
+        }
+
+        .search-box {
+            flex: 1 1 300px;
+            max-width: 400px;
+            min-width: 200px;
+        }
+
+        .filter-select {
+            flex: 0 0 auto;
+            min-width: 150px;
         }
 
         .header-status {
@@ -714,6 +881,17 @@
             color: #3498db;
         }
 
+        .nav-item.external-link {
+            background: rgba(46, 204, 113, 0.1);
+            border: 1px solid rgba(46, 204, 113, 0.3);
+        }
+
+        .nav-item.external-link:hover {
+            background: rgba(46, 204, 113, 0.2);
+            color: #2ecc71;
+            border-color: rgba(46, 204, 113, 0.5);
+        }
+
         .nav-controls {
             display: flex;
             align-items: center;
@@ -762,11 +940,19 @@
             padding: 1rem;
             max-width: 1600px;
             margin: 0 auto;
-            display: none; /* Hidden by default - shown only after authentication */
         }
 
         .main-content.authenticated {
             display: block;
+        }
+
+        .company-section {
+            background: rgba(13, 27, 42, 0.6);
+            border: 1px solid rgba(52, 152, 219, 0.2);
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+            transition: all 0.2s ease;
         }
 
         .overview-stats {
@@ -782,18 +968,61 @@
             padding: 1rem;
             text-align: center;
             border-left: 3px solid;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            transition: left 0.5s;
+        }
+
+        .stat-card:hover::before {
+            left: 100%;
         }
 
         .stat-card:hover {
-            background: rgba(52, 73, 94, 0.35);
+            background: rgba(52, 73, 94, 0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
 
-        .stat-card.total { border-left-color: #3498db; }
-        .stat-card.up { border-left-color: #27ae60; }
-        .stat-card.down { border-left-color: #e74c3c; }
-        .stat-card.warning { border-left-color: #f39c12; }
-        .stat-card.companies { border-left-color: #9b59b6; }
+        .stat-card.clickable {
+            cursor: pointer;
+        }
+
+        .stat-card.clickable:active {
+            transform: translateY(0);
+        }
+
+        .stat-card.total { 
+            border-left-color: #3498db; 
+            box-shadow: 0 0 20px rgba(52, 152, 219, 0.2);
+        }
+        .stat-card.up { 
+            border-left-color: #27ae60; 
+            box-shadow: 0 0 20px rgba(39, 174, 96, 0.2);
+        }
+        .stat-card.down { 
+            border-left-color: #e74c3c; 
+            box-shadow: 0 0 20px rgba(231, 76, 60, 0.2);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        .stat-card.warning { 
+            border-left-color: #f39c12; 
+            box-shadow: 0 0 20px rgba(243, 156, 18, 0.2);
+        }
+        .stat-card.companies { 
+            border-left-color: #9b59b6; 
+            box-shadow: 0 0 20px rgba(155, 89, 182, 0.2);
+        }
 
         .stat-number {
             font-size: 1.8rem;
@@ -814,13 +1043,52 @@
             gap: 0.5rem;
         }
 
-        .company-section {
-            background: rgba(30, 60, 114, 0.2);
-            border-radius: 8px;
-            margin-bottom: 0.75rem;
-            overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            transition: all 0.2s ease;
+        .auth-btn.authenticated {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .header-controls {
+                flex-direction: column;
+                gap: 1rem;
+                width: 100%;
+            }
+
+            .filter-controls {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .overview-stats {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+
+            .company-stats {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .devices-grid {
+                grid-template-columns: 1fr;
+                padding: 1rem;
+            }
         }
 
         .company-section:hover {
@@ -1188,57 +1456,7 @@
             transform: translateY(-1px);
         }
 
-        .auth-btn.authenticated {
-            background: linear-gradient(135deg, #27ae60, #2ecc71);
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .header {
-                flex-direction: column;
-                gap: 1rem;
-            }
-
-            .header-controls {
-                flex-direction: column;
-                gap: 1rem;
-                width: 100%;
-            }
-
-            .filter-controls {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-
-            .overview-stats {
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            }
-
-            .company-stats {
-                flex-direction: column;
-                gap: 1rem;
-            }
-
-            .devices-grid {
-                grid-template-columns: 1fr;
-                padding: 1rem;
-            }
-        }
-
-        /* Expand toggle animation */
         .expand-toggle {
-            padding: 0.25rem;
             cursor: pointer;
             transition: transform 0.2s ease;
             opacity: 0.6;
@@ -1462,11 +1680,31 @@
     </style>
 </head>
 <body>
+    <div class="startup-progress-overlay" id="startupProgressOverlay">
+        <div class="startup-progress-card">
+            <div class="startup-progress-title">
+                <i class="fas fa-server"></i>
+                Initializing Dashboard Services
+            </div>
+            <div class="spinner-container">
+                <div class="spinner-ball"></div>
+                <div class="spinner-ball"></div>
+                <div class="spinner-ball"></div>
+            </div>
+            <div class="startup-progress-message" id="startupProgressMessage">Initializing dashboard services (this may take a while, please be patient)</div>
+            <div class="startup-progress-bar">
+                <div class="startup-progress-fill" id="startupProgressFill"></div>
+            </div>
+            <div class="startup-progress-percent" id="startupProgressPercent">0%</div>
+        </div>
+    </div>
     <div class="header">
         <!-- Top Row: Logo + Title + Actions -->
         <div class="header-top">
             <div class="header-brand">
-                <img src="images/controlpoint-logo.svg" alt="ControlPoint MONITOR" class="controlpoint-logo">
+                <a href="/" style="display: flex; align-items: center; text-decoration: none;">
+                    <img src="images/controlpoint-logo.svg" alt="ControlPoint MONITOR" class="controlpoint-logo">
+                </a>
                 <div class="brand-text">
                     <h1>LANAIR Unified Monitoring</h1>
                     <div class="header-subtitle">Network Infrastructure Intelligence</div>
@@ -1478,7 +1716,7 @@
                     <div class="connection-indicator" id="connectionIndicator"></div>
                     <span id="connectionText">Connecting...</span>
                 </div>
-                <div class="session-expiry-flag" id="sessionExpiryFlag" title="Session established from cached client properties">
+                <div class="session-expiry-flag" id="sessionExpiryFlag" title="Session timer - refreshes from server every 10 minutes. Timer counts down in real-time.">
                     <i class="fas fa-hourglass-half"></i>
                     <span id="sessionExpiryText">Session: 00:00</span>
                 </div>
@@ -1607,6 +1845,11 @@
                 <i class="fas fa-file-alt"></i>
                 <span>Reports</span>
             </div>
+            <div class="nav-item external-link" onclick="window.open('https://cva.lanairgroup.com', '_blank')" style="margin-left: auto; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 2rem; cursor: pointer;" title="Go to CVE Vulnerability Analyzer (opens in new tab)">
+                <i class="fas fa-shield-alt"></i>
+                <span>CVE Analyzer</span>
+                <i class="fas fa-external-link-alt" style="font-size: 0.75rem; opacity: 0.7; margin-left: 0.25rem;"></i>
+            </div>
         </nav>
     </div>
 
@@ -1626,6 +1869,97 @@
 
     <script>
     let adminQuickOutsideHandler = null;
+
+    async function fetchSystemProgress() {
+            try {
+                const res = await fetch('/api/system/progress', { credentials: 'include' });
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (error) {
+                console.debug('Failed to fetch system progress', error);
+                return null;
+            }
+        }
+
+        async function monitorStartupProgress() {
+            const overlay = document.getElementById('startupProgressOverlay');
+            const fill = document.getElementById('startupProgressFill');
+            const messageEl = document.getElementById('startupProgressMessage');
+            const percentEl = document.getElementById('startupProgressPercent');
+            if (!overlay || !fill || !messageEl || !percentEl) {
+                return;
+            }
+
+            const showOverlay = () => {
+                if (!overlay.classList.contains('visible')) {
+                    overlay.style.display = 'flex';
+                    requestAnimationFrame(() => overlay.classList.add('visible'));
+                }
+            };
+
+            const hideOverlay = () => {
+                if (overlay.classList.contains('visible')) {
+                    overlay.classList.remove('visible');
+                    setTimeout(() => {
+                        if (!overlay.classList.contains('visible')) {
+                            overlay.style.display = 'none';
+                        }
+                    }, 350);
+                }
+            };
+
+            let consecutiveReady = 0;
+
+            const applyState = (state) => {
+                const rawPercent = typeof state?.percentage === 'number' ? state.percentage : 0;
+                const percent = Math.max(0, Math.min(100, Math.round(rawPercent)));
+                fill.style.width = `${percent}%`;
+                percentEl.textContent = `${percent}%`;
+                if (state?.message) {
+                    messageEl.textContent = state.message;
+                }
+
+                const shouldHide = state?.ready === true || percent >= 100;
+                if (shouldHide) {
+                    hideOverlay();
+                } else {
+                    showOverlay();
+                }
+
+                if (shouldHide) {
+                    consecutiveReady += 1;
+                } else {
+                    consecutiveReady = 0;
+                }
+
+                return consecutiveReady >= 2;
+            };
+
+            const poll = async () => {
+                const state = await fetchSystemProgress();
+                if (!state) {
+                    showOverlay();
+                    messageEl.textContent = 'Waiting for backend warm-up…';
+                    fill.style.width = '0%';
+                    percentEl.textContent = '0%';
+                    consecutiveReady = 0;
+                    return false;
+                }
+                return applyState(state);
+            };
+
+            const initialComplete = await poll();
+            if (initialComplete) {
+                return;
+            }
+
+            const intervalId = setInterval(async () => {
+                const complete = await poll();
+                if (complete) {
+                    clearInterval(intervalId);
+                }
+            }, 4000);
+        }
 
     function setAdminMenuVisibility(isAdmin) {
             const separator = document.getElementById('adminMenuSeparator');
@@ -1662,9 +1996,8 @@
                 if (!res.ok) return null;
                 const data = await res.json();
                 applySessionContext({ username: data.username, role: data.role });
-                if (window.securityManager) {
-                    if (data.role) window.securityManager.setRole(data.role);
-                    if (data.edrSessionId) window.securityManager.setSessionId(data.edrSessionId);
+                if (window.securityManager && data.authenticated && typeof window.securityManager.applyServerSession === 'function') {
+                    window.securityManager.applyServerSession(data);
                 }
                 return data;
             } catch (error) {
@@ -1744,30 +2077,111 @@
         // Enterprise Security Manager
         class SecurityManager {
             constructor() {
-                this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
-                this.sessionWarningTime = 5 * 60 * 1000; // 5 minutes before timeout
+                this.sessionTimeout = 30 * 60 * 1000; // default fallback
+                this.sessionWarningTime = 5 * 60 * 1000; // warn 5 minutes before expiry by default
                 this.sessionTimer = null;
                 this.warningTimer = null;
                 this.currentUser = null;
                 this.loginTime = null;
                 this.lastActivity = Date.now();
                 this.isLocked = false;
+                this.sessionExpiry = null;
+                this.activityTrackingBound = false;
                 
-                this.initializeSession();
+                this.initializeSessionPromise = this.initializeSession();
             }
 
-            initializeSession() {
+            async initializeSession() {
+                const serverSession = await this.syncWithServer();
+                if (serverSession) {
+                    this.ensureActivityTracking();
+                    return;
+                }
+
                 const stored = this.getStoredSession();
-                if (stored) {
-                    if (this.isValidSession(stored)) {
-                        this.restoreSession(stored);
-                    } else {
-                        this.clearSession();
+                if (stored && this.isValidSession(stored)) {
+                    this.restoreSession(stored);
+                    this.ensureActivityTracking();
+                    return;
+                }
+
+                this.clearSession();
+                this.requireAuthentication();
+            }
+
+            ensureActivityTracking() {
+                if (!this.activityTrackingBound) {
+                    this.setupActivityTracking();
+                    this.activityTrackingBound = true;
+                }
+            }
+
+            async syncWithServer() {
+                try {
+                    const response = await fetch('/api/session/status', { credentials: 'include' });
+                    if (!response.ok) return null;
+                    const data = await response.json();
+                    if (data && data.authenticated) {
+                        this.applyServerSession(data);
+                        return data;
+                    }
+                } catch (error) {
+                    console.debug('Server session sync failed:', error);
+                }
+                return null;
+            }
+
+            applyServerSession(data) {
+                if (!data || !data.authenticated) return;
+                const normalizedRole = (data.role || 'user').toLowerCase();
+                const loginTime = data.loginTime ? Date.parse(data.loginTime) : Date.now();
+                const timeLeftMs = typeof data.timeLeftMs === 'number' ? data.timeLeftMs : null;
+                const sessionExpiry = timeLeftMs !== null ? Date.now() + timeLeftMs : null;
+
+                const sessionData = {
+                    username: data.username || 'User',
+                    role: normalizedRole,
+                    sessionId: data.edrSessionId || null,
+                    loginTime,
+                    expiry: sessionExpiry
+                };
+
+                this.currentUser = sessionData;
+                this.loginTime = loginTime;
+                this.sessionExpiry = sessionExpiry;
+                this.saveSession(sessionData);
+                this.updateUserDisplay();
+                this.startSessionTimerFromServer(timeLeftMs);
+
+                const mainContent = document.querySelector('.main-content');
+                if (mainContent) {
+                    mainContent.style.display = 'block';
+                }
+            }
+
+            startSessionTimerFromServer(timeLeftMs) {
+                if (typeof timeLeftMs === 'number' && timeLeftMs > 0) {
+                    this.sessionTimeout = timeLeftMs;
+                    const defaultWarning = 5 * 60 * 1000;
+                    const calculatedWarning = Math.min(defaultWarning, Math.max(Math.floor(timeLeftMs * 0.1), 60 * 1000));
+                    this.sessionWarningTime = timeLeftMs > defaultWarning ? defaultWarning : calculatedWarning;
+                    if (this.sessionWarningTime >= this.sessionTimeout) {
+                        this.sessionWarningTime = Math.max(Math.floor(this.sessionTimeout / 3), 60 * 1000);
+                    }
+                } else if (this.sessionExpiry) {
+                    const remaining = this.sessionExpiry - Date.now();
+                    if (remaining > 0) {
+                        this.sessionTimeout = remaining;
                     }
                 }
 
-                // Track user activity
-                this.setupActivityTracking();
+                this.startSessionTimer();
+            }
+
+            redirectToLogin(targetUrl = null) {
+                const fallback = '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+                const destination = (typeof targetUrl === 'string' && targetUrl.length > 0) ? targetUrl : fallback;
+                window.location.href = destination;
             }
 
             setupActivityTracking() {
@@ -1812,32 +2226,88 @@
 
             logout() {
                 try {
-                    this.showLogoutConfirm();
+                    // Force logout immediately without confirmation
+                    this.forceLogout('User logged out');
                 } catch (error) {
                     console.error('Error in logout():', error);
-                    // Fallback: show simple confirm dialog
-                    if (confirm('Are you sure you want to logout?')) {
-                        this.forceLogout('User logged out');
-                    }
+                    // Fallback: force logout
+                    this.forceLogout('User logged out');
                 }
             }
 
             async forceLogout(reason = 'Session expired') {
+                console.log('🚪 LOGOUT INITIATED:', reason);
+                
+                // Show loading spinner immediately
+                const spinner = document.createElement('div');
+                spinner.innerHTML = `
+                    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+                                background: rgba(0,0,0,0.7); z-index: 999999; 
+                                display: flex; align-items: center; justify-content: center;">
+                        <div style="background: white; padding: 2rem; border-radius: 8px; text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 1rem;">🚪</div>
+                            <div style="font-size: 18px; font-weight: bold; color: #333;">Logging out...</div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(spinner.firstElementChild);
+                
+                let redirectTarget = null;
+                let logoutSuccess = false;
+                
                 try {
-                    // Notify backend about logout
-                    const sessionData = this.getStoredSession();
-                    if (sessionData && sessionData.sessionId) {
-                        await fetch('/api/sessions/logout', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sessionId: sessionData.sessionId })
-                        }).catch(err => console.warn('Backend logout failed:', err));
+                    console.log('📡 Sending logout request to backend...');
+                    const response = await fetch('/logout', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    console.log('📡 Logout response status:', response.status);
+
+                    if (response) {
+                        if (response.ok) {
+                            logoutSuccess = true;
+                            const contentType = response.headers.get('content-type') || '';
+                            if (contentType.includes('application/json')) {
+                                try {
+                                    const payload = await response.json();
+                                    console.log('✅ Logout response:', payload);
+                                    if (payload?.redirect) {
+                                        redirectTarget = payload.redirect;
+                                    }
+                                } catch (parseError) {
+                                    console.warn('⚠️ Logout response parse failed', parseError);
+                                }
+                            } else if (response.redirected && response.url) {
+                                redirectTarget = response.url;
+                            }
+                        } else {
+                            console.error('❌ Logout failed with status:', response.status);
+                            if (response.status >= 300 && response.status < 400 && response.url) {
+                                redirectTarget = response.url;
+                            }
+                        }
                     }
                 } catch (error) {
-                    console.warn('Error notifying backend of logout:', error);
+                    console.error('❌ Error during logout request:', error);
                 }
-                
+
+                // Clear cookies client-side as well
+                console.log('🍪 Clearing client-side cookies...');
+                document.cookie.split(";").forEach(function(c) { 
+                    const cookieName = c.trim().split("=")[0];
+                    if (cookieName === 'connect.sid' || cookieName === 'edr.sid') {
+                        document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                        console.log('🍪 Cleared cookie:', cookieName);
+                    }
+                });
+
                 // Clear all session data
+                console.log('🗑️ Clearing session data...');
                 this.clearSession();
                 
                 // Clear authentication manager
@@ -1855,34 +2325,23 @@
                 const mainContent = document.querySelector('.main-content');
                 if (mainContent) mainContent.style.display = 'none';
                 
+                console.log('✅ Logout complete, redirecting...');
                 // Show brief goodbye message then redirect to login
-                this.showBriefGoodbyeThenLogin(reason);
+                this.showBriefGoodbyeThenLogin(reason, redirectTarget);
             }
 
             async validateSessionWithBackend() {
                 try {
-                    const sessionData = this.getStoredSession();
-                    if (!sessionData || !sessionData.sessionId) {
-                        return { valid: false, reason: 'No session found' };
+                    const response = await fetch('/api/session/status', { credentials: 'include' });
+                    if (!response.ok) {
+                        return { valid: false, reason: 'Status request failed' };
                     }
-
-                    const response = await fetch('/api/sessions/validate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sessionId: sessionData.sessionId })
-                    });
-
-                    if (response.ok) {
-                        const result = await response.json();
-                        if (result.valid) {
-                            // Update activity timestamp
-                            sessionData.lastActivity = Date.now();
-                            this.saveSession(sessionData);
-                            return result;
-                        }
+                    const data = await response.json();
+                    if (data && data.authenticated) {
+                        this.applyServerSession(data);
+                        return { valid: true, data };
                     }
-                    
-                    return { valid: false, reason: 'Backend validation failed' };
+                    return { valid: false, reason: 'Session not authenticated' };
                 } catch (error) {
                     console.error('Backend session validation error:', error);
                     return { valid: false, reason: 'Validation error' };
@@ -1891,17 +2350,11 @@
 
             async getSessionInfo() {
                 try {
-                    const sessionData = this.getStoredSession();
-                    if (!sessionData || !sessionData.sessionId) {
-                        throw new Error('No active session');
-                    }
-
-                    const response = await fetch(`/api/sessions/${sessionData.sessionId}`);
-                    if (response.ok) {
-                        return await response.json();
-                    } else {
+                    const response = await fetch('/api/session/details', { credentials: 'include' });
+                    if (!response.ok) {
                         throw new Error('Failed to fetch session info');
                     }
+                    return await response.json();
                 } catch (error) {
                     console.error('Failed to get session info:', error);
                     throw error;
@@ -1913,10 +2366,7 @@
                 const modals = document.querySelectorAll('.security-modal');
                 modals.forEach(modal => modal.remove());
                 
-                // Show authentication screen
-                if (window.dashboard) {
-                    window.dashboard.showAuthenticationScreen();
-                }
+                this.redirectToLogin();
             }
 
             clearSession() {
@@ -1942,6 +2392,13 @@
                 };
                 this.currentUser = normalized;
                 this.loginTime = normalized.loginTime;
+                this.sessionExpiry = normalized.expiry || null;
+                if (this.sessionExpiry) {
+                    const remaining = this.sessionExpiry - Date.now();
+                    if (remaining > 0) {
+                        this.sessionTimeout = remaining;
+                    }
+                }
                 this.saveSession(normalized);
                 this.updateUserDisplay();
                 this.startSessionTimer();
@@ -1952,15 +2409,23 @@
                 if (this.sessionTimer) clearTimeout(this.sessionTimer);
                 if (this.warningTimer) clearTimeout(this.warningTimer);
 
-                // Set warning timer
-                this.warningTimer = setTimeout(() => {
-                    this.showSessionWarning();
-                }, this.sessionTimeout - this.sessionWarningTime);
+                const timeoutMs = Math.max(0, this.sessionTimeout || 0);
+                if (timeoutMs === 0) {
+                    return;
+                }
 
-                // Set session expiry timer
+                const warningLead = Math.max(0, Math.min(this.sessionWarningTime, timeoutMs));
+                const warningDelay = Math.max(0, timeoutMs - warningLead);
+
+                if (warningDelay > 0) {
+                    this.warningTimer = setTimeout(() => {
+                        this.showSessionWarning();
+                    }, warningDelay);
+                }
+
                 this.sessionTimer = setTimeout(() => {
                     this.forceLogout('Session timeout');
-                }, this.sessionTimeout);
+                }, timeoutMs);
             }
 
             resetSessionTimer() {
@@ -2051,7 +2516,11 @@
 
             extendSession() {
                 this.lastActivity = Date.now();
-                this.resetSessionTimer();
+                this.syncWithServer().then((data) => {
+                    if (!data) {
+                        this.resetSessionTimer();
+                    }
+                });
             }
 
             showLogoutConfirm() {
@@ -2153,7 +2622,7 @@
                 }
             }
 
-            showBriefGoodbyeThenLogin(reason = 'Logout successful') {
+            showBriefGoodbyeThenLogin(reason = 'Logout successful', redirectUrl = null) {
                 // Show a brief success message
                 const modal = this.createModal('Logged Out', `
                     <div style="text-align: center; padding: 1.5rem;">
@@ -2166,7 +2635,7 @@
                 
                 // Auto-redirect to login after 2 seconds
                 setTimeout(() => {
-                    this.returnToLogin();
+                    this.redirectToLogin(redirectUrl);
                 }, 2000);
             }
 
@@ -2207,14 +2676,31 @@
                 this.reconnectAttempts = 0;
                 this.maxReconnectAttempts = 5;
                 this.reconnectInterval = 5000;
+                this.isLoading = false; // Prevent concurrent data loads
+                this.initialLoadComplete = false; // Prevent triggers before initial load finishes
                 this.webSocketDisabled = false;
                 this.authManager = new AuthManager();
+                this.dataLoaded = false;
 
                 this.init();
             }
 
             async init() {
+                // Show loading state immediately
+                this.showInitialLoadingState();
+                
                 this.setupEventListeners();
+
+                // Small delay to ensure cookies are fully processed after cross-domain navigation
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                if (window.securityManager?.initializeSessionPromise) {
+                    try {
+                        await window.securityManager.initializeSessionPromise;
+                    } catch (error) {
+                        console.debug('Security manager failed to initialize before dashboard boot', error);
+                    }
+                }
                 
                 // Check if authentication is needed and prompt if necessary
                 await this.initializeAuthentication();
@@ -2222,58 +2708,105 @@
                 // Only connect WebSocket after authentication is verified
                 this.connectWebSocket();
                 
+                // Wait for data to fully load before showing
                 await this.loadData();
+                this.dataLoaded = true;
+                this.initialLoadComplete = true; // Mark initial load as complete
                 this.startAutoRefresh();
             }
             
-            async initializeAuthentication() {
-                // Check for existing valid session
-                const storedSession = window.securityManager?.getStoredSession?.() || null;
-                if (storedSession) {
-                    try {
-                        if (this.isValidSession(storedSession) && storedSession.password) {
-                            console.debug('Restoring session for:', storedSession.username);
-
-                            this.authManager.setCredentials(storedSession.username, storedSession.password);
-                            window.securityManager.restoreSession(storedSession);
-
-                            try {
-                                const testResponse = await this.authManager.authenticatedFetch('/api/devices/enhanced?limit=1');
-                                if (testResponse.ok) {
-                                    console.debug('Valid session restored - authenticated access granted');
-
-                                    const mainContent = document.querySelector('.main-content');
-                                    if (mainContent) {
-                                        mainContent.style.display = 'block';
-                                        mainContent.classList.add('authenticated');
-                                    }
-
-                                    this.updateAuthButtonState(true);
-                                    this.updateConnectionStatus('connected', 'Authenticated & Connected');
-
-                                    await this.loadData();
-                                    await syncSessionContext();
-                                    return;
-                                }
-                                console.debug('Session validation failed - credentials may be invalid');
-                            } catch (error) {
-                                console.debug('Session validation error:', error);
-                            }
-                        }
-                    } catch (error) {
-                        console.debug('Session restoration failed:', error);
-                    }
+            showInitialLoadingState() {
+                const companiesGrid = document.getElementById('companiesGrid');
+                if (companiesGrid) {
+                    companiesGrid.innerHTML = `
+                        <div class="loading" style="padding: 4rem; text-align: center;">
+                            <div style="margin-bottom: 1.5rem;">
+                                <i class="fas fa-spinner fa-pulse" style="font-size: 3rem; color: #3498db;"></i>
+                            </div>
+                            <div style="font-size: 1.2rem; color: #bdc3c7; margin-bottom: 0.5rem;">
+                                Loading Network Infrastructure...
+                            </div>
+                            <div style="font-size: 0.9rem; color: #7f8c8d;">
+                                Retrieving devices from all locations
+                            </div>
+                        </div>
+                    `;
                 }
                 
-                // No valid session or validation failed - require authentication
+                const overviewStats = document.getElementById('overviewStats');
+                if (overviewStats) {
+                    overviewStats.innerHTML = `
+                        <div class="stat-card total" style="grid-column: 1 / -1;">
+                            <div class="stat-number"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="stat-label">Initializing dashboard services (this may take a while, please be patient)</div>
+                        </div>
+                    `;
+                }
+            }
+            
+            async initializeAuthentication() {
+                try {
+                    const securityManager = window.securityManager;
+
+                    if (securityManager?.initializeSessionPromise) {
+                        await securityManager.initializeSessionPromise.catch(error => {
+                            console.debug('Security manager initialization reported an error', error);
+                        });
+                    }
+
+                    const status = await syncSessionContext();
+                    const serverAuthenticated = status?.authenticated === true;
+
+                    const storedSession = securityManager?.currentUser || securityManager?.getStoredSession?.();
+                    const storedValid = storedSession && securityManager?.isValidSession?.(storedSession);
+
+                    if (serverAuthenticated) {
+                        this.handleAuthenticatedState({ username: status?.username, role: status?.role });
+                        return;
+                    }
+
+                    if (storedValid) {
+                        try {
+                            // Add 5-second timeout for validation to prevent hanging on first portal switch
+                            const timeoutPromise = new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Validation timeout')), 5000)
+                            );
+                            const fetchPromise = this.authManager.authenticatedFetch('/api/devices/enhanced?limit=1');
+                            const validationResponse = await Promise.race([fetchPromise, timeoutPromise]);
+                            
+                            if (validationResponse?.ok) {
+                                securityManager.restoreSession?.(storedSession);
+                                this.handleAuthenticatedState({ username: storedSession.username, role: storedSession.role });
+                                return;
+                            }
+                            console.debug('Stored session validation failed with status', validationResponse?.status);
+                        } catch (error) {
+                            console.debug('Stored session validation error', error);
+                        }
+                    }
+                } catch (error) {
+                    console.debug('Authentication initialisation encountered an error', error);
+                }
+
+                // No valid session present - force login
                 this.requireAuthentication();
             }
 
-            isValidSession(session) {
-                const now = Date.now();
-                const sessionAge = now - session.loginTime;
-                const maxAge = 30 * 60 * 1000; // 30 minutes
-                return sessionAge < maxAge && session.username && session.loginTime;
+            handleAuthenticatedState(sessionInfo = {}) {
+                this.updateAuthButtonState(true);
+                this.showMainContent();
+                if (sessionInfo.username || sessionInfo.role) {
+                    applySessionContext(sessionInfo);
+                }
+                this.updateConnectionStatus('connected', 'Authenticated & Connected');
+            }
+
+            showMainContent() {
+                const mainContent = document.querySelector('.main-content');
+                if (mainContent) {
+                    mainContent.style.display = 'block';
+                    mainContent.classList.add('authenticated');
+                }
             }
 
             requireAuthentication() {
@@ -2281,161 +2814,16 @@
                 const mainContent = document.querySelector('.main-content');
                 if (mainContent) mainContent.style.display = 'none';
                 
-                // Show authentication required screen
-                this.showAuthenticationScreen();
+                // Redirect to centralized login experience
+                this.redirectToLogin();
             }
             
             showAuthenticationScreen() {
-                // Create full-screen authentication overlay
-                const authScreen = document.createElement('div');
-                authScreen.id = 'authenticationScreen';
-                authScreen.className = 'authentication-screen';
-                
-                authScreen.innerHTML = `
-                    <div class="auth-container">
-                        <div class="auth-header">
-                            <img src="images/controlpoint-logo.svg" alt="ControlPoint MONITOR" class="auth-logo">
-                            <h1>LANAIR Unified Monitoring</h1>
-                            <p>Secure Access Required</p>
-                        </div>
-                        
-                        <div class="auth-form-container">
-                            <form id="loginForm" class="auth-form">
-                                <h2>Sign In</h2>
-                                <p class="auth-description">Enter your credentials to access the monitoring dashboard</p>
-                                
-                                <div class="auth-field">
-                                    <label for="authUsername">Username</label>
-                                    <input type="text" id="authUsername" name="username" required 
-                                           placeholder="Enter your username" autocomplete="username">
-                                </div>
-                                
-                                <div class="auth-field">
-                                    <label for="authPassword">Password</label>
-                                    <input type="password" id="authPassword" name="password" required 
-                                           placeholder="Enter your password" autocomplete="current-password">
-                                </div>
-                                
-                                <div class="auth-options">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" id="rememberSession">
-                                        <span class="checkmark"></span>
-                                        Keep me signed in (30 days)
-                                    </label>
-                                </div>
-                                
-                                <div class="auth-help-text">
-                                    <p><i class="fas fa-info-circle"></i> Use your PRTG credentials to access the monitoring dashboard</p>
-                                </div>
-                                
-                                <button type="submit" class="auth-submit-btn" id="loginButton">
-                                    <i class="fas fa-sign-in-alt"></i>
-                                    Sign In
-                                </button>
-                                
-                                <div class="auth-error" id="authError" style="display: none;"></div>
-                            </form>
-                        </div>
-                        
-                        <div class="auth-footer">
-                            <p>&copy; 2025 LANAIR Group, LLC. All Rights Reserved.</p>
-                            <div class="auth-security-badges">
-                                <span class="security-badge">🔒 Enterprise Security</span>
-                                <span class="security-badge">🛡️ SOC 2 Certified</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                document.body.appendChild(authScreen);
-                
-                // Handle form submission
-                document.getElementById('loginForm').addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.handleAuthentication();
-                });
-                
-                // Focus username field
-                document.getElementById('authUsername').focus();
+                this.redirectToLogin();
             }
 
             async handleAuthentication() {
-                const username = document.getElementById('authUsername').value;
-                const password = document.getElementById('authPassword').value;
-                const rememberSession = document.getElementById('rememberSession').checked;
-                const loginButton = document.getElementById('loginButton');
-                const authError = document.getElementById('authError');
-                
-                if (!username || !password) {
-                    this.showAuthError('Please enter both username and password.');
-                    return;
-                }
-                
-                // Show loading state
-                loginButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing In...';
-                loginButton.disabled = true;
-                authError.style.display = 'none';
-                
-                try {
-                    const loginResponse = await fetch('/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, password }),
-                        credentials: 'include'
-                    });
-                    
-                    const result = await loginResponse.json();
-                    
-                    if (loginResponse.ok && result.success) {
-                        console.info('Authentication successful');
-                        
-                        // Set credentials in auth manager
-                        this.authManager.setCredentials(username, password);
-                        
-                        // Initialize security session
-                        if (window.securityManager) {
-                            window.securityManager.login(username, password, { remember: rememberSession });
-                        }
-                        
-                        // Remove authentication screen
-                        const authScreen = document.getElementById('authenticationScreen');
-                        if (authScreen) {
-                            authScreen.remove();
-                        }
-                        
-                        // Show main content and mark as authenticated
-                        const mainContent = document.querySelector('.main-content');
-                        if (mainContent) {
-                            mainContent.style.display = 'block';
-                            mainContent.classList.add('authenticated');
-                        }
-                        
-                        this.updateAuthButtonState(true);
-                        
-                        // Update connection status to show authentication success
-                        // Update status to show authentication and data loading
-                        this.updateConnectionStatus('connected', 'Loading dashboard data...');
-                        
-                        // Load dashboard data with authenticated access
-                        await this.loadData();
-                        await syncSessionContext();
-                        
-                        // Update final status
-                        this.updateConnectionStatus('connected', 'Connected & Authenticated');
-                        
-                        return true;
-                    } else {
-                        this.showAuthError(result.message || 'Invalid credentials. Please try again.');
-                    }
-                } catch (error) {
-                    console.error('Authentication error:', error);
-                    this.showAuthError('Authentication failed. Please check your connection and try again.');
-                } finally {
-                    // Restore button state
-                    loginButton.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
-                    loginButton.disabled = false;
-                }
-                
+                this.redirectToLogin();
                 return false;
             }
 
@@ -2594,6 +2982,24 @@
                 }, 5000);
             }
 
+            filterByStatus(status) {
+                // Update the status filter dropdown
+                const statusFilter = document.getElementById('statusFilter');
+                if (statusFilter) {
+                    statusFilter.value = status;
+                }
+                
+                // Apply the filter
+                this.filters.status = status;
+                this.applyFilters();
+                
+                // Scroll to the device list
+                const companiesList = document.getElementById('companiesList');
+                if (companiesList) {
+                    companiesList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+
             setupEventListeners() {
                 document.getElementById('searchBox').addEventListener('input', (e) => {
                     this.filters.search = e.target.value.toLowerCase();
@@ -2612,50 +3018,143 @@
             }
 
             async loadData() {
+                // Prevent concurrent data loads
+                if (this.isLoading) {
+                    console.log('⚠️ Data load already in progress, skipping duplicate request');
+                    // Hide any stale progress indicators
+                    this.hideLoadingProgress();
+                    return;
+                }
+                
+                this.isLoading = true;
+                let retryCount = 0;
+                const maxRetries = 5;
+                
                 try {
-                    // Load all devices with pagination
-                    this.devices = await this.loadAllDevices();
-                    
-                    this.processCompanyData();
-                    this.updateOverviewStats();
-                    this.renderCompanies();
-                    this.populateCompanyFilter();
-                    this.updateConnectionStatus(true);
-                    this.updateLastUpdateTime();
-                    
-                } catch (error) {
-                    console.error('Error loading data:', error);
-                    this.updateConnectionStatus(false);
-                    this.showErrorMessage('Failed to load dashboard data');
+                    while (retryCount < maxRetries) {
+                        try {
+                            // Show loading progress
+                            if (retryCount === 0) {
+                                this.showLoadingProgress(0, 'Starting device data retrieval...');
+                            } else {
+                                this.showLoadingProgress(0, `Retry attempt ${retryCount}/${maxRetries}...`);
+                            }
+                            
+                            // Load all devices with pagination - WAIT for completion
+                            const loadedDevices = await this.loadAllDevices();
+                            
+                            // Ensure we have devices before proceeding
+                            if (!loadedDevices || loadedDevices.length === 0) {
+                                console.warn(`No devices loaded on attempt ${retryCount + 1}, retrying...`);
+                                retryCount++;
+                                
+                                if (retryCount < maxRetries) {
+                                    this.showLoadingProgress(10, `No devices loaded, retrying in 3 seconds... (${retryCount}/${maxRetries})`);
+                                    await new Promise(resolve => setTimeout(resolve, 3000));
+                                    continue;
+                                } else {
+                                    throw new Error('Failed to load devices after maximum retries');
+                                }
+                            }
+                            
+                            // Only update devices array after successful load
+                            this.devices = loadedDevices;
+                            console.log(`✅ Data load complete: ${this.devices.length} devices ready`);
+                            
+                            // Process and render data only after devices are loaded
+                            this.showLoadingProgress(85, 'Processing company data...');
+                            this.processCompanyData();
+                            
+                            this.showLoadingProgress(90, 'Rendering dashboard...');
+                            this.updateOverviewStats();
+                            this.renderCompanies();
+                            this.populateCompanyFilter();
+                            
+                            this.showLoadingProgress(100, 'Complete!');
+                            
+                            // Wait 500ms before hiding to show success
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            this.hideLoadingProgress();
+                            
+                            // Clear any retry messages and show normal connected status
+                            this.updateConnectionStatus(true, 'Connected');
+                            this.updateLastUpdateTime();
+                            
+                            // Success - break out of retry loop
+                            break;
+                        
+                        } catch (error) {
+                            console.error(`Error loading data (attempt ${retryCount + 1}):`, error);
+                            retryCount++;
+                            
+                            if (retryCount < maxRetries) {
+                                this.showLoadingProgress(10, `Connection error, retrying in 3 seconds... (${retryCount}/${maxRetries})`);
+                                await new Promise(resolve => setTimeout(resolve, 3000));
+                            } else {
+                                // Final failure after all retries - only clear if we have no existing data
+                                if (!this.devices || this.devices.length === 0) {
+                                    this.showLoadingProgress(0, '❌ Failed to load devices after multiple attempts');
+                                    await new Promise(resolve => setTimeout(resolve, 2000));
+                                    this.hideLoadingProgress();
+                                    this.updateConnectionStatus(false);
+                                    this.showErrorMessage('Failed to load dashboard data after multiple attempts. Please refresh the page.');
+                                } else {
+                                    // Keep existing data visible if we already have devices loaded
+                                    console.warn('⚠️ Refresh failed but keeping existing data visible');
+                                    this.hideLoadingProgress();
+                                    this.updateConnectionStatus(true);
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    // Always release the loading lock
+                    this.isLoading = false;
                 }
             }
 
             async loadAllDevices() {
                 try {
+                    this.showLoadingProgress(5, 'Connecting to device API...');
+                    
+                    // Create timeout promise (30 seconds)
+                    const timeout = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('API request timeout')), 30000)
+                    );
+                    
                     // First, try to get all devices at once with authentication if available
-                    const allDevicesResponse = await this.authManager.authenticatedFetch('/api/devices/enhanced?all=true');
+                    const fetchPromise = this.authManager.authenticatedFetch('/api/devices/enhanced?all=true');
+                    const allDevicesResponse = await Promise.race([fetchPromise, timeout]);
+                    
                     if (allDevicesResponse.ok) {
                         const responseData = await allDevicesResponse.json();
                         if (this.reconnectAttempts === 0) {
-                            console.log(`Loaded ${responseData.devices.length} devices (authenticated)`);
+                            console.log(`✅ Loaded ${responseData.devices.length} devices in single request (authenticated)`);
                         }
+                        this.showLoadingProgress(80, `Loaded ${responseData.devices.length} devices`);
                         return responseData.devices;
                     } else if (allDevicesResponse.status === 401) {
+                        this.showLoadingProgress(10, 'Authentication required, trying fallback...');
                         // Fall back to unauthenticated call
-                        const fallbackResponse = await fetch('/api/devices/enhanced?all=true');
+                        const fallbackPromise = fetch('/api/devices/enhanced?all=true');
+                        const fallbackResponse = await Promise.race([fallbackPromise, timeout]);
+                        
                         if (fallbackResponse.ok) {
                             const responseData = await fallbackResponse.json();
                             if (this.reconnectAttempts === 0) {
-                                console.log(`Loaded ${responseData.devices.length} devices (unauthenticated)`);
+                                console.log(`✅ Loaded ${responseData.devices.length} devices in single request (unauthenticated)`);
                             }
+                            this.showLoadingProgress(80, `Loaded ${responseData.devices.length} devices`);
                             return responseData.devices;
                         }
                     }
                 } catch (error) {
-                    console.debug('Using pagination for device loading');
+                    console.warn('Single request failed or timed out, using pagination:', error.message);
+                    this.showLoadingProgress(10, 'Primary API slow, using pagination...');
                 }
 
                 // Fallback to pagination
+                this.showLoadingProgress(15, 'Using paginated device loading...');
                 return await this.loadDevicesWithPagination();
             }
 
@@ -2665,47 +3164,63 @@
                 const limit = 200; // Load in chunks of 200
                 let hasMore = true;
                 let totalExpected = null;
+                let failureCount = 0;
+                const maxFailures = 3;
 
                 // Show loading indicator
-                this.showLoadingProgress(0, 'Loading devices...');
+                this.showLoadingProgress(20, 'Loading devices in batches...');
 
-                while (hasMore) {
+                while (hasMore && failureCount < maxFailures) {
                     try {
-                        const response = await fetch(`/api/devices/enhanced?limit=${limit}&offset=${offset}`);
+                        // Add timeout per request (15 seconds)
+                        const timeout = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Request timeout')), 15000)
+                        );
+                        
+                        const fetchPromise = fetch(`/api/devices/enhanced?limit=${limit}&offset=${offset}`);
+                        const response = await Promise.race([fetchPromise, timeout]);
                         
                         if (!response.ok) {
                             // Fallback to regular devices API if enhanced fails
-                            const fallbackResponse = await fetch(`/api/devices?limit=${limit}&offset=${offset}`);
+                            const fallbackPromise = fetch(`/api/devices?limit=${limit}&offset=${offset}`);
+                            const fallbackResponse = await Promise.race([fallbackPromise, timeout]);
+                            
                             if (fallbackResponse.ok) {
                                 const devices = await fallbackResponse.json();
                                 allDevices.push(...devices);
                                 hasMore = devices.length === limit;
+                                failureCount = 0; // Reset on success
                             } else {
-                                break;
+                                console.error('Both device APIs failed, attempt', failureCount + 1);
+                                failureCount++;
+                                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+                                continue;
                             }
                         } else {
                             const responseData = await response.json();
                             const devices = responseData.devices || responseData;
                             
                             allDevices.push(...devices);
+                            failureCount = 0; // Reset on success
                             
                             // Check if we have pagination metadata
                             if (responseData.pagination) {
                                 hasMore = responseData.pagination.hasMore;
                                 totalExpected = responseData.pagination.total;
                                 
-                                // Update loading progress
-                                const progressPercent = Math.min((allDevices.length / totalExpected) * 100, 100);
+                                // Update loading progress (20% to 80% during load)
+                                const progressPercent = 20 + Math.min((allDevices.length / totalExpected) * 60, 60);
                                 this.showLoadingProgress(
                                     progressPercent, 
-                                    `Loading devices... ${allDevices.length}/${totalExpected} (${Math.round(progressPercent)}%)`
+                                    `Loading devices... ${allDevices.length}/${totalExpected} (${Math.round((allDevices.length / totalExpected) * 100)}%)`
                                 );
                                 
-                                console.debug(`Loaded ${devices.length} devices (page ${responseData.pagination.page}/${responseData.pagination.totalPages})`);
+                                console.debug(`📦 Loaded batch ${responseData.pagination.page}/${responseData.pagination.totalPages} (${devices.length} devices)`);
                             } else {
                                 // Legacy response without pagination metadata
                                 hasMore = devices.length === limit;
-                                this.showLoadingProgress(null, `Loaded ${allDevices.length} devices...`);
+                                const progressPercent = 20 + Math.min((allDevices.length / 1000) * 60, 60);
+                                this.showLoadingProgress(progressPercent, `Loaded ${allDevices.length} devices...`);
                             }
                         }
                         
@@ -2713,19 +3228,31 @@
                         
                         // Safety check to prevent infinite loops
                         if (offset > 10000) {
-                            console.warn('Reached safety limit of 10000 devices');
+                            console.warn('⚠️ Reached safety limit of 10000 devices');
                             break;
                         }
                         
                     } catch (error) {
-                        console.error('Error loading devices chunk:', error);
-                        break;
+                        console.error('Error loading devices chunk:', error.message);
+                        failureCount++;
+                        if (failureCount >= maxFailures) {
+                            console.error('❌ Maximum failures reached, stopping pagination');
+                            this.showLoadingProgress(50, `⚠️ Connection issues - loaded ${allDevices.length} devices`);
+                            break;
+                        }
+                        // Wait before retrying
+                        await new Promise(resolve => setTimeout(resolve, 2000));
                     }
                 }
 
-                // Hide loading indicator
-                this.hideLoadingProgress();
-                console.debug(`Total devices loaded: ${allDevices.length}`);
+                // Ensure we show completion
+                if (allDevices.length > 0) {
+                    this.showLoadingProgress(80, `Pagination complete: ${allDevices.length} devices loaded`);
+                    console.log(`✅ Total devices loaded via pagination: ${allDevices.length}`);
+                } else {
+                    this.showLoadingProgress(50, '⚠️ No devices loaded - check connection');
+                    console.error('❌ No devices were loaded');
+                }
                 return allDevices;
             }
 
@@ -2767,6 +3294,11 @@
             processCompanyData() {
                 this.companies.clear();
                 
+                // Debug: Log first few devices to see their structure
+                if (this.devices.length > 0) {
+                    console.log('📊 Sample device data:', this.devices.slice(0, 2));
+                }
+                
                 // Group devices by company
                 this.devices.forEach(device => {
                     // Use enhanced company data if available, otherwise extract from name
@@ -2804,8 +3336,9 @@
                     company.devices.push(enhancedDevice);
                     company.stats.total++;
                     
-                    // Update device status counts
-                    const statusKey = this.getStatusKey(device.status);
+                    // Update device status counts - use effectiveStatus if available
+                    const effectiveStatus = device.effectiveStatus || device.status;
+                    const statusKey = this.getStatusKey(effectiveStatus);
                     if (company.stats.hasOwnProperty(statusKey)) {
                         company.stats[statusKey]++;
                     }
@@ -2821,6 +3354,12 @@
                         
                         company.totalAlerts += (device.alertCount || 0);
                     }
+                });
+                
+                // Debug: Log company stats summary
+                console.log('📈 Company stats processed:');
+                this.companies.forEach((company, code) => {
+                    console.log(`  ${code}: ${company.stats.down} down, ${company.stats.warning} warning, ${company.stats.up} up (${company.sensorStats.down} sensors down, ${company.sensorStats.warning} sensors warning)`);
                 });
                 
                 // Calculate average health scores for companies
@@ -2952,14 +3491,18 @@
                 };
 
                 this.devices.forEach(device => {
-                    const statusKey = this.getStatusKey(device.status);
+                    // Use effectiveStatus if available (reflects sensor states)
+                    const effectiveStatus = device.effectiveStatus || device.status;
+                    const statusKey = this.getStatusKey(effectiveStatus);
                     if (stats.hasOwnProperty(statusKey)) {
                         stats[statusKey]++;
                     }
                 });
+                
+                console.log('📊 Overview stats:', stats);
 
                 const overviewHtml = `
-                    <div class="stat-card total">
+                    <div class="stat-card total clickable" onclick="dashboard.filterByStatus('all')" title="Click to show all devices">
                         <div class="stat-number">${stats.total}</div>
                         <div class="stat-label">Total Devices</div>
                     </div>
@@ -2967,15 +3510,15 @@
                         <div class="stat-number">${stats.companies}</div>
                         <div class="stat-label">Companies</div>
                     </div>
-                    <div class="stat-card up">
+                    <div class="stat-card up clickable" onclick="dashboard.filterByStatus('up')" title="Click to show online devices">
                         <div class="stat-number">${stats.up}</div>
                         <div class="stat-label">Online</div>
                     </div>
-                    <div class="stat-card warning">
+                    <div class="stat-card warning clickable" onclick="dashboard.filterByStatus('warning')" title="Click to show warning devices">
                         <div class="stat-number">${stats.warning}</div>
                         <div class="stat-label">Warning</div>
                     </div>
-                    <div class="stat-card down">
+                    <div class="stat-card down clickable" onclick="dashboard.filterByStatus('down')" title="Click to show offline devices">
                         <div class="stat-number">${stats.down}</div>
                         <div class="stat-label">Offline</div>
                     </div>
@@ -3289,7 +3832,10 @@
 
             handleWebSocketMessage(data) {
                 if (data.type === 'dashboard_update') {
-                    this.loadData();
+                    // Only trigger load if not already loading AND initial load is complete
+                    if (!this.isLoading && this.initialLoadComplete) {
+                        this.loadData();
+                    }
                 } else if (data.type === 'device_update') {
                     this.updateDeviceData(data.device);
                 }
@@ -3350,19 +3896,52 @@
 
             startAutoRefresh() {
                 setInterval(() => {
-                    this.loadData();
+                    // Only auto-refresh if not already loading AND initial load is complete
+                    if (!this.isLoading && this.initialLoadComplete) {
+                        this.loadData();
+                    }
                 }, 60000); // Refresh every minute
             }
 
             async refreshData() {
+                // Prevent refresh if already loading
+                if (this.isLoading) {
+                    console.log('⚠️ Data load already in progress, skipping refresh');
+                    return;
+                }
+                
                 const btn = document.querySelector('.refresh-btn');
                 btn.textContent = 'Refreshing...';
                 btn.disabled = true;
                 
-                await this.loadData();
+                // Store current devices as backup
+                const backupDevices = [...this.devices];
                 
-                btn.textContent = 'Refresh';
-                btn.disabled = false;
+                // Clear existing data to force fresh load
+                this.devices = [];
+                this.companies.clear();
+                
+                // Clear the display
+                const grid = document.getElementById('companiesGrid');
+                if (grid) {
+                    grid.innerHTML = '<div class="loading">Refreshing data...</div>';
+                }
+                
+                try {
+                    // Force fresh load
+                    await this.loadData();
+                } catch (error) {
+                    console.error('Refresh failed, restoring previous data:', error);
+                    // Restore backup if refresh fails
+                    this.devices = backupDevices;
+                    if (this.devices.length > 0) {
+                        this.processCompanyData();
+                        this.renderCompanies();
+                    }
+                } finally {
+                    btn.textContent = 'Refresh';
+                    btn.disabled = false;
+                }
             }
 
             updateLastUpdateTime() {
@@ -4048,47 +4627,134 @@
             }
         }
 
-        // Session expiry polling and flag display
+        // Session expiry polling and flag display with live countdown
         (function initSessionExpiryWatcher(){
             const flag = document.getElementById('sessionExpiryFlag');
             const text = document.getElementById('sessionExpiryText');
-            let intervalId = null;
+            let serverPollInterval = null;
+            let countdownInterval = null;
+            let expiryTimestamp = null; // When the session will expire
 
             async function fetchStatus(){
                 try {
                     const res = await fetch('/api/session/status', { credentials: 'same-origin' });
                     if (!res.ok) return;
                     const data = await res.json();
-                    if (data.restoredFromCache && data.timeLeftMs != null) {
-                        // Show flag and update countdown
+                    if (data.restoredFromCache && data.expiresAt) {
+                        // Use absolute expiry time from database (does NOT reset on activity)
+                        const serverExpiryTime = new Date(data.expiresAt).getTime();
+                        
+                        // Only update if this is the first fetch OR if it's different from what we have
+                        // This ensures the timer doesn't reset on every refresh
+                        if (!expiryTimestamp || Math.abs(serverExpiryTime - expiryTimestamp) > 60000) {
+                            expiryTimestamp = serverExpiryTime;
+                            console.log('🕐 Session expiry set from database:', data.expiresAt);
+                        }
+                        
+                        // Show flag and start live countdown
                         flag.style.display = 'flex';
-                        updateCountdown(data.timeLeftMs);
-                        if (!intervalId) {
-                            intervalId = setInterval(async () => {
+                        startLiveCountdown();
+                        
+                        // Poll server every 10 minutes to sync (in case of DB updates)
+                        if (!serverPollInterval) {
+                            serverPollInterval = setInterval(async () => {
                                 try {
                                     const r = await fetch('/api/session/status', { credentials: 'same-origin' });
                                     if (!r.ok) return;
                                     const d = await r.json();
-                                    if (d.timeLeftMs != null) updateCountdown(d.timeLeftMs);
-                                } catch {}
-                            }, 30000);
+                                    if (d.expiresAt) {
+                                        const newExpiry = new Date(d.expiresAt).getTime();
+                                        // Only update if significantly different (>1 minute difference)
+                                        if (Math.abs(newExpiry - expiryTimestamp) > 60000) {
+                                            expiryTimestamp = newExpiry;
+                                            console.log('🔄 Session expiry synced from database:', d.expiresAt);
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.warn('Failed to sync session status:', e);
+                                }
+                            }, 10 * 60 * 1000); // 10 minutes
                         }
                     } else {
+                        // Hide flag and stop timers
                         flag.style.display = 'none';
-                        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+                        stopTimers();
                     }
                 } catch (e) {
                     // silent
                 }
             }
 
+            function startLiveCountdown() {
+                // Clear existing countdown if any
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                }
+                
+                // Update immediately
+                updateCountdownDisplay();
+                
+                // Then update every second
+                countdownInterval = setInterval(() => {
+                    updateCountdownDisplay();
+                }, 1000);
+            }
+
+            function updateCountdownDisplay() {
+                if (!expiryTimestamp) return;
+                
+                const timeLeftMs = Math.max(0, expiryTimestamp - Date.now());
+                const totalSec = Math.floor(timeLeftMs / 1000);
+                const hours = Math.floor(totalSec / 3600);
+                const min = Math.floor((totalSec % 3600) / 60);
+                const sec = totalSec % 60;
+                
+                // Format display based on time remaining
+                if (hours > 0) {
+                    text.textContent = `Session ends in: ${hours}h ${String(min).padStart(2,'0')}m ${String(sec).padStart(2,'0')}s`;
+                } else {
+                    text.textContent = `Time remaining: ${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+                }
+                
+                // Toggle critical styling under 5 minutes
+                if (timeLeftMs <= 5 * 60 * 1000) {
+                    flag.classList.add('critical');
+                } else {
+                    flag.classList.remove('critical');
+                }
+                
+                // If expired, redirect to login
+                if (timeLeftMs <= 0) {
+                    console.warn('⏰ Session expired, redirecting to login...');
+                    stopTimers();
+                    window.location.href = '/login?expired=1';
+                }
+            }
+
+            function stopTimers() {
+                if (serverPollInterval) {
+                    clearInterval(serverPollInterval);
+                    serverPollInterval = null;
+                }
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+                expiryTimestamp = null;
+            }
+
+            function formatTime(ms) {
+                const totalSec = Math.floor(ms / 1000);
+                const hours = Math.floor(totalSec / 3600);
+                const min = Math.floor((totalSec % 3600) / 60);
+                const sec = totalSec % 60;
+                return `${hours}h ${min}m ${sec}s`;
+            }
+
             function updateCountdown(ms){
-                const totalSec = Math.max(0, Math.floor(ms/1000));
-                const min = Math.floor(totalSec/60);
-                const sec = totalSec%60;
-                text.textContent = `Session: ${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-                // Toggle critical styling under 2 minutes
-                if (ms <= 120000) flag.classList.add('critical'); else flag.classList.remove('critical');
+                // Legacy function - now handled by startLiveCountdown
+                expiryTimestamp = Date.now() + ms;
+                startLiveCountdown();
             }
 
             // Initial check
@@ -4189,22 +4855,48 @@
         }
 
         function handleRefresh() {
-            if (window.dashboard) {
-                // Add visual feedback
-                const refreshBtn = document.querySelector('.refresh-btn');
-                if (refreshBtn) {
-                    const icon = refreshBtn.querySelector('i');
-                    if (icon) {
-                        icon.classList.add('fa-spin');
-                        setTimeout(() => icon.classList.remove('fa-spin'), 2000);
+            console.log('🔄 Refresh initiated - clearing stale data');
+            
+            // Add visual feedback
+            const refreshBtn = document.querySelector('.refresh-btn');
+            if (refreshBtn) {
+                const icon = refreshBtn.querySelector('i');
+                if (icon) {
+                    icon.classList.add('fa-spin');
+                }
+                refreshBtn.disabled = true;
+            }
+            
+            // Clear any stale cached data
+            try {
+                // Clear dashboard data
+                if (window.dashboard) {
+                    window.dashboard.devices = [];
+                    window.dashboard.companies.clear();
+                }
+                
+                // Clear localStorage cache if any
+                localStorage.removeItem('dashboardCache');
+                localStorage.removeItem('lastLoadTime');
+                
+                // Force reconnection attempt
+                if (window.dashboard && window.dashboard.ws) {
+                    try {
+                        window.dashboard.ws.close();
+                    } catch (e) {
+                        console.debug('WebSocket close error (expected):', e);
                     }
                 }
                 
-                window.dashboard.refreshData();
-            } else {
-                console.error('Dashboard not initialized');
-                window.location.reload(); // Fallback
+                console.log('✅ Stale data cleared, forcing full reload');
+            } catch (error) {
+                console.warn('Error clearing stale data:', error);
             }
+            
+            // Force a hard reload instead of soft refresh
+            setTimeout(() => {
+                window.location.reload(true);
+            }, 100);
         }
 
         function navigateToAdmin(path) {
@@ -4245,9 +4937,25 @@
 
         // Initialize dashboard when page loads
         document.addEventListener('DOMContentLoaded', async () => {
+            monitorStartupProgress().catch(error => console.debug('Startup progress monitor error:', error));
             window.securityManager = new SecurityManager();
             window.dashboard = new SOCDashboard();
             await syncSessionContext();
+            
+            // Add beforeunload handler to attempt logout when tab/window closes
+            // Note: This is best-effort, as browsers limit what can be done in this event
+            window.addEventListener('beforeunload', (e) => {
+                // Use sendBeacon for reliable last-minute logout notification
+                // This is more reliable than fetch() during page unload
+                if (navigator.sendBeacon && document.cookie.includes('edr.sid')) {
+                    console.log('🚪 Attempting graceful logout on tab close...');
+                    try {
+                        navigator.sendBeacon('/logout', JSON.stringify({}));
+                    } catch (err) {
+                        console.warn('Beacon logout failed:', err);
+                    }
+                }
+            });
         });
     </script>
 

@@ -58,7 +58,9 @@ router.get('/dashboard/summary', async (req, res) => {
     res.json(summary);
   } catch (error) {
     logger.error('Error fetching dashboard summary:', error);
-    res.status(500).json({ error: 'Failed to fetch dashboard summary' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch dashboard summary' });
+    }
   }
 });
 
@@ -73,7 +75,9 @@ router.get('/servers', async (req, res) => {
     res.json(servers);
   } catch (error) {
     logger.error('Error fetching servers:', error);
-    res.status(500).json({ error: 'Failed to fetch servers' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch servers' });
+    }
   }
 });
 
@@ -86,7 +90,9 @@ router.get('/servers/:id', async (req, res) => {
     res.json(server);
   } catch (error) {
     logger.error('Error fetching server:', error);
-    res.status(500).json({ error: 'Failed to fetch server' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch server' });
+    }
   }
 });
 
@@ -128,7 +134,9 @@ router.get('/devices', async (req, res) => {
     });
   } catch (error) {
     logger.error('Error fetching devices:', error);
-    res.status(500).json({ error: 'Failed to fetch devices' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch devices' });
+    }
   }
 });
 
@@ -230,8 +238,22 @@ router.get('/devices/enhanced', async (req, res) => {
         down: sensors.filter(s => s.status === 5).length,
         warning: sensors.filter(s => s.status === 4).length,
         paused: sensors.filter(s => s.status === 7).length,
-        unusual: sensors.filter(s => s.status === 10).length
+        unusual: sensors.filter(s => s.status === 10).length,
+        unknown: sensors.filter(s => s.status === 1).length
       };
+      
+      // Calculate effective device status based on sensors
+      // If device has down sensors, mark as down
+      // If device has warning sensors (but no down), mark as warning
+      // Otherwise use device's own status
+      let effectiveStatus = deviceData.status;
+      if (sensorStats.down > 0) {
+        effectiveStatus = 5; // Down
+      } else if (sensorStats.warning > 0) {
+        effectiveStatus = 4; // Warning
+      } else if (sensorStats.unknown > 0 && deviceData.status === 1) {
+        effectiveStatus = 1; // Unknown
+      }
       
       // Determine device type and criticality
       const deviceType = getDeviceType(deviceData.name);
@@ -239,6 +261,9 @@ router.get('/devices/enhanced', async (req, res) => {
       
       return {
         ...deviceData,
+        status: effectiveStatus, // Use calculated effective status
+        effectiveStatus: effectiveStatus,
+        deviceStatus: deviceData.status, // Original device status
         companyCode,
         companyName: getCompanyName(companyCode),
         deviceType,
@@ -278,7 +303,9 @@ router.get('/devices/enhanced', async (req, res) => {
 
   } catch (error) {
     logger.error('Error fetching enhanced devices:', error);
-    res.status(500).json({ error: 'Failed to fetch enhanced devices' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch enhanced devices' });
+    }
   }
 });
 
@@ -306,7 +333,9 @@ router.get('/devices/:id', async (req, res) => {
     res.json(device);
   } catch (error) {
     logger.error('Error fetching device:', error);
-    res.status(500).json({ error: 'Failed to fetch device' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch device' });
+    }
   }
 });
 
@@ -356,7 +385,48 @@ router.get('/sensors', async (req, res) => {
     });
   } catch (error) {
     logger.error('Error fetching sensors:', error);
-    res.status(500).json({ error: 'Failed to fetch sensors' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch sensors' });
+    }
+  }
+});
+
+// Current sensor data with summary (for initial page load)
+router.get('/sensors/current', async (req, res) => {
+  try {
+    const sensors = await Sensor.findAll({
+      include: [{
+        model: Device,
+        as: 'device',
+        attributes: ['name', 'host']
+      }, {
+        model: PRTGServer,
+        as: 'server',
+        attributes: ['id', 'url']
+      }],
+      order: [['status', 'DESC'], ['priority', 'DESC']]
+    });
+
+    // Calculate summary counts
+    const summary = {
+      up: sensors.filter(s => s.status === 3).length,
+      down: sensors.filter(s => s.status === 5).length,
+      warning: sensors.filter(s => s.status === 4).length,
+      paused: sensors.filter(s => s.status === 7).length,
+      unusual: sensors.filter(s => s.status === 10).length,
+      unknown: sensors.filter(s => s.status === 1).length
+    };
+
+    res.json({
+      sensors: sensors.map(s => s.toJSON()),
+      summary,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Error fetching current sensors:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch current sensors' });
+    }
   }
 });
 
@@ -383,7 +453,9 @@ router.get('/sensors/:id', async (req, res) => {
     res.json(sensor);
   } catch (error) {
     logger.error('Error fetching sensor:', error);
-    res.status(500).json({ error: 'Failed to fetch sensor' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch sensor' });
+    }
   }
 });
 
@@ -407,7 +479,9 @@ router.get('/sensors/:id/readings', async (req, res) => {
     res.json({ readings });
   } catch (error) {
     logger.error('Error fetching sensor readings:', error);
-    res.status(500).json({ error: 'Failed to fetch sensor readings' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch sensor readings' });
+    }
   }
 });
 
@@ -455,7 +529,9 @@ router.get('/alerts', async (req, res) => {
     });
   } catch (error) {
     logger.error('Error fetching alerts:', error);
-    res.status(500).json({ error: 'Failed to fetch alerts' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch alerts' });
+    }
   }
 });
 
@@ -476,7 +552,9 @@ router.post('/alerts/:id/acknowledge', async (req, res) => {
     res.json(alert);
   } catch (error) {
     logger.error('Error acknowledging alert:', error);
-    res.status(500).json({ error: 'Failed to acknowledge alert' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to acknowledge alert' });
+    }
   }
 });
 
@@ -492,11 +570,13 @@ router.get('/health', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    res.status(503).json({
-      status: 'unhealthy',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    if (!res.headersSent) {
+      res.status(503).json({
+        status: 'unhealthy',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
   }
 });
 
@@ -569,7 +649,9 @@ router.get('/devices/:id/metadata', async (req, res) => {
 
   } catch (error) {
     logger.error(`Error fetching device metadata for ${req.params.id}:`, error);
-    res.status(500).json({ error: 'Failed to fetch device metadata' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch device metadata' });
+    }
   }
 });
 
@@ -655,7 +737,9 @@ router.get('/metadata/aggregations', async (req, res) => {
 
   } catch (error) {
     logger.error('Error fetching metadata aggregations:', error);
-    res.status(500).json({ error: 'Failed to fetch metadata aggregations' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch metadata aggregations' });
+    }
   }
 });
 
@@ -742,7 +826,9 @@ router.get('/companies/summary', async (req, res) => {
 
   } catch (error) {
     logger.error('Error fetching company summary:', error);
-    res.status(500).json({ error: 'Failed to fetch company summary' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch company summary' });
+    }
   }
 });
 
@@ -797,7 +883,9 @@ router.get('/dashboard/realtime-stats', async (req, res) => {
 
   } catch (error) {
     logger.error('Error fetching realtime stats:', error);
-    res.status(500).json({ error: 'Failed to fetch realtime stats' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch realtime stats' });
+    }
   }
 });
 
@@ -930,7 +1018,9 @@ router.post('/sessions/login', async (req, res) => {
     
   } catch (error) {
     logger.error('Login failed:', error);
-    res.status(400).json({ success: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(400).json({ success: false, error: error.message });
+    }
   }
 });
 
@@ -955,7 +1045,9 @@ router.post('/sessions/validate', async (req, res) => {
     }
   } catch (error) {
     logger.error('Session validation failed:', error);
-    res.status(500).json({ valid: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ valid: false, error: error.message });
+    }
   }
 });
 
@@ -1004,7 +1096,9 @@ router.get('/sessions/:sessionId', ensureAdminOrSessionOwner, async (req, res) =
     
   } catch (error) {
     logger.error('Failed to get session info:', error);
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -1017,7 +1111,9 @@ router.get('/sessions/analytics/:timeframe?', ensureAdmin, async (req, res) => {
     res.json(analytics);
   } catch (error) {
     logger.error('Failed to get session analytics:', error);
-    res.status(500).json({ error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    }
   }
 });
 
@@ -1046,7 +1142,9 @@ router.post('/sessions/:sessionId/terminate', ensureAdmin, async (req, res) => {
     res.json({ success: success });
   } catch (error) {
     logger.error('Failed to terminate session:', error);
-    res.status(500).json({ success: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 

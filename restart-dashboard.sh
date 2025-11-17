@@ -34,7 +34,7 @@ fi
 
 # Step 5: Start PM2 process
 echo "🚀 Starting PRTG dashboard..."
-cd /srv/www/htdocs/cpm
+cd /srv/www/htdocs/cva/cpm
 pm2 start ecosystem.config.js
 
 # Step 6: Verify startup

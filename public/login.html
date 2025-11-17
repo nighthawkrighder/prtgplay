@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PRTG Login - Unified Dashboard</title>
+    <title>LANAIR Unified Portal - Login</title>
     <style>
         * {
             margin: 0;
@@ -11,26 +11,79 @@
             box-sizing: border-box;
         }
 
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 15px 35px rgba(0,0,0,0.3), 0 0 20px rgba(52, 152, 219, 0.2); }
+            50% { box-shadow: 0 15px 45px rgba(0,0,0,0.4), 0 0 40px rgba(52, 152, 219, 0.4); }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a1a, #2c3e50);
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
             color: #ffffff;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(52, 152, 219, 0.1) 0%, transparent 70%);
+            animation: float 8s ease-in-out infinite;
         }
 
         .login-container {
-            background: rgba(52, 73, 94, 0.9);
-            border-radius: 12px;
+            background: rgba(26, 40, 53, 0.85);
+            border-radius: 16px;
             padding: 3rem;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.3);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(52, 152, 219, 0.3);
             width: 100%;
             max-width: 400px;
             text-align: center;
+            position: relative;
+            z-index: 1;
+            animation: glow 4s ease-in-out infinite;
+        }
+
+        .login-container::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #3498db, #2ecc71, #3498db);
+            background-size: 400% 400%;
+            border-radius: 16px;
+            z-index: -1;
+            opacity: 0.3;
+            animation: gradientShift 8s ease infinite;
         }
 
         .login-header {
@@ -40,15 +93,19 @@
         .login-header h1 {
             font-size: 2rem;
             margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, #3498db, #2980b9);
+            background: linear-gradient(135deg, #3498db, #2ecc71, #3498db);
+            background-size: 200% 200%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            animation: gradientShift 6s ease infinite;
+            text-shadow: 0 0 30px rgba(52, 152, 219, 0.5);
         }
 
         .login-header p {
-            opacity: 0.8;
+            opacity: 0.9;
             font-size: 0.9rem;
+            animation: pulse 3s ease-in-out infinite;
         }
 
         .form-group {
@@ -66,7 +123,7 @@
         .form-group input {
             width: 100%;
             padding: 0.75rem;
-            border: 2px solid rgba(255,255,255,0.1);
+            border: 2px solid rgba(52, 152, 219, 0.3);
             border-radius: 8px;
             background: rgba(255,255,255,0.05);
             color: #ffffff;
@@ -77,7 +134,8 @@
         .form-group input:focus {
             outline: none;
             border-color: #3498db;
-            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2), 0 0 20px rgba(52, 152, 219, 0.3);
+            background: rgba(255,255,255,0.08);
         }
 
         .form-group input::placeholder {
@@ -87,7 +145,8 @@
         .login-button {
             width: 100%;
             padding: 0.75rem;
-            background: linear-gradient(135deg, #3498db, #2980b9);
+            background: linear-gradient(135deg, #3498db, #2ecc71);
+            background-size: 200% 200%;
             border: none;
             border-radius: 8px;
             color: white;
@@ -96,11 +155,30 @@
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 1rem;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+        }
+
+        .login-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .login-button:hover::before {
+            left: 100%;
         }
 
         .login-button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6);
+            background-position: 100% 0;
         }
 
         .login-button:disabled {
@@ -178,24 +256,19 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>PRTG Dashboard</h1>
-            <p>Enter your PRTG credentials to access the unified monitoring dashboard</p>
-        </div>
-
-        <div class="info-box">
-            <strong>Authentication:</strong> Use your PRTG username and <strong>passhash</strong> (not password). 
-            You can find your passhash in PRTG under Account Settings → My Account.
+            <h1>LANAIR Unified Portal</h1>
+            <p>Secure access to monitoring and security services</p>
         </div>
 
         <form id="loginForm">
             <div class="form-group">
-                <label for="username">PRTG Username</label>
-                <input type="text" id="username" name="username" placeholder="Enter your PRTG username" required>
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" placeholder="Enter your username" required>
             </div>
 
             <div class="form-group">
-                <label for="password">PRTG Passhash</label>
-                <input type="password" id="password" name="password" placeholder="Enter your PRTG passhash" required>
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Enter your password" required>
             </div>
 
             <button type="submit" class="login-button" id="loginButton">
@@ -214,6 +287,19 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function() {
+            // Clear any stale auth cookies on page load
+            document.cookie.split(";").forEach(function(c) { 
+                const cookieName = c.trim().split("=")[0];
+                if (cookieName === 'connect.sid' || cookieName === 'cva.sid' || cookieName === 'edr.sid') {
+                    // Clear with path only
+                    document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+                    // Clear with domain for cross-domain cookies
+                    document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.lanairgroup.com';
+                    // Clear with specific subdomain
+                    document.cookie = cookieName + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + window.location.hostname;
+                }
+            });
+
             const form = document.getElementById('loginForm');
             const loginButton = document.getElementById('loginButton');
             const loading = document.getElementById('loading');
@@ -227,7 +313,7 @@
                 const password = document.getElementById('password').value.trim();
                 
                 if (!username || !password) {
-                    showError('Please enter both username and passhash');
+                    showError('Please enter both username and password');
                     return;
                 }
 
