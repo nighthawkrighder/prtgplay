@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Network Topology - PRTG Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            background: #0a0a0a;
+            color: #fff;
+        }
+
+        #topology-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Header */
+        .topology-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to bottom, rgba(10, 10, 10, 0.95), rgba(10, 10, 10, 0.7));
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .header-title {
+            font-size: 24px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-value {
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-btn {
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 13px;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .header-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: transparent;
+        }
+
+        /* Controls Panel */
+        .controls-panel {
+            position: absolute;
+            top: 80px;
+            right: 20px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            width: 280px;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-input {
+            width: 100%;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .control-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .control-slider {
+            width: 100%;
+        }
+
+        .slider-value {
+            float: right;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .control-button {
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 12px;
+        }
+
+        .control-button:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Info Panel */
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 350px;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            display: none;
+        }
+
+        .info-panel.visible {
+            display: block;
+        }
+
+        .info-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .info-subtitle {
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 15px;
+        }
+
+        .info-details {
+            display: grid;
+            gap: 10px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: #aaa;
+            font-size: 13px;
+        }
+
+        .info-value {
+            color: #fff;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-up {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .status-warning {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .status-down {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        /* Legend */
+        .legend {
+            position: absolute;
+            top: 80px;
+            left: 20px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        /* Loading */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 2000;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        /* Minimap */
+        .minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        #minimap-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+        }
+
+        /* Search */
+        .search-container {
+            position: relative;
+        }
+
+        .search-results {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: rgba(20, 20, 20, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            margin-top: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .search-results.visible {
+            display: block;
+        }
+
+        .search-result-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.2s;
+        }
+
+        .search-result-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+
+        .search-result-name {
+            font-size: 13px;
+            color: #fff;
+            margin-bottom: 3px;
+        }
+
+        .search-result-type {
+            font-size: 11px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div id="topology-container">
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading Network Topology...</div>
+        </div>
+
+        <!-- Header -->
+        <div class="topology-header">
+            <div class="header-left">
+                <div class="header-title">🌐 3D Network Topology</div>
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span>Companies:</span>
+                        <span class="stat-value" id="stat-companies">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Devices:</span>
+                        <span class="stat-value" id="stats-devices">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Sensors:</span>
+                        <span class="stat-value" id="stats-sensors">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span id="ws-status-icon" title="WebSocket Status">🔴</span>
+                        <span id="ws-status-text">Connecting...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="header-btn" onclick="resetCamera()">Reset View</button>
+                <button class="header-btn" onclick="toggleAutoRotate()">Auto Rotate</button>
+                <button class="header-btn" onclick="window.location.href='/'">Dashboard</button>
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+            <div class="legend-title">Legend</div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #667eea;"></div>
+                <span>Company</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #22c55e;"></div>
+                <span>Device (Online)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #fbbf24;"></div>
+                <span>Device (Warning)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ef4444;"></div>
+                <span>Device (Offline)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #8b5cf6;"></div>
+                <span>Sensor</span>
+            </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="controls-panel">
+            <div class="control-group">
+                <label class="control-label">
+                    Node Size
+                    <span class="slider-value" id="size-value">1.0</span>
+                </label>
+                <input type="range" class="control-input control-slider" id="node-size" 
+                       min="0.5" max="2" step="0.1" value="1" 
+                       oninput="updateNodeSize(this.value)">
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">
+                    Spread Factor
+                    <span class="slider-value" id="spread-value">1.0</span>
+                </label>
+                <input type="range" class="control-input control-slider" id="spread-factor" 
+                       min="0.5" max="3" step="0.1" value="1" 
+                       oninput="updateSpread(this.value)">
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Search Network</label>
+                <div class="search-container">
+                    <input type="text" class="control-input" id="search-input" 
+                           placeholder="Search companies or devices..."
+                           oninput="searchNetwork(this.value)">
+                    <div class="search-results" id="search-results"></div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Filter</label>
+                <select class="control-input" id="filter-status" onchange="filterByStatus(this.value)">
+                    <option value="all">All Devices</option>
+                    <option value="up">Online Only</option>
+                    <option value="warning">Warning Only</option>
+                    <option value="down">Offline Only</option>
+                </select>
+            </div>
+
+            <div class="control-buttons">
+                <button class="control-button" onclick="toggleLabels()">Toggle Labels</button>
+                <button class="control-button" onclick="toggleConnections()">Toggle Lines</button>
+                <button class="control-button" onclick="expandAll()">Expand All</button>
+                <button class="control-button" onclick="collapseAll()">Collapse All</button>
+            </div>
+        </div>
+
+        <!-- Info Panel -->
+        <div class="info-panel" id="info-panel">
+            <div class="info-title" id="info-title">Select a node</div>
+            <div class="info-subtitle" id="info-subtitle"></div>
+            <div class="info-details" id="info-details"></div>
+        </div>
+
+        <!-- Minimap -->
+        <div class="minimap">
+            <canvas id="minimap-canvas"></canvas>
+        </div>
+
+        <!-- Canvas -->
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let nodes = [];
+        let connections = [];
+        let labels = [];
+        let selectedNode = null;
+        let networkData = null;
+        let nodeSizeMultiplier = 1;
+        let spreadFactor = 1;
+        let showLabels = true;
+        let showConnections = true;
+        let autoRotate = false;
+        let ws = null;
+        let reconnectInterval = null;
+        let deviceNodeMap = new Map(); // Map device objects to their 3D nodes
+
+        // Colors
+        const COLORS = {
+            company: 0x667eea,
+            deviceUp: 0x22c55e,
+            deviceWarning: 0xfbbf24,
+            deviceDown: 0xef4444,
+            sensor: 0x8b5cf6,
+            connection: 0x444444,
+            selectedGlow: 0x00ffff
+        };
+
+        // WebSocket for real-time updates
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                console.log('🔌 WebSocket connected - receiving live topology updates');
+                document.getElementById('ws-status-icon').textContent = '🟢';
+                document.getElementById('ws-status-text').textContent = 'Live';
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+                // Heartbeat every 30s
+                setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 30000);
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'sensor-update') {
+                        handleSensorUpdate(data);
+                    }
+                } catch (error) {
+                    console.error('WebSocket message error:', error);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                document.getElementById('ws-status-icon').textContent = '🟡';
+                document.getElementById('ws-status-text').textContent = 'Error';
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                document.getElementById('ws-status-icon').textContent = '🔴';
+                document.getElementById('ws-status-text').textContent = 'Reconnecting...';
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(() => {
+                        if (!ws || ws.readyState === WebSocket.CLOSED) {
+                            connectWebSocket();
+                        }
+                    }, 5000);
+                }
+            };
+        }
+        
+        // Font Awesome loading flag
+        let fontAwesomeLoaded = false;
+        
+        // Check if Font Awesome is loaded
+        function checkFontAwesome() {
+            return new Promise((resolve) => {
+                if (document.fonts && document.fonts.check('1em "Font Awesome 6 Free"')) {
+                    fontAwesomeLoaded = true;
+                    resolve(true);
+                } else if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(() => {
+                        fontAwesomeLoaded = true;
+                        resolve(true);
+                    });
+                    // Timeout after 3 seconds
+                    setTimeout(() => {
+                        if (!fontAwesomeLoaded) {
+                            console.warn('Font Awesome loading timeout');
+                            resolve(false);
+                        }
+                    }, 3000);
+                } else {
+                    // Fallback if document.fonts not supported
+                    setTimeout(() => {
+                        fontAwesomeLoaded = false;
+                        resolve(false);
+                    }, 1000);
+                }
+            });
+        }
+
+        // Handle real-time sensor updates
+        function handleSensorUpdate(data) {
+            if (!data.sensors || !networkData) return;
+            
+            // Update stats in header
+            if (data.summary) {
+                const totalDevices = networkData.companies.reduce((sum, c) => 
+                    sum + c.devices.length, 0);
+                document.getElementById('stats-devices').textContent = totalDevices;
+                document.getElementById('stats-sensors').textContent = data.summary.total;
+            }
+            
+            // Group sensors by device and calculate worst status
+            const deviceStatusUpdates = new Map();
+            data.sensors.forEach(sensor => {
+                const deviceId = `${sensor.deviceHost}-${sensor.deviceName}`;
+                if (!deviceStatusUpdates.has(deviceId)) {
+                    deviceStatusUpdates.set(deviceId, {
+                        host: sensor.deviceHost,
+                        name: sensor.deviceName,
+                        worstStatus: sensor.status
+                    });
+                } else {
+                    const current = deviceStatusUpdates.get(deviceId);
+                    current.worstStatus = Math.max(current.worstStatus, sensor.status);
+                }
+            });
+            
+            // Update 3D nodes with new statuses
+            deviceStatusUpdates.forEach((update, deviceId) => {
+                updateDeviceNodeStatus(update.host, update.name, update.worstStatus);
+            });
+        }
+
+        // Update a device node's color based on status
+        function updateDeviceNodeStatus(host, name, statusCode) {
+            // Find the device in our data
+            for (const company of networkData.companies) {
+                const device = company.devices.find(d => 
+                    d.host === host || d.name === name);
+                
+                if (device && deviceNodeMap.has(device)) {
+                    const sprite = deviceNodeMap.get(device);
+                    const oldStatus = device.status;
+                    
+                    // Map PRTG status codes to colors
+                    const colorMap = {
+                        3: COLORS.deviceUp,
+                        4: COLORS.deviceWarning,
+                        5: COLORS.deviceDown,
+                        7: '#808080', // paused
+                        10: COLORS.deviceWarning // unusual
+                    };
+                    const newColor = colorMap[statusCode] || COLORS.deviceWarning;
+                    
+                    // Update sprite icon with new color
+                    let icon = '\uf233'; // server icon (default)
+                    const deviceName = (device.name || '').toLowerCase();
+                    if (deviceName.includes('router') || deviceName.includes('gateway')) {
+                        icon = '\uf6ff';
+                    } else if (deviceName.includes('switch')) {
+                        icon = '\uf0e8';
+                    } else if (deviceName.includes('firewall')) {
+                        icon = '\uf132';
+                    } else if (deviceName.includes('desktop') || deviceName.includes('pc')) {
+                        icon = '\uf108';
+                    } else if (deviceName.includes('printer')) {
+                        icon = '\uf02f';
+                    }
+                    
+                    const canvas = document.createElement('canvas');
+                    const size = 256;
+                    canvas.width = size;
+                    canvas.height = size;
+                    const context = canvas.getContext('2d');
+                    
+                    // Draw circular background with new color
+                    let colorHex = '#00ff00'; // default green
+                    try {
+                        if (typeof newColor === 'number') {
+                            colorHex = '#' + newColor.toString(16).padStart(6, '0');
+                        } else if (typeof newColor === 'string') {
+                            colorHex = newColor.startsWith('#') ? newColor : '#' + newColor;
+                        }
+                    } catch (e) {
+                        console.warn('Color conversion error:', e, newColor);
+                    }
+                    context.fillStyle = colorHex;
+                    context.beginPath();
+                    context.arc(size/2, size/2, size/2 - 10, 0, Math.PI * 2);
+                    context.fill();
+                    
+                    // Draw icon
+                    context.fillStyle = '#ffffff';
+                    context.font = 'bold 140px "Font Awesome 6 Free"';
+                    context.textAlign = 'center';
+                    context.textBaseline = 'middle';
+                    context.fillText(icon, size/2, size/2);
+                    
+                    // Update sprite texture
+                    const texture = new THREE.CanvasTexture(canvas);
+                    sprite.material.map = texture;
+                    sprite.material.needsUpdate = true;
+                    
+                    // Update device status
+                    device.status = statusCode;
+                    
+                    // Gentle pulse animation on status change
+                    if (oldStatus !== statusCode) {
+                        animateStatusChange(sprite);
+                        console.log(`🔄 Updated ${device.name}: ${oldStatus} → ${statusCode}`);
+                    }
+                    return;
+                }
+            }
+        }
+
+        // Animate node on status change (gentle pulse)
+        function animateStatusChange(sprite) {
+            const originalScale = sprite.scale.clone();
+            let phase = 0;
+            
+            const animate = () => {
+                phase += 0.1;
+                if (phase < Math.PI * 2) {
+                    const scale = 1 + Math.sin(phase) * 0.15; // Gentle 15% pulse
+                    sprite.scale.copy(originalScale).multiplyScalar(scale);
+                    requestAnimationFrame(animate);
+                } else {
+                    sprite.scale.copy(originalScale);
+                }
+            };
+            animate();
+        }
+
+        // Initialize
+        async function init() {
+            const loadingText = document.querySelector('.loading-text');
+            try {
+                console.log('=== INIT START ===');
+                console.log('[STEP 1] Checking Font Awesome...');
+                loadingText.textContent = 'Loading fonts...';
+                
+                // Wait for Font Awesome to load
+                await checkFontAwesome();
+                if (fontAwesomeLoaded) {
+                    console.log('✅ [STEP 1] Font Awesome loaded');
+                } else {
+                    console.warn('⚠️ [STEP 1] Font Awesome not loaded, using fallback');
+                }
+                
+                console.log('[STEP 2] Creating Three.js scene...');
+                loadingText.textContent = 'Initializing 3D engine...';
+                
+                // Setup scene
+                scene = new THREE.Scene();
+                console.log('✅ [STEP 2a] Scene created');
+                
+                scene.background = new THREE.Color(0x0a0a0a);
+                scene.fog = new THREE.Fog(0x0a0a0a, 100, 500);
+                console.log('✅ [STEP 2b] Scene configured');
+            } catch (error) {
+                console.error('❌ [INIT] Error during setup:', error);
+                loadingText.textContent = 'Error initializing: ' + error.message;
+                loadingText.style.color = '#ef4444';
+                throw error;
+            }
+
+            // Setup camera
+            camera = new THREE.PerspectiveCamera(
+                60,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000
+            );
+            camera.position.set(0, 50, 100);
+
+            // Setup renderer
+            const canvas = document.getElementById('canvas');
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: canvas,
+                antialias: true,
+                alpha: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // Setup controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 10;
+            controls.maxDistance = 300;
+            controls.maxPolarAngle = Math.PI / 2 + 0.5;
+
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight.position.set(50, 100, 50);
+            scene.add(directionalLight);
+
+            const pointLight = new THREE.PointLight(0x667eea, 0.5, 200);
+            pointLight.position.set(0, 50, 0);
+            scene.add(pointLight);
+
+            // Add grid
+            const gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
+            scene.add(gridHelper);
+
+            // Load data
+            await loadNetworkData();
+
+            // Start animation
+            animate();
+
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            canvas.addEventListener('click', onCanvasClick);
+            canvas.addEventListener('mousemove', onCanvasMouseMove);
+
+            // Don't hide loading here - loadNetworkData will handle it
+        }
+
+        // Load network data from API
+        async function loadNetworkData() {
+            const loadingText = document.querySelector('.loading-text');
+            const startTime = Date.now();
+            
+            try {
+                console.log('=== LOAD NETWORK DATA START ===');
+                console.log('[FETCH 1] Starting fetch request...');
+                
+                loadingText.textContent = 'Connecting to server...';
+                
+                // Create abort controller with 30 second timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => {
+                    console.error('❌ [FETCH TIMEOUT] Request exceeded 30 seconds');
+                    controller.abort();
+                }, 30000);
+                
+                console.log('[FETCH 2] Sending request to /devices/enhanced...');
+                const fetchStart = Date.now();
+                
+                // NGINX strips /api prefix, so use /devices/enhanced directly
+                const response = await fetch('/devices/enhanced?all=true', {
+                    credentials: 'same-origin',  // Include session cookie
+                    signal: controller.signal
+                });
+                
+                const fetchTime = Date.now() - fetchStart;
+                clearTimeout(timeoutId);
+                
+                console.log(`✅ [FETCH 3] Response received in ${fetchTime}ms, status: ${response.status}`);
+                console.log('[FETCH 4] Response headers:', Object.fromEntries(response.headers.entries()));
+                
+                loadingText.textContent = 'Loading devices...';
+                
+                if (!response.ok) {
+                    console.error('❌ [FETCH 5] HTTP Error:', response.status, response.statusText);
+                    const responseText = await response.text();
+                    console.error('[FETCH 5b] Response body:', responseText.substring(0, 500));
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                console.log('[PARSE 1] Parsing JSON response...');
+                loadingText.textContent = 'Processing data...';
+                
+                const parseStart = Date.now();
+                const apiResponse = await response.json();
+                const parseTime = Date.now() - parseStart;
+                
+                console.log(`✅ [PARSE 2] JSON parsed in ${parseTime}ms`);
+                console.log('[PARSE 3] API Response structure:', {
+                    hasDevices: !!apiResponse.devices,
+                    deviceCount: apiResponse.devices?.length || 0,
+                    hasPagination: !!apiResponse.pagination,
+                    keys: Object.keys(apiResponse)
+                });
+                
+                loadingText.textContent = 'Building 3D scene...';
+                
+                // Extract devices array - API returns {devices: [...], pagination: {...}}
+                const devices = apiResponse.devices || [];
+                
+                console.log('[DATA 1] Validating device data...');
+                console.log('[DATA 2] Device array type:', Array.isArray(devices) ? 'array' : typeof devices);
+                console.log('[DATA 3] Device count:', devices.length);
+                
+                if (!Array.isArray(devices)) {
+                    console.error('❌ [DATA 4] Expected array of devices, got:', typeof devices, devices);
+                    throw new Error('Invalid data format from API');
+                }
+                
+                if (devices.length === 0) {
+                    console.warn('⚠️ [DATA 5] No devices returned from API');
+                    document.querySelector('.loading-text').textContent = 'No devices found';
+                    return;
+                }
+                
+                console.log(`✅ [DATA 6] Loaded ${devices.length} devices`);
+                console.log('[DATA 7] Sample device:', devices[0]);
+                
+                // Store for WebSocket updates
+                networkData = { companies: [], devices: devices, sensors: [] };
+
+                console.log('[GROUP 1] Grouping devices by company...');
+                
+                // Group devices by company
+                const companies = {};
+                devices.forEach((device, index) => {
+                    const company = device.companyName || device.metadata?.company_name || device.companyCode || 'Unknown';
+                    if (!companies[company]) {
+                        companies[company] = {
+                            name: company,
+                            devices: []
+                        };
+                    }
+                    companies[company].devices.push(device);
+                    if (index < 5) {
+                        console.log(`[GROUP 2] Device ${index}: ${device.name} -> Company: ${company}`);
+                    }
+                });
+                
+                const companyCount = Object.keys(companies).length;
+                console.log(`✅ [GROUP 3] Grouped into ${companyCount} companies:`, Object.keys(companies));
+
+                console.log('[STATS 1] Updating statistics...');
+                
+                // Update stats
+                document.getElementById('stat-companies').textContent = companyCount;
+                document.getElementById('stats-devices').textContent = devices.length;
+                
+                let totalSensors = 0;
+                devices.forEach(device => {
+                    if (device.sensorStats) {
+                        totalSensors += device.sensorStats.total || 0;
+                    }
+                });
+                document.getElementById('stats-sensors').textContent = totalSensors;
+                console.log(`✅ [STATS 2] Statistics updated: ${companyCount} companies, ${devices.length} devices, ${totalSensors} sensors`);
+
+                console.log('[RENDER 1] Starting topology creation...');
+                const renderStart = Date.now();
+                
+                // Create 3D topology
+                loadingText.textContent = 'Rendering topology...';
+                createTopology(companies);
+                
+                const renderTime = Date.now() - renderStart;
+                console.log(`✅ [RENDER 2] Topology created in ${renderTime}ms`);
+                console.log(`[RENDER 3] Total nodes created: ${nodes.length}, connections: ${connections.length}`);
+                
+                // Small delay to ensure rendering completes
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                const totalTime = Date.now() - startTime;
+                console.log(`=== LOAD COMPLETE in ${totalTime}ms ===`);
+                
+                // Hide loading
+                loadingText.textContent = 'Complete!';
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                    console.log('✅ Loading screen hidden');
+                }, 300);
+
+            } catch (error) {
+                const totalTime = Date.now() - startTime;
+                console.error('❌ [ERROR] Network data load failed after', totalTime, 'ms');
+                console.error('[ERROR] Error name:', error.name);
+                console.error('[ERROR] Error message:', error.message);
+                console.error('[ERROR] Error stack:', error.stack);
+                
+                const errorMsg = error.name === 'AbortError' 
+                    ? 'Request timed out after 30 seconds. The server may be overloaded.'
+                    : error.message;
+                    
+                console.error('[ERROR] User-facing message:', errorMsg);
+                document.querySelector('.loading-text').textContent = 'Error: ' + errorMsg;
+                document.querySelector('.loading-text').style.color = '#ef4444';
+                
+                // Add retry button
+                const loadingContainer = document.querySelector('.loading-container');
+                if (loadingContainer && !loadingContainer.querySelector('button')) {
+                    console.log('[ERROR] Adding retry button');
+                    const retryBtn = document.createElement('button');
+                    retryBtn.textContent = 'Retry';
+                    retryBtn.style.cssText = 'margin-top: 20px; padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;';
+                    retryBtn.onclick = () => {
+                        console.log('[RETRY] User clicked retry');
+                        document.getElementById('loading').style.display = 'flex';
+                        retryBtn.remove();
+                        loadNetworkData();
+                    };
+                    loadingContainer.appendChild(retryBtn);
+                }
+            }
+        }
+
+        // Create 3D topology
+        function createTopology(companies) {
+            console.log('🎨 Creating topology with companies:', Object.keys(companies));
+            
+            const companyNames = Object.keys(companies);
+            const companyCount = companyNames.length;
+            
+            if (companyCount === 0) {
+                console.warn('⚠️ No companies found!');
+                return;
+            }
+            
+            const radius = Math.max(50, companyCount * 5) * spreadFactor;
+
+            // Store companies in networkData for WebSocket updates
+            networkData.companies = companyNames.map(name => companies[name]);
+
+            companyNames.forEach((companyName, index) => {
+                // Position companies in a circle
+                const angle = (index / companyCount) * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const y = 0;
+
+                console.log(`  🏢 ${companyName} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
+
+                // Create company node
+                const companyNode = createCompanyNode(companyName, x, y, z);
+                nodes.push(companyNode);
+
+                // Create device nodes for this company
+                const companyData = companies[companyName];
+                const devices = companyData.devices || companyData || [];
+                
+                if (!Array.isArray(devices)) {
+                    console.error(`❌ Invalid devices for ${companyName}:`, devices);
+                    return;
+                }
+                
+                const deviceRadius = 15 * spreadFactor;
+                
+                console.log(`    💻 ${devices.length} devices for ${companyName}`);
+                
+                devices.forEach((device, deviceIndex) => {
+                    const deviceAngle = (deviceIndex / devices.length) * Math.PI * 2;
+                    const dx = x + Math.cos(deviceAngle) * deviceRadius;
+                    const dz = z + Math.sin(deviceAngle) * deviceRadius;
+                    const dy = y + (Math.random() - 0.5) * 5;
+
+                    const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
+                    nodes.push(deviceNode);
+
+                    // Create connection from company to device
+                    const connection = createConnection(companyNode.mesh.position, deviceNode.mesh.position);
+                    connections.push(connection);
+                    deviceNode.connections.push(connection);
+
+                    // Create sensor nodes (collapsed by default)
+                    if (device.sensorStats && device.sensorStats.total > 0) {
+                        const sensorCount = Math.min(device.sensorStats.total, 10); // Limit for performance
+                        for (let i = 0; i < sensorCount; i++) {
+                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode);
+                            sensorNode.visible = false; // Hidden by default
+                            nodes.push(sensorNode);
+                        }
+                    }
+                });
+            });
+            
+            console.log(`✅ Created ${nodes.length} total nodes, ${connections.length} connections`);
+        }
+
+        // Create icon sprite for nodes
+        function createIconSprite(icon, color, scale = 1) {
+            try {
+                const canvas = document.createElement('canvas');
+                const size = 256;
+                canvas.width = size;
+                canvas.height = size;
+                const context = canvas.getContext('2d');
+                
+                // Draw circular background
+                context.fillStyle = typeof color === 'number' ? '#' + color.toString(16).padStart(6, '0') : color;
+                context.beginPath();
+                context.arc(size/2, size/2, size/2 - 10, 0, Math.PI * 2);
+                context.fill();
+                
+                // Draw icon (Font Awesome style or fallback)
+                context.fillStyle = '#ffffff';
+                if (fontAwesomeLoaded) {
+                    context.font = 'bold 140px "Font Awesome 6 Free"';
+                    context.textAlign = 'center';
+                    context.textBaseline = 'middle';
+                    context.fillText(icon, size/2, size/2);
+                } else {
+                    // Fallback: draw simple geometric shape
+                    context.beginPath();
+                    context.arc(size/2, size/2, 60, 0, Math.PI * 2);
+                    context.fill();
+                }
+            
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ 
+                    map: texture,
+                    transparent: true
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(scale * 4, scale * 4, 1);
+                return sprite;
+            } catch (error) {
+                console.error('Error creating icon sprite:', error);
+                // Return simple colored sprite as fallback
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = typeof color === 'number' ? '#' + color.toString(16).padStart(6, '0') : color;
+                ctx.fillRect(0, 0, 64, 64);
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(scale * 4, scale * 4, 1);
+                return sprite;
+            }
+        }
+
+        // Create company node
+        function createCompanyNode(name, x, y, z) {
+            const sprite = createIconSprite('\uf1ad', COLORS.company, nodeSizeMultiplier);
+            sprite.position.set(x, y, z);
+            scene.add(sprite);
+
+            // Add glow
+            const glowGeometry = new THREE.SphereGeometry(3.5 * nodeSizeMultiplier, 32, 32);
+            const glowMaterial = new THREE.MeshBasicMaterial({ 
+                color: COLORS.company,
+                transparent: true,
+                opacity: 0.2
+            });
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            glow.position.set(x, y, z);
+            scene.add(glow);
+
+            // Add label
+            const label = createLabel(name, x, y + 5, z);
+
+            return {
+                type: 'company',
+                name: name,
+                mesh: sprite,
+                label: label,
+                data: { name: name },
+                connections: [],
+                expanded: false
+            };
+        }
+
+        // Create device node
+        function createDeviceNode(device, x, y, z, parent) {
+            try {
+                // Map numeric status to color
+                let color = COLORS.deviceUp;
+                const status = device.effectiveStatus || device.status;
+            
+            if (typeof status === 'number') {
+                // PRTG status codes: 3=up, 4=warning, 5=down
+                if (status === 5) {
+                    color = COLORS.deviceDown;
+                } else if (status === 4 || status === 10 || status === 1) {
+                    color = COLORS.deviceWarning;
+                } else {
+                    color = COLORS.deviceUp;
+                }
+            } else if (typeof status === 'string') {
+                // String status
+                if (status === 'down') color = COLORS.deviceDown;
+                else if (status === 'warning') color = COLORS.deviceWarning;
+                else color = COLORS.deviceUp;
+            }
+
+            // Choose icon based on device type/category
+            let icon = '\uf233'; // server icon (default)
+            const deviceName = (device.name || '').toLowerCase();
+            if (deviceName.includes('router') || deviceName.includes('gateway')) {
+                icon = '\uf6ff'; // router icon
+            } else if (deviceName.includes('switch')) {
+                icon = '\uf0e8'; // network icon
+            } else if (deviceName.includes('firewall')) {
+                icon = '\uf132'; // shield icon
+            } else if (deviceName.includes('desktop') || deviceName.includes('pc')) {
+                icon = '\uf108'; // desktop icon
+            } else if (deviceName.includes('printer')) {
+                icon = '\uf02f'; // print icon
+            }
+            
+            const sprite = createIconSprite(icon, color, nodeSizeMultiplier * 0.8);
+            sprite.position.set(x, y, z);
+            scene.add(sprite);
+
+            // Add label
+            const label = createLabel(device.name, x, y + 3, z);
+
+            const node = {
+                type: 'device',
+                name: device.name,
+                mesh: sprite,
+                label: label,
+                data: device,
+                parent: parent,
+                connections: [],
+                expanded: false
+            };
+            
+                // Register node for real-time updates
+                deviceNodeMap.set(device, sprite);
+                
+                return node;
+            } catch (error) {
+                console.error('Error creating device node:', device.name, error);
+                // Return minimal fallback node
+                return {
+                    type: 'device',
+                    name: device.name || 'Unknown',
+                    mesh: null,
+                    label: null,
+                    data: device,
+                    parent: parent,
+                    connections: [],
+                    expanded: false
+                };
+            }
+        }
+
+        // Create sensor node
+        function createSensorNode(device, x, y, z, parent) {
+            const sprite = createIconSprite('\uf06e', COLORS.sensor, nodeSizeMultiplier * 0.5); // eye icon for sensor
+            
+            // Random position around device
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 3 * spreadFactor;
+            sprite.position.set(
+                x + Math.cos(angle) * distance,
+                y + (Math.random() - 0.5) * 2,
+                z + Math.sin(angle) * distance
+            );
+            scene.add(sprite);
+
+            return {
+                type: 'sensor',
+                name: 'Sensor',
+                mesh: sprite,
+                label: null,
+                data: device,
+                parent: parent,
+                connections: [],
+                visible: false
+            };
+        }
+
+        // Create connection line
+        function createConnection(start, end) {
+            const material = new THREE.LineBasicMaterial({ 
+                color: COLORS.connection,
+                transparent: true,
+                opacity: 0.3
+            });
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            return line;
+        }
+
+        // Create label (sprite)
+        function createLabel(text, x, y, z) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 64;
+            
+            context.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            context.font = 'Bold 20px Arial';
+            context.textAlign = 'center';
+            context.fillText(text, 128, 35);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ 
+                map: texture,
+                transparent: true
+            });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.position.set(x, y, z);
+            sprite.scale.set(10, 2.5, 1);
+            scene.add(sprite);
+
+            labels.push(sprite);
+            return sprite;
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update controls
+            controls.update();
+
+            // Auto rotate
+            if (autoRotate) {
+                scene.rotation.y += 0.001;
+            }
+
+            // Gentle rotation for non-selected nodes only
+            nodes.forEach(node => {
+                if (node.mesh && node !== selectedNode) {
+                    node.mesh.rotation.y += 0.005;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Canvas click
+        function onCanvasClick(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            const meshes = nodes.map(n => n.mesh);
+            const intersects = raycaster.intersectObjects(meshes);
+
+            if (intersects.length > 0) {
+                const clickedMesh = intersects[0].object;
+                const clickedNode = nodes.find(n => n.mesh === clickedMesh);
+                
+                if (clickedNode) {
+                    selectNode(clickedNode);
+                }
+            }
+        }
+
+        // Canvas mouse move
+        function onCanvasMouseMove(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            const meshes = nodes.map(n => n.mesh);
+            const intersects = raycaster.intersectObjects(meshes);
+
+            document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+        }
+
+        // Select node
+        function selectNode(node) {
+            // Deselect previous
+            if (selectedNode) {
+                selectedNode.mesh.scale.set(1, 1, 1);
+            }
+
+            selectedNode = node;
+
+            // Show info panel
+            const infoPanel = document.getElementById('info-panel');
+            infoPanel.classList.add('visible');
+
+            const infoTitle = document.getElementById('info-title');
+            const infoSubtitle = document.getElementById('info-subtitle');
+            const infoDetails = document.getElementById('info-details');
+
+            infoTitle.textContent = node.name;
+            infoSubtitle.textContent = node.type.toUpperCase();
+
+            let detailsHTML = '';
+
+            if (node.type === 'company') {
+                const devices = nodes.filter(n => n.type === 'device' && n.parent === node);
+                detailsHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Devices</span>
+                        <span class="info-value">${devices.length}</span>
+                    </div>
+                `;
+            } else if (node.type === 'device') {
+                const status = node.data.effectiveStatus || 'up';
+                const statusClass = status === 'up' ? 'status-up' : status === 'warning' ? 'status-warning' : 'status-down';
+                
+                detailsHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Status</span>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Company</span>
+                        <span class="info-value">${node.data.company || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">IP Address</span>
+                        <span class="info-value">${node.data.host || 'N/A'}</span>
+                    </div>
+                `;
+
+                if (node.data.sensorStats) {
+                    detailsHTML += `
+                        <div class="info-row">
+                            <span class="info-label">Total Sensors</span>
+                            <span class="info-value">${node.data.sensorStats.total || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Online</span>
+                            <span class="info-value" style="color: #22c55e;">${node.data.sensorStats.up || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Warning</span>
+                            <span class="info-value" style="color: #fbbf24;">${node.data.sensorStats.warning || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Down</span>
+                            <span class="info-value" style="color: #ef4444;">${node.data.sensorStats.down || 0}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            infoDetails.innerHTML = detailsHTML;
+
+            // Zoom to node
+            zoomToNode(node);
+        }
+
+        // Zoom to node
+        function zoomToNode(node) {
+            const targetPosition = node.mesh.position.clone();
+            const distance = 20;
+            const cameraTarget = new THREE.Vector3(
+                targetPosition.x,
+                targetPosition.y + 10,
+                targetPosition.z + distance
+            );
+
+            // Smooth camera transition
+            const duration = 1000;
+            const startPosition = camera.position.clone();
+            const startTime = Date.now();
+
+            function updateCamera() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+
+                camera.position.lerpVectors(startPosition, cameraTarget, eased);
+                controls.target.lerp(targetPosition, eased);
+
+                if (progress < 1) {
+                    requestAnimationFrame(updateCamera);
+                }
+            }
+
+            updateCamera();
+        }
+
+        // Control functions
+        function resetCamera() {
+            camera.position.set(0, 50, 100);
+            controls.target.set(0, 0, 0);
+            selectedNode = null;
+            document.getElementById('info-panel').classList.remove('visible');
+        }
+
+        function toggleAutoRotate() {
+            autoRotate = !autoRotate;
+        }
+
+        function updateNodeSize(value) {
+            nodeSizeMultiplier = parseFloat(value);
+            document.getElementById('size-value').textContent = value;
+            // Rebuild topology
+            clearTopology();
+            loadNetworkData();
+        }
+
+        function updateSpread(value) {
+            spreadFactor = parseFloat(value);
+            document.getElementById('spread-value').textContent = value;
+            // Rebuild topology
+            clearTopology();
+            loadNetworkData();
+        }
+
+        function toggleLabels() {
+            showLabels = !showLabels;
+            labels.forEach(label => {
+                label.visible = showLabels;
+            });
+        }
+
+        function toggleConnections() {
+            showConnections = !showConnections;
+            connections.forEach(connection => {
+                connection.visible = showConnections;
+            });
+        }
+
+        function expandAll() {
+            nodes.forEach(node => {
+                if (node.type === 'sensor') {
+                    node.mesh.visible = true;
+                    node.visible = true;
+                }
+            });
+        }
+
+        function collapseAll() {
+            nodes.forEach(node => {
+                if (node.type === 'sensor') {
+                    node.mesh.visible = false;
+                    node.visible = false;
+                }
+            });
+        }
+
+        function searchNetwork(query) {
+            const results = document.getElementById('search-results');
+            
+            if (!query || query.length < 2) {
+                results.classList.remove('visible');
+                return;
+            }
+
+            const matches = nodes.filter(node => {
+                return node.name.toLowerCase().includes(query.toLowerCase());
+            }).slice(0, 10);
+
+            if (matches.length > 0) {
+                results.innerHTML = matches.map(node => `
+                    <div class="search-result-item" onclick="selectNodeByName('${node.name}')">
+                        <div class="search-result-name">${node.name}</div>
+                        <div class="search-result-type">${node.type}</div>
+                    </div>
+                `).join('');
+                results.classList.add('visible');
+            } else {
+                results.classList.remove('visible');
+            }
+        }
+
+        function selectNodeByName(name) {
+            const node = nodes.find(n => n.name === name);
+            if (node) {
+                selectNode(node);
+                document.getElementById('search-results').classList.remove('visible');
+            }
+        }
+
+        function filterByStatus(status) {
+            nodes.forEach(node => {
+                if (node.type === 'device') {
+                    const deviceStatus = node.data.effectiveStatus || 'up';
+                    
+                    if (status === 'all') {
+                        node.mesh.visible = true;
+                    } else {
+                        node.mesh.visible = deviceStatus === status;
+                    }
+                }
+            });
+        }
+
+        function clearTopology() {
+            // Clear nodes
+            nodes.forEach(node => {
+                if (node.mesh) scene.remove(node.mesh);
+                if (node.label) scene.remove(node.label);
+            });
+            nodes = [];
+
+            // Clear connections
+            connections.forEach(connection => {
+                scene.remove(connection);
+            });
+            connections = [];
+
+            // Clear labels
+            labels.forEach(label => {
+                scene.remove(label);
+            });
+            labels = [];
+        }
+
+        // Start
+        window.addEventListener('error', function(event) {
+            // Suppress Three.js devtool errors
+            if (event.message && event.message.includes('IS_DEVTOOL_ENABLED')) {
+                event.preventDefault();
+                return false;
+            }
+        });
+        
+        // Initialize with retry logic
+        let initAttempts = 0;
+        async function initWithRetry() {
+            try {
+                initAttempts++;
+                console.log(`🚀 Initializing topology (attempt ${initAttempts})...`);
+                await init();
+                console.log('✅ Topology initialized successfully');
+            } catch (error) {
+                console.error('❌ Init failed:', error);
+                if (initAttempts < 2) {
+                    console.log(`⏳ Retrying in 3 seconds...`);
+                    document.querySelector('.loading-text').textContent = `Initialization failed, retrying (${initAttempts}/2)...`;
+                    setTimeout(initWithRetry, 3000);
+                } else {
+                    document.querySelector('.loading-text').textContent = 'Failed to initialize. Please refresh the page.';
+                    document.querySelector('.loading-text').style.color = '#ef4444';
+                    
+                    // Add manual retry button
+                    const retryBtn = document.createElement('button');
+                    retryBtn.textContent = 'Refresh Page';
+                    retryBtn.style.cssText = 'margin-top: 20px; padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;';
+                    retryBtn.onclick = () => window.location.reload();
+                    document.querySelector('.loading-container').appendChild(retryBtn);
+                }
+            }
+        }
+        
+        initWithRetry();
+        
+        // Connect WebSocket for live updates
+        setTimeout(() => {
+            try {
+                connectWebSocket();
+            } catch (error) {
+                console.error('WebSocket connection failed:', error);
+            }
+        }, 1000);
+        
+        // Refresh data every 5 minutes as fallback
+        setInterval(() => {
+            try {
+                console.log('🔄 Refreshing topology data...');
+                loadNetworkData();
+            } catch (error) {
+                console.error('Refresh failed:', error);
+            }
+        }, 300000);
+    </script>
+</body>
+</html>

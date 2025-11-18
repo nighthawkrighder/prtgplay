@@ -10,7 +10,8 @@ const config = require('./config');
 const cookieParser = require('cookie-parser');
 const logger = require('./utils/logger');
 const { sequelize, testConnection } = require('./config/database');
-const { PRTGServer, Device, Sensor } = require('./models');
+const { PRTGServer, Device, Sensor, DeviceMetadata } = require('./models');
+const { Op } = require('sequelize');
 const apiRoutes = require('./routes/api');
 const PRTGCollector = require('./collectors/prtgCollector');
 const crypto = require('crypto');
@@ -447,6 +448,12 @@ app.post('/login', (req, res) => {
 
 // Auto-restore session middleware (runs before route guards)
 app.use(async (req, res, next) => {
+  // Skip if headers already sent (shouldn't happen but safety check)
+  if (res.headersSent) {
+    logger.warn('[SESSION MIDDLEWARE] Headers already sent, skipping');
+    return;
+  }
+  
   try {
     const authenticated = isUserAuthenticated(req);
     const existingEdrId = req.session?.edrSessionId;
@@ -796,6 +803,31 @@ app.get('/', requireAuth, async (req, res, next) => {
   }
 });
 
+// 3D Network Topology route
+app.get('/topology', requireAuth, async (req, res, next) => {
+  if (res.headersSent) {
+    return;
+  }
+  
+  try {
+    const filePath = path.join(__dirname, '../protected/topology.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    
+    if (res.headersSent) {
+      return;
+    }
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading topology:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading topology');
+    }
+  }
+});
+
 // Legacy sensor dashboard route
 app.get('/legacy', requireAuth, async (req, res, next) => {
   if (res.headersSent) {
@@ -828,8 +860,229 @@ app.get('/admin', requireAuth, requireAdmin, (req, res) => {
 });
 app.use('/admin', requireAuth, requireAdmin, express.static(adminStaticPath));
 
-// API Routes (protected)
+// Direct route for devices/enhanced (NGINX strips /api prefix)
+// MUST be before /api routes to take precedence
+app.get('/devices/enhanced', requireAuth, async (req, res, next) => {
+  // Increase timeout to 30 seconds for this slow query
+  req.setTimeout(30000);
+  res.setTimeout(30000);
+  
+  const routeStartTime = Date.now();
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  logger.info(`[${requestId}] ========== /devices/enhanced REQUEST START ==========`);
+  logger.info(`[${requestId}] Headers sent status at entry: ${res.headersSent}`);
+  logger.info(`[${requestId}] Response writableEnded: ${res.writableEnded}`);
+  logger.info(`[${requestId}] Response writableFinished: ${res.writableFinished}`);
+  
+  // Check if already responded (auth middleware may have redirected)
+  if (res.headersSent || res.writableEnded) {
+    logger.warn(`[${requestId}] Response already sent/ended at entry, aborting`);
+    return;
+  }
+  
+  // Mark route as handling the response to prevent any default handlers
+  req.route_handled = true;
+  
+  // Prevent response from timing out
+  let timeoutCleared = false;
+  const keepAliveInterval = setInterval(() => {
+    if (!res.headersSent && !res.writableEnded) {
+      logger.debug(`[${requestId}] Keep-alive ping`);
+    }
+  }, 5000);
+  
+  const clearKeepAlive = () => {
+    if (!timeoutCleared) {
+      clearInterval(keepAliveInterval);
+      timeoutCleared = true;
+    }
+  };
+  
+  logger.info(`[${requestId}] Query params:`, req.query);
+  logger.info(`[${requestId}] Auth user:`, req.session?.user?.username || 'NONE');
+  logger.info(`[${requestId}] Session ID:`, req.sessionID);
+  logger.info(`[${requestId}] Remote IP:`, req.ip || req.connection?.remoteAddress);
+  
+  // CRITICAL: Write headers immediately to lock the response and prevent 404
+  // This reserves the response before async operations start
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  logger.info(`[${requestId}] Headers sent. statusCode: ${res.statusCode}, headersSent: ${res.headersSent}`);
+  
+  try {
+    const { 
+      company, 
+      site, 
+      category, 
+      environment, 
+      search, 
+      limit = 100,
+      offset = 0,
+      all = false
+    } = req.query;
+    
+    const deviceWhere = {};
+    const metadataWhere = {};
+    
+    if (search) {
+      deviceWhere.name = { [Op.like]: `%${search}%` };
+    }
+    
+    if (company) metadataWhere.company_code = company;
+    if (site) metadataWhere.site_identifier = site;
+    if (category) metadataWhere.device_category = category;
+    if (environment) metadataWhere.environment = environment;
+
+    const queryOptions = {
+      where: deviceWhere,
+      order: [['status', 'DESC'], ['priority', 'DESC'], ['name', 'ASC']],
+      include: [
+        {
+          model: PRTGServer,
+          as: 'server',
+          attributes: ['id', 'url']
+        },
+        {
+          model: DeviceMetadata,
+          as: 'metadata',
+          where: Object.keys(metadataWhere).length > 0 ? metadataWhere : undefined,
+          required: false
+        },
+        {
+          model: Sensor,
+          as: 'sensors',
+          required: false,
+          attributes: ['id', 'status', 'sensor_type', 'priority']
+        }
+      ]
+    };
+
+    if (all !== 'true') {
+      queryOptions.limit = parseInt(limit);
+      queryOptions.offset = parseInt(offset);
+      logger.info(`[${requestId}] Pagination: limit=${limit}, offset=${offset}`);
+    } else {
+      logger.info(`[${requestId}] Fetching ALL devices (no pagination)`);
+    }
+
+    logger.info(`[${requestId}] Executing database query...`);
+    const queryStartTime = Date.now();
+    
+    const devices = await Device.findAll(queryOptions);
+    
+    const queryTime = Date.now() - queryStartTime;
+    logger.info(`[${requestId}] Database query completed in ${queryTime}ms, found ${devices.length} devices`);
+    
+    logger.info(`[${requestId}] Processing device data...`);
+    const processStartTime = Date.now();
+    
+    const enhancedDevices = devices.map(device => {
+      const deviceData = device.toJSON();
+      const sensors = deviceData.sensors || [];
+      const sensorStats = {
+        total: sensors.length,
+        up: sensors.filter(s => s.status === 3).length,
+        down: sensors.filter(s => s.status === 5).length,
+        warning: sensors.filter(s => s.status === 4).length,
+        paused: sensors.filter(s => s.status === 7).length
+      };
+      
+      let effectiveStatus = deviceData.status;
+      if (sensorStats.down > 0) effectiveStatus = 5;
+      else if (sensorStats.warning > 0) effectiveStatus = 4;
+      
+      return {
+        ...deviceData,
+        status: effectiveStatus,
+        effectiveStatus: effectiveStatus,
+        sensorStats,
+        companyName: deviceData.metadata?.company_name || 'Unknown'
+      };
+    });
+    
+    const processTime = Date.now() - processStartTime;
+    logger.info(`[${requestId}] Device processing completed in ${processTime}ms`);
+
+    logger.info(`[${requestId}] Preparing response with ${enhancedDevices.length} devices`);
+    
+    // Sample first device for structure validation
+    if (enhancedDevices.length > 0) {
+      const sample = enhancedDevices[0];
+      logger.info(`[${requestId}] Sample device:`, {
+        id: sample.id,
+        name: sample.name,
+        status: sample.status,
+        hasMetadata: !!sample.metadata,
+        sensorCount: sample.sensors?.length || 0
+      });
+    }
+    
+    // Log response state for debugging
+    logger.info(`[${requestId}] Response state before send:`, {
+      headersSent: res.headersSent,
+      finished: res.finished,
+      statusCode: res.statusCode
+    });
+    
+    // Clear keep-alive interval
+    clearKeepAlive();
+    
+    // Headers already sent via writeHead, so use end() instead of json()
+    if (!res.writableEnded) {
+      logger.info(`[${requestId}] Sending JSON response...`);
+      const responseData = JSON.stringify({
+        devices: enhancedDevices,
+        pagination: {
+          total: enhancedDevices.length,
+          fetched: enhancedDevices.length
+        }
+      });
+      res.end(responseData);
+      
+      const totalTime = Date.now() - routeStartTime;
+      logger.info(`[${requestId}] ========== REQUEST COMPLETE in ${totalTime}ms ==========`);
+    } else {
+      logger.error(`[${requestId}] Cannot send response - already sent or ended:`, {
+        headersSent: res.headersSent,
+        writableEnded: res.writableEnded,
+        writableFinished: res.writableFinished,
+        statusCode: res.statusCode,
+        stack: new Error('Response state').stack
+      });
+    }
+  } catch (error) {
+    clearKeepAlive();
+    const totalTime = Date.now() - routeStartTime;
+    logger.error(`[${requestId}] ❌ ERROR after ${totalTime}ms:`);
+    logger.error(`[${requestId}] Error name: ${error.name}`);
+    logger.error(`[${requestId}] Error message: ${error.message}`);
+    logger.error(`[${requestId}] Error stack:`, error.stack);
+    
+    if (error.name === 'SequelizeConnectionError') {
+      logger.error(`[${requestId}] Database connection error - DB may be down`);
+    } else if (error.name === 'SequelizeDatabaseError') {
+      logger.error(`[${requestId}] Database query error - check SQL syntax`);
+    }
+    
+    if (!res.headersSent) {
+      logger.info(`[${requestId}] Sending 500 error response`);
+      res.status(500).json({ 
+        error: 'Internal server error',
+        requestId: requestId
+      });
+    } else {
+      logger.error(`[${requestId}] Cannot send error response - headers already sent`);
+    }
+  }
+});
+
+// API Routes (protected) - mounted after direct routes
 app.use('/api', requireAuth, apiRoutes);
+
+// Test endpoint to verify API routes are accessible
+app.get('/api/test', requireAuth, (req, res) => {
+  res.json({ status: 'ok', message: 'API routes are working' });
+});
 
 // Session status endpoint (unprotected: returns minimal info)
 app.get('/api/session/status', async (req, res) => {
@@ -954,7 +1207,7 @@ app.get('/api/admin/sessions/stats', requireAuth, requireAdmin, async (req, res)
 
 // Middleware to prevent static serving of protected HTML files
 app.use((req, res, next) => {
-  const protectedFiles = ['/soc-dashboard.html', '/index.html'];
+  const protectedFiles = ['/soc-dashboard.html', '/index.html', '/topology.html'];
   if (protectedFiles.includes(req.path)) {
     return res.status(404).send('Not Found');
   }

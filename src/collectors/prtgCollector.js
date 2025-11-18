@@ -171,7 +171,7 @@ class PRTGCollector {
     const serverIndex = progressContext.serverIndex || 1;
     const baseFraction = totalServers ? (serverIndex - 1) / totalServers : 0;
     const rangeFraction = totalServers ? 1 / totalServers : 1;
-    this.reportStartupProgress(baseFraction, `Collecting devices from ${serverConfig.id}`);
+    this.reportStartupProgress(baseFraction, `Initializing ${serverConfig.id}`);
     
     const client = new PRTGClient(serverConfig);
     
@@ -188,8 +188,13 @@ class PRTGCollector {
       });
 
       if (this.isRunning && devicesData && devicesData.devices) {
-        logger.info(`Collected ${devicesData.devices.length} devices from PRTG server ${serverConfig.id}`);
-        await this.processDevices(serverConfig.id, devicesData.devices);
+        const totalDevices = devicesData.devices.length;
+        logger.info(`Collected ${totalDevices} devices from PRTG server ${serverConfig.id}`);
+        await this.processDevices(serverConfig.id, devicesData.devices, {
+          baseFraction,
+          rangeFraction: rangeFraction * 0.35,
+          totalDevices
+        });
         this.reportStartupProgress(baseFraction + rangeFraction * 0.35, `Collecting sensors from ${serverConfig.id}`);
       }
 
@@ -202,8 +207,13 @@ class PRTGCollector {
       });
 
       if (this.isRunning && sensorsData && sensorsData.sensors) {
-        logger.info(`Collected ${sensorsData.sensors.length} sensors from PRTG server ${serverConfig.id}`);
-        await this.processSensors(serverConfig.id, sensorsData.sensors);
+        const totalSensors = sensorsData.sensors.length;
+        logger.info(`Collected ${totalSensors} sensors from PRTG server ${serverConfig.id}`);
+        await this.processSensors(serverConfig.id, sensorsData.sensors, {
+          baseFraction: baseFraction + rangeFraction * 0.35,
+          rangeFraction: rangeFraction * 0.35,
+          totalSensors
+        });
         this.reportStartupProgress(baseFraction + rangeFraction * 0.7, `Finalizing ${serverConfig.id} metrics`);
       }
 
@@ -228,7 +238,7 @@ class PRTGCollector {
   /**
    * Process and store device data
    */
-  async processDevices(serverId, devices) {
+  async processDevices(serverId, devices, progressContext = {}) {
     if (!this.isRunning) {
       return;
     }
@@ -242,7 +252,10 @@ class PRTGCollector {
       return; // Abort processing if connection is not active
     }
     
-    logger.info(`Processing ${devices.length} devices for server ${serverId}`);
+    const totalDevices = progressContext.totalDevices || devices.length;
+    const baseFraction = progressContext.baseFraction || 0;
+    const rangeFraction = progressContext.rangeFraction || 0;
+    logger.info(`Processing ${totalDevices} devices for server ${serverId}`);
 
     const statusCounters = {
       Up: 0,
@@ -254,11 +267,19 @@ class PRTGCollector {
     };
     const issueSamples = [];
 
-    for (const device of devices) {
+    for (let i = 0; i < devices.length; i++) {
+      const device = devices[i];
       if (!this.isRunning) {
         logger.debug('Collector stop requested during device processing');
         break;
       }
+      
+      // Report progress every 50 devices
+      if (progressContext.totalDevices && i > 0 && i % 50 === 0) {
+        const fraction = baseFraction + rangeFraction * (i / totalDevices);
+        this.reportStartupProgress(fraction, `Processing devices: ${i}/${totalDevices} from ${serverId}`);
+      }
+      
       try {
         const status = this.parseStatus(device.status);
         const deviceId = parseInt(device.objid);
@@ -318,12 +339,15 @@ class PRTGCollector {
   /**
    * Process and store sensor data
    */
-  async processSensors(serverId, sensors) {
+  async processSensors(serverId, sensors, progressContext = {}) {
     if (!this.isRunning) {
       return;
     }
 
-    logger.info(`Processing ${sensors.length} sensors for server ${serverId}`);
+    const totalSensors = progressContext.totalSensors || sensors.length;
+    const baseFraction = progressContext.baseFraction || 0;
+    const rangeFraction = progressContext.rangeFraction || 0;
+    logger.info(`Processing ${totalSensors} sensors for server ${serverId}`);
 
     const statusCounters = {
       Up: 0,
@@ -335,11 +359,19 @@ class PRTGCollector {
     };
     const issueSamples = [];
 
-    for (const sensor of sensors) {
+    for (let i = 0; i < sensors.length; i++) {
+      const sensor = sensors[i];
       if (!this.isRunning) {
         logger.debug('Collector stop requested during sensor processing');
         break;
       }
+      
+      // Report progress every 100 sensors
+      if (progressContext.totalSensors && i > 0 && i % 100 === 0) {
+        const fraction = baseFraction + rangeFraction * (i / totalSensors);
+        this.reportStartupProgress(fraction, `Processing sensors: ${i}/${totalSensors} from ${serverId}`);
+      }
+      
       try {
         // Parse last seen date with fallback for invalid dates
         let lastSeen = new Date();

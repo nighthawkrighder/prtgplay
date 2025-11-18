@@ -142,6 +142,7 @@ router.get('/devices', async (req, res) => {
 
 // Get enhanced device list with metadata (must be before :id route)
 router.get('/devices/enhanced', async (req, res) => {
+  logger.info(`[API] /devices/enhanced called with query:`, req.query);
   try {
     const { 
       company, 
