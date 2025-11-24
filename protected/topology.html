@@ -466,6 +466,16 @@
                 <div class="legend-color" style="background: #8b5cf6;"></div>
                 <span>Sensor</span>
             </div>
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                <div class="legend-title" style="margin-bottom: 8px;">Keyboard Controls</div>
+                <div style="font-size: 11px; line-height: 1.6; color: #aaa;">
+                    <div><strong style="color: #667eea;">W/A/S/D</strong> - Fly forward/left/back/right</div>
+                    <div><strong style="color: #667eea;">Q/E</strong> - Fly up/down</div>
+                    <div><strong style="color: #667eea;">Shift+W/S</strong> - Speed boost</div>
+                    <div><strong style="color: #667eea;">Mouse</strong> - Look around</div>
+                    <div><strong style="color: #667eea;">Scroll</strong> - Zoom (limited)</div>
+                </div>
+            </div>
         </div>
 
         <!-- Controls Panel -->
@@ -512,7 +522,6 @@
 
             <div class="control-buttons">
                 <button class="control-button" onclick="toggleLabels()">Toggle Labels</button>
-                <button class="control-button" onclick="toggleConnections()">Toggle Lines</button>
                 <button class="control-button" onclick="expandAll()">Expand All</button>
                 <button class="control-button" onclick="collapseAll()">Collapse All</button>
             </div>
@@ -542,18 +551,33 @@
         // Global variables
         let scene, camera, renderer, controls;
         let nodes = [];
-        let connections = [];
         let labels = [];
         let selectedNode = null;
         let networkData = null;
         let nodeSizeMultiplier = 1;
         let spreadFactor = 1;
         let showLabels = true;
-        let showConnections = true;
         let autoRotate = false;
         let ws = null;
         let reconnectInterval = null;
         let deviceNodeMap = new Map(); // Map device objects to their 3D nodes
+
+        // Shared geometry and material cache for performance
+        const geometryCache = {
+            box: null,
+            sphere: null,
+            circle: null
+        };
+        
+        const materialCache = {
+            up: null,
+            warning: null,
+            down: null,
+            company: null,
+            statusCircles: {}
+        };
+        
+        const textureCache = new Map(); // Cache gradient textures by color
 
         // Colors
         const COLORS = {
@@ -565,6 +589,76 @@
             connection: 0x444444,
             selectedGlow: 0x00ffff
         };
+        
+        // Initialize shared geometries (called once at startup)
+        function initSharedGeometries() {
+            // Companies (large), Devices (medium), Sensors (tiny)
+            const deviceBoxSize = nodeSizeMultiplier * 2;  // Medium size for devices
+            // 1U/2U rack equipment: wide (4x), thin height (0.5x), medium depth (1x)
+            geometryCache.box = new THREE.BoxGeometry(deviceBoxSize * 2, deviceBoxSize * 0.25, deviceBoxSize);
+            geometryCache.building = new THREE.BoxGeometry(6 * nodeSizeMultiplier, 12 * nodeSizeMultiplier, 6 * nodeSizeMultiplier); // Tall building for companies
+            geometryCache.sphere = new THREE.SphereGeometry(4 * nodeSizeMultiplier, 32, 32); // Large for companies
+            geometryCache.circle = new THREE.CircleGeometry(deviceBoxSize * 0.3, 32);
+            geometryCache.sensorSphere = new THREE.SphereGeometry(0.3 * nodeSizeMultiplier, 16, 16); // Tiny for sensors
+            
+            // Pre-create materials for common states
+            materialCache.company = new THREE.MeshBasicMaterial({ 
+                color: COLORS.company,
+                transparent: true,
+                opacity: 0.2
+            });
+            
+            materialCache.statusCircles.warning = new THREE.MeshBasicMaterial({ 
+                color: 0xfbbf24,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            materialCache.statusCircles.down = new THREE.MeshBasicMaterial({ 
+                color: 0xef4444,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            console.log('✅ Shared geometries and materials initialized');
+        }
+        
+        // Get or create gradient texture (cached by color)
+        function getGradientTexture(color, icon) {
+            const cacheKey = `${color}-${icon}`;
+            
+            if (textureCache.has(cacheKey)) {
+                return textureCache.get(cacheKey);
+            }
+            
+            // Create gradient texture
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Create gradient
+            const gradient = ctx.createLinearGradient(0, 0, 256, 256);
+            const colorHex = '#' + color.toString(16).padStart(6, '0');
+            gradient.addColorStop(0, colorHex);
+            gradient.addColorStop(1, '#000000');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 256, 256);
+            
+            // Draw icon on top
+            ctx.fillStyle = '#ffffff';
+            if (fontAwesomeLoaded) {
+                ctx.font = 'bold 120px "Font Awesome 6 Free"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(icon, 128, 128);
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            textureCache.set(cacheKey, texture);
+            
+            return texture;
+        }
 
         // WebSocket for real-time updates
         function connectWebSocket() {
@@ -826,7 +920,8 @@
                 0.1,
                 1000
             );
-            camera.position.set(0, 50, 100);
+            // Start camera closer - at device/sensor level instead of far away
+            camera.position.set(30, 20, 50);
 
             // Setup renderer
             const canvas = document.getElementById('canvas');
@@ -841,10 +936,16 @@
             // Setup controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.minDistance = 10;
-            controls.maxDistance = 300;
+            controls.dampingFactor = 0.15;  // Increased for more responsive feel
+            controls.minDistance = 5;  // Allow zooming much closer
+            controls.maxDistance = 500; // Allow zooming further out
             controls.maxPolarAngle = Math.PI / 2 + 0.5;
+            
+            // Zoom settings - make zoom more responsive and linear
+            controls.zoomSpeed = 1.5;  // Faster zoom response
+            controls.enableZoom = true;
+            controls.screenSpacePanning = false;  // Keep panning in world space
+            controls.keyPanSpeed = 10;
 
             // Add lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
@@ -861,6 +962,9 @@
             // Add grid
             const gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
             scene.add(gridHelper);
+            
+            // Initialize shared geometries and materials
+            initSharedGeometries();
 
             // Load data
             await loadNetworkData();
@@ -868,29 +972,38 @@
             // Start animation
             animate();
 
+            // Keyboard movement setup
+            const keys = {};
+            window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+            window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
             // Event listeners
             window.addEventListener('resize', onWindowResize);
             canvas.addEventListener('click', onCanvasClick);
             canvas.addEventListener('mousemove', onCanvasMouseMove);
 
+            // Store keys object for animation loop
+            window.cameraKeys = keys;
+
             // Don't hide loading here - loadNetworkData will handle it
         }
 
-        // Load network data from API
-        async function loadNetworkData() {
+        // Load network data from API with retry logic
+        async function loadNetworkData(retryCount = 0) {
             const loadingText = document.querySelector('.loading-text');
             const startTime = Date.now();
+            const maxRetries = 3;
             
             try {
-                console.log('=== LOAD NETWORK DATA START ===');
+                console.log(`=== LOAD NETWORK DATA START (attempt ${retryCount + 1}/${maxRetries + 1}) ===`);
                 console.log('[FETCH 1] Starting fetch request...');
                 
-                loadingText.textContent = 'Connecting to server...';
+                loadingText.textContent = retryCount > 0 ? `Retrying (${retryCount}/${maxRetries})...` : 'Connecting to server...';
                 
                 // Create abort controller with 30 second timeout
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => {
-                    console.error('❌ [FETCH TIMEOUT] Request exceeded 30 seconds');
+                    console.warn(`⚠️ [FETCH TIMEOUT] Request exceeded 30 seconds (attempt ${retryCount + 1})`);
                     controller.abort();
                 }, 30000);
                 
@@ -900,18 +1013,29 @@
                 // NGINX strips /api prefix, so use /devices/enhanced directly
                 const response = await fetch('/devices/enhanced?all=true', {
                     credentials: 'same-origin',  // Include session cookie
-                    signal: controller.signal
+                    signal: controller.signal,
+                    cache: 'no-cache',  // Prevent stale data
+                    headers: {
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
                 });
                 
                 const fetchTime = Date.now() - fetchStart;
                 clearTimeout(timeoutId);
                 
                 console.log(`✅ [FETCH 3] Response received in ${fetchTime}ms, status: ${response.status}`);
-                console.log('[FETCH 4] Response headers:', Object.fromEntries(response.headers.entries()));
                 
-                loadingText.textContent = 'Loading devices...';
-                
+                // Handle transient errors with retry
                 if (!response.ok) {
+                    if ((response.status === 502 || response.status === 503 || response.status === 504) && retryCount < maxRetries) {
+                        const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
+                        console.warn(`⚠️ [RETRY] Server error ${response.status}, retrying in ${retryDelay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
+                        return loadNetworkData(retryCount + 1);
+                    }
+                    
                     console.error('❌ [FETCH 5] HTTP Error:', response.status, response.statusText);
                     const responseText = await response.text();
                     console.error('[FETCH 5b] Response body:', responseText.substring(0, 500));
@@ -1004,7 +1128,7 @@
                 
                 const renderTime = Date.now() - renderStart;
                 console.log(`✅ [RENDER 2] Topology created in ${renderTime}ms`);
-                console.log(`[RENDER 3] Total nodes created: ${nodes.length}, connections: ${connections.length}`);
+                console.log(`[RENDER 3] Total nodes created: ${nodes.length}`);
                 
                 // Small delay to ensure rendering completes
                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -1021,16 +1145,32 @@
 
             } catch (error) {
                 const totalTime = Date.now() - startTime;
-                console.error('❌ [ERROR] Network data load failed after', totalTime, 'ms');
-                console.error('[ERROR] Error name:', error.name);
-                console.error('[ERROR] Error message:', error.message);
-                console.error('[ERROR] Error stack:', error.stack);
+                
+                // Reduce log spam for transient/expected errors
+                if (error.name === 'AbortError' || retryCount > 0) {
+                    console.warn(`⚠️ [TRANSIENT] Network load failed after ${totalTime}ms (attempt ${retryCount + 1}):`, error.message);
+                } else {
+                    console.error('❌ [ERROR] Network data load failed after', totalTime, 'ms');
+                    console.error('[ERROR] Error name:', error.name);
+                    console.error('[ERROR] Error message:', error.message);
+                    console.error('[ERROR] Error stack:', error.stack);
+                }
+                
+                // Auto-retry for transient errors
+                if ((error.name === 'AbortError' || error.message.includes('Failed to fetch')) && retryCount < maxRetries) {
+                    const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+                    console.log(`🔄 [AUTO-RETRY] Retrying in ${retryDelay}ms... (${retryCount + 1}/${maxRetries})`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    return loadNetworkData(retryCount + 1);
+                }
                 
                 const errorMsg = error.name === 'AbortError' 
-                    ? 'Request timed out after 30 seconds. The server may be overloaded.'
+                    ? 'Request timed out. Server may be processing large dataset.'
+                    : error.message.includes('Failed to fetch')
+                    ? 'Network connection interrupted. Please check your connection.'
                     : error.message;
                     
-                console.error('[ERROR] User-facing message:', errorMsg);
+                console.error('[ERROR] Final user-facing message:', errorMsg);
                 document.querySelector('.loading-text').textContent = 'Error: ' + errorMsg;
                 document.querySelector('.loading-text').style.color = '#ef4444';
                 
@@ -1044,8 +1184,9 @@
                     retryBtn.onclick = () => {
                         console.log('[RETRY] User clicked retry');
                         document.getElementById('loading').style.display = 'flex';
+                        document.querySelector('.loading-text').style.color = '#ffffff';
                         retryBtn.remove();
-                        loadNetworkData();
+                        loadNetworkData(0);
                     };
                     loadingContainer.appendChild(retryBtn);
                 }
@@ -1064,7 +1205,9 @@
                 return;
             }
             
-            const radius = Math.max(50, companyCount * 5) * spreadFactor;
+            // COLLISION AVOIDANCE: Increase spacing to prevent orbital overlap
+            // Company spacing: 80 base + 10 per company (prevents company building intersections)
+            const radius = Math.max(80, companyCount * 10) * spreadFactor;
 
             // Store companies in networkData for WebSocket updates
             networkData.companies = companyNames.map(name => companies[name]);
@@ -1091,7 +1234,11 @@
                     return;
                 }
                 
-                const deviceRadius = 15 * spreadFactor;
+                // COLLISION AVOIDANCE: Device orbit radius ensures spacing
+                // Device width ~4 + sensor orbit 6*2 = ~16 units needed per device
+                // At radius 35, circumference = 220 units = 13.75 units per device (10 devices)
+                // Increased to 35 to ensure adequate spacing with sensors
+                const deviceRadius = 35 * spreadFactor;  // Increased from 25 to prevent overlap
                 
                 console.log(`    💻 ${devices.length} devices for ${companyName}`);
                 
@@ -1102,12 +1249,19 @@
                     const dy = y + (Math.random() - 0.5) * 5;
 
                     const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
+                    
+                    // Store orbital animation data
+                    deviceNode.orbit = {
+                        center: { x: x, y: y, z: z }, // Company position (sun)
+                        radius: deviceRadius,
+                        startAngle: deviceAngle,
+                        speed: 0.0005 + Math.random() * 0.0003, // Random orbit speed
+                        currentAngle: deviceAngle,
+                        wobbleSpeed: Math.random() * 0.002,
+                        wobbleAmount: Math.random() * 2
+                    };
+                    
                     nodes.push(deviceNode);
-
-                    // Create connection from company to device
-                    const connection = createConnection(companyNode.mesh.position, deviceNode.mesh.position);
-                    connections.push(connection);
-                    deviceNode.connections.push(connection);
 
                     // Create sensor nodes (collapsed by default)
                     if (device.sensorStats && device.sensorStats.total > 0) {
@@ -1121,7 +1275,7 @@
                 });
             });
             
-            console.log(`✅ Created ${nodes.length} total nodes, ${connections.length} connections`);
+            console.log(`✅ Created ${nodes.length} total nodes`);
         }
 
         // Create icon sprite for nodes
@@ -1180,20 +1334,31 @@
 
         // Create company node
         function createCompanyNode(name, x, y, z) {
-            const sprite = createIconSprite('\uf1ad', COLORS.company, nodeSizeMultiplier);
-            sprite.position.set(x, y, z);
-            scene.add(sprite);
-
-            // Add glow
-            const glowGeometry = new THREE.SphereGeometry(3.5 * nodeSizeMultiplier, 32, 32);
-            const glowMaterial = new THREE.MeshBasicMaterial({ 
-                color: COLORS.company,
-                transparent: true,
-                opacity: 0.2
+            // Realistic building colors - various architectural tones
+            const buildingColors = [
+                0x8B7355, // Brown brick
+                0xA8A8A8, // Light gray concrete
+                0x6B6B6B, // Dark gray stone
+                0xB8956A, // Tan/beige
+                0x9C8B7E, // Warm gray
+                0x7A6F5D, // Brownstone
+                0x8F8F8F, // Medium gray
+                0xA67B5B  // Terra cotta
+            ];
+            const buildingColor = buildingColors[Math.floor(Math.random() * buildingColors.length)];
+            
+            // Vary building height slightly for realism
+            const heightVariation = 0.8 + Math.random() * 0.4; // 80-120% of base height
+            const buildingGeometry = geometryCache.building.clone();
+            buildingGeometry.scale(1, heightVariation, 1);
+            
+            const buildingMaterial = new THREE.MeshLambertMaterial({ 
+                color: buildingColor,
+                flatShading: true // Makes it look more architectural
             });
-            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-            glow.position.set(x, y, z);
-            scene.add(glow);
+            const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+            building.position.set(x, y, z);
+            scene.add(building);
 
             // Add label
             const label = createLabel(name, x, y + 5, z);
@@ -1201,7 +1366,7 @@
             return {
                 type: 'company',
                 name: name,
-                mesh: sprite,
+                mesh: building,
                 label: label,
                 data: { name: name },
                 connections: [],
@@ -1247,9 +1412,40 @@
                 icon = '\uf02f'; // print icon
             }
             
-            const sprite = createIconSprite(icon, color, nodeSizeMultiplier * 0.8);
-            sprite.position.set(x, y, z);
-            scene.add(sprite);
+            // Realistic rack equipment colors based on status
+            let deviceColor;
+            if (status === 5 || status === 'down') {
+                deviceColor = 0x4A4A4A; // Dark gray for down devices
+            } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
+                deviceColor = 0x5A5A5A; // Medium gray for warning
+            } else {
+                deviceColor = 0x6B6B6B; // Light gray for healthy devices
+            }
+            
+            // Create rack equipment material with metallic appearance
+            const material = new THREE.MeshPhongMaterial({
+                color: deviceColor,
+                specular: 0x444444,
+                shininess: 30,
+                flatShading: false
+            });
+            
+            // Use shared rack geometry (1U/2U dimensions)
+            const box = new THREE.Mesh(geometryCache.box, material);
+            box.position.set(x, y, z);
+            scene.add(box);
+            
+            // Add status indicator circle (yellow/red) using shared geometry and materials
+            if (color === COLORS.deviceWarning || color === COLORS.deviceDown) {
+                const statusType = color === COLORS.deviceWarning ? 'warning' : 'down';
+                const statusCircle = new THREE.Mesh(
+                    geometryCache.circle, 
+                    materialCache.statusCircles[statusType]
+                );
+                const boxSize = nodeSizeMultiplier * 2;  // Match device box size
+                statusCircle.position.set(x + boxSize * 0.6, y + boxSize * 0.6, z);
+                scene.add(statusCircle);
+            }
 
             // Add label
             const label = createLabel(device.name, x, y + 3, z);
@@ -1257,7 +1453,7 @@
             const node = {
                 type: 'device',
                 name: device.name,
-                mesh: sprite,
+                mesh: box,
                 label: label,
                 data: device,
                 parent: parent,
@@ -1266,7 +1462,7 @@
             };
             
                 // Register node for real-time updates
-                deviceNodeMap.set(device, sprite);
+                deviceNodeMap.set(device, box);
                 
                 return node;
             } catch (error) {
@@ -1287,42 +1483,50 @@
 
         // Create sensor node
         function createSensorNode(device, x, y, z, parent) {
-            const sprite = createIconSprite('\uf06e', COLORS.sensor, nodeSizeMultiplier * 0.5); // eye icon for sensor
+            // Tiny sphere for sensor (0.3x size)
+            const sensorMaterial = new THREE.MeshBasicMaterial({ 
+                color: COLORS.sensor,
+                transparent: true,
+                opacity: 0.8
+            });
+            const sphere = new THREE.Mesh(geometryCache.sensorSphere, sensorMaterial);
             
-            // Random position around device
+            // Initial random position around device
             const angle = Math.random() * Math.PI * 2;
-            const distance = 3 * spreadFactor;
-            sprite.position.set(
+            const distance = 6 * spreadFactor;  // Orbit distance from device (increased for spacing)
+            sphere.position.set(
                 x + Math.cos(angle) * distance,
-                y + (Math.random() - 0.5) * 2,
+                y,
                 z + Math.sin(angle) * distance
             );
-            scene.add(sprite);
+            scene.add(sphere);
 
-            return {
+            const node = {
                 type: 'sensor',
                 name: 'Sensor',
-                mesh: sprite,
+                mesh: sphere,
                 label: null,
                 data: device,
                 parent: parent,
                 connections: [],
-                visible: false
+                visible: false,
+                orbit: {
+                    center: { x: x, y: y, z: z },  // Device position (will be updated)
+                    radius: distance,
+                    startAngle: angle,
+                    speed: 0.002 + Math.random() * 0.001,  // Faster than devices
+                    currentAngle: angle,
+                    // Different orbital planes like moons
+                    tiltX: (Math.random() - 0.5) * Math.PI * 0.8,  // Tilt around X axis
+                    tiltZ: (Math.random() - 0.5) * Math.PI * 0.8,  // Tilt around Z axis
+                    planeRotation: Math.random() * Math.PI * 2     // Plane orientation
+                }
             };
+            
+            return node;
         }
 
-        // Create connection line
-        function createConnection(start, end) {
-            const material = new THREE.LineBasicMaterial({ 
-                color: COLORS.connection,
-                transparent: true,
-                opacity: 0.3
-            });
-            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-            const line = new THREE.Line(geometry, material);
-            scene.add(line);
-            return line;
-        }
+        // Connection lines removed for cleaner visualization
 
         // Create label (sprite)
         function createLabel(text, x, y, z) {
@@ -1353,6 +1557,60 @@
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
+            
+            const time = Date.now() * 0.001;
+
+            // Keyboard camera movement - fly through the scene
+            const keys = window.cameraKeys || {};
+            const moveSpeed = 2.0;  // Units per frame
+            const direction = new THREE.Vector3();
+            
+            camera.getWorldDirection(direction);
+            const right = new THREE.Vector3();
+            right.crossVectors(camera.up, direction).normalize();
+            
+            // W/S - Move forward/backward in the direction camera is facing
+            if (keys['w']) {
+                camera.position.addScaledVector(direction, moveSpeed);
+                controls.target.addScaledVector(direction, moveSpeed);
+            }
+            if (keys['s']) {
+                camera.position.addScaledVector(direction, -moveSpeed);
+                controls.target.addScaledVector(direction, -moveSpeed);
+            }
+            
+            // A/D - Strafe left/right
+            if (keys['a']) {
+                camera.position.addScaledVector(right, moveSpeed);
+                controls.target.addScaledVector(right, moveSpeed);
+            }
+            if (keys['d']) {
+                camera.position.addScaledVector(right, -moveSpeed);
+                controls.target.addScaledVector(right, -moveSpeed);
+            }
+            
+            // Q/E - Move up/down
+            if (keys['q']) {
+                camera.position.y += moveSpeed;
+                controls.target.y += moveSpeed;
+            }
+            if (keys['e']) {
+                camera.position.y -= moveSpeed;
+                controls.target.y -= moveSpeed;
+            }
+            
+            // Shift - Speed boost
+            if (keys['shift']) {
+                const boostSpeed = 4.0;
+                if (keys['w']) {
+                    camera.position.addScaledVector(direction, boostSpeed);
+                    controls.target.addScaledVector(direction, boostSpeed);
+                }
+                if (keys['s']) {
+                    camera.position.addScaledVector(direction, -boostSpeed);
+                    controls.target.addScaledVector(direction, -boostSpeed);
+                }
+            }
 
             // Update controls
             controls.update();
@@ -1362,10 +1620,114 @@
                 scene.rotation.y += 0.001;
             }
 
-            // Gentle rotation for non-selected nodes only
+            // Animate devices first, then sensors (so sensors follow updated device positions)
+            
+            // PASS 1: Update device positions
             nodes.forEach(node => {
-                if (node.mesh && node !== selectedNode) {
+                if (node.type === 'device' && node.mesh && node.orbit) {
+                    const status = node.data.status;
+                    
+                    // Green devices - orbit around company like planets
+                    if (status === 3 || status === 'up') {
+                        node.orbit.currentAngle += node.orbit.speed;
+                        const newX = node.orbit.center.x + Math.cos(node.orbit.currentAngle) * node.orbit.radius;
+                        const newZ = node.orbit.center.z + Math.sin(node.orbit.currentAngle) * node.orbit.radius;
+                        const wobble = Math.sin(time * node.orbit.wobbleSpeed) * node.orbit.wobbleAmount;
+                        node.mesh.position.set(newX, node.orbit.center.y + wobble, newZ);
+                        
+                        // Update label position if exists
+                        if (node.label) {
+                            node.label.position.set(newX, node.orbit.center.y + wobble + 3, newZ);
+                        }
+                        
+                        // Gentle rotation
+                        if (node !== selectedNode) {
+                            node.mesh.rotation.y += 0.005;
+                        }
+                    }
+                    // Red devices - violent shake and pulse
+                    else if (status === 5 || status === 'down') {
+                        const shake = Math.sin(time * 10) * 0.5 + Math.cos(time * 7) * 0.3;
+                        const pulse = 1 + Math.sin(time * 3) * 0.3;
+                        const baseX = node.orbit.center.x + Math.cos(node.orbit.startAngle) * node.orbit.radius;
+                        const baseZ = node.orbit.center.z + Math.sin(node.orbit.startAngle) * node.orbit.radius;
+                        node.mesh.position.x = baseX + shake;
+                        node.mesh.position.z = baseZ + shake;
+                        node.mesh.scale.set(pulse, pulse, pulse);
+                        
+                        // Rotate erratically
+                        node.mesh.rotation.x = Math.sin(time * 2) * 0.5;
+                        node.mesh.rotation.y = Math.cos(time * 3) * 0.5;
+                        node.mesh.rotation.z = Math.sin(time * 4) * 0.3;
+                    }
+                    // Yellow devices - slow bounce and glow pulse
+                    else if (status === 4 || status === 10 || status === 'warning') {
+                        const bounce = Math.abs(Math.sin(time * 0.8)) * 5;
+                        const pulse = 1 + Math.sin(time * 2) * 0.15;
+                        const baseX = node.orbit.center.x + Math.cos(node.orbit.startAngle) * node.orbit.radius;
+                        const baseZ = node.orbit.center.z + Math.sin(node.orbit.startAngle) * node.orbit.radius;
+                        node.mesh.position.x = baseX;
+                        node.mesh.position.y = node.orbit.center.y + bounce;
+                        node.mesh.position.z = baseZ;
+                        node.mesh.scale.set(pulse, pulse, pulse);
+                        
+                        // Gentle rotation
+                        node.mesh.rotation.y = time * 0.5;
+                    }
+                } else if (node.mesh && node !== selectedNode && node.type !== 'device') {
+                    // Gentle rotation for non-device nodes
                     node.mesh.rotation.y += 0.005;
+                }
+            });
+            
+            // PASS 2: Update sensor positions (after devices have moved)
+            // VERIFIED: Sensors follow parent devices by using parentPos from device's CURRENT mesh.position
+            // This ensures sensors orbit their parent device like moons, moving with the device as it orbits the company
+            nodes.forEach(node => {
+                if (node.type === 'sensor' && node.mesh && node.orbit && node.parent && node.parent.mesh) {
+                    // Use parent device's CURRENT position (sensors follow devices like moons)
+                    const parentPos = node.parent.mesh.position;
+                    
+                    // Calculate position in tilted orbital plane
+                    node.orbit.currentAngle += node.orbit.speed;
+                    
+                    // Base circular orbit
+                    let x = Math.cos(node.orbit.currentAngle) * node.orbit.radius;
+                    let y = Math.sin(node.orbit.currentAngle) * node.orbit.radius;
+                    let z = 0;
+                    
+                    // Apply plane rotation
+                    const cos = Math.cos(node.orbit.planeRotation);
+                    const sin = Math.sin(node.orbit.planeRotation);
+                    let tempX = x * cos - y * sin;
+                    let tempY = x * sin + y * cos;
+                    x = tempX;
+                    y = tempY;
+                    
+                    // Apply tilt around X axis (creates vertical orbits)
+                    const cosX = Math.cos(node.orbit.tiltX);
+                    const sinX = Math.sin(node.orbit.tiltX);
+                    tempY = y * cosX - z * sinX;
+                    let tempZ = y * sinX + z * cosX;
+                    y = tempY;
+                    z = tempZ;
+                    
+                    // Apply tilt around Z axis (creates diagonal orbits)
+                    const cosZ = Math.cos(node.orbit.tiltZ);
+                    const sinZ = Math.sin(node.orbit.tiltZ);
+                    tempX = x * cosZ - y * sinZ;
+                    tempY = x * sinZ + y * cosZ;
+                    x = tempX;
+                    y = tempY;
+                    
+                    // Set final position relative to parent device's CURRENT position
+                    node.mesh.position.set(
+                        parentPos.x + x,
+                        parentPos.y + y,
+                        parentPos.z + z
+                    );
+                    
+                    // NO pulse animation - keep sensors at constant size
                 }
             });
 
@@ -1419,11 +1781,46 @@
         // Select node
         function selectNode(node) {
             // Deselect previous
-            if (selectedNode) {
-                selectedNode.mesh.scale.set(1, 1, 1);
+            if (selectedNode && selectedNode.mesh) {
+                // Only reset scale for non-animated devices
+                const status = selectedNode.data?.status;
+                if (!status || (status !== 5 && status !== 'down' && status !== 4 && status !== 10 && status !== 'warning')) {
+                    selectedNode.mesh.scale.set(1, 1, 1);
+                }
             }
 
             selectedNode = node;
+            
+            // If clicking a company node, zoom to it and show all devices
+            if (node.type === 'company') {
+                zoomToNode(node);
+                
+                // Highlight devices of this company
+                nodes.forEach(n => {
+                    if (n.type === 'device' && n.parent === node) {
+                        // Brief highlight pulse
+                        if (n.mesh) {
+                            const originalScale = n.mesh.scale.x;
+                            n.mesh.scale.set(1.5, 1.5, 1.5);
+                            setTimeout(() => {
+                                const currentStatus = n.data?.status;
+                                // Don't reset scale if it's an animated status
+                                if (currentStatus !== 5 && currentStatus !== 'down' && currentStatus !== 4 && currentStatus !== 10 && currentStatus !== 'warning') {
+                                    if (n.mesh) n.mesh.scale.set(1, 1, 1);
+                                }
+                            }, 500);
+                        }
+                    }
+                });
+                return;
+            }
+            
+            // If clicking a device node, show sensor popup
+            if (node.type === 'device') {
+                showSensorPopup(node);
+                zoomToNode(node);
+                return;
+            }
 
             // Show info panel
             const infoPanel = document.getElementById('info-panel');
@@ -1493,10 +1890,93 @@
             zoomToNode(node);
         }
 
+        // Show sensor popup with real-time data
+        function showSensorPopup(deviceNode) {
+            const device = deviceNode.data;
+            
+            // Create or update popup
+            let popup = document.getElementById('sensor-popup');
+            if (!popup) {
+                popup = document.createElement('div');
+                popup.id = 'sensor-popup';
+                popup.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(10, 10, 10, 0.95);
+                    border: 2px solid #3b82f6;
+                    border-radius: 12px;
+                    padding: 20px;
+                    min-width: 400px;
+                    max-width: 600px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    z-index: 10000;
+                    box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+                    color: white;
+                    font-family: system-ui, -apple-system, sans-serif;
+                `;
+                document.body.appendChild(popup);
+            }
+            
+            popup.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0; color: #3b82f6; font-size: 20px;">${device.name || 'Device'}</h2>
+                    <button onclick="document.getElementById('sensor-popup').style.display='none'" 
+                            style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
+                        ✕
+                    </button>
+                </div>
+                <div style="margin-bottom: 10px; color: #9ca3af;">
+                    <strong>Host:</strong> ${device.host || 'Unknown'}<br>
+                    <strong>Status:</strong> <span style="color: ${device.status === 3 ? '#22c55e' : device.status === 5 ? '#ef4444' : '#fbbf24'}">
+                        ${device.status === 3 ? 'UP' : device.status === 5 ? 'DOWN' : 'WARNING'}
+                    </span>
+                </div>
+                <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
+                <h3 style="color: #60a5fa; margin: 10px 0; font-size: 16px;">📊 Sensor Statistics</h3>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${device.sensorStats?.up || 0}</div>
+                        <div style="font-size: 12px; color: #9ca3af;">Up</div>
+                    </div>
+                    <div style="background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #fbbf24;">${device.sensorStats?.warning || 0}</div>
+                        <div style="font-size: 12px; color: #9ca3af;">Warning</div>
+                    </div>
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #ef4444;">${device.sensorStats?.down || 0}</div>
+                        <div style="font-size: 12px; color: #9ca3af;">Down</div>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.1); border-radius: 8px;">
+                    <div style="font-size: 12px; color: #9ca3af;">Total Sensors</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #3b82f6;">${device.sensorStats?.total || 0}</div>
+                </div>
+                <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
+                    🔄 Real-time data • Click outside to close
+                </div>
+            `;
+            
+            popup.style.display = 'block';
+            
+            // Close on outside click
+            setTimeout(() => {
+                const closeHandler = (e) => {
+                    if (!popup.contains(e.target)) {
+                        popup.style.display = 'none';
+                        document.removeEventListener('click', closeHandler);
+                    }
+                };
+                document.addEventListener('click', closeHandler);
+            }, 100);
+        }
+        
         // Zoom to node
         function zoomToNode(node) {
             const targetPosition = node.mesh.position.clone();
-            const distance = 20;
+            const distance = node.type === 'company' ? 40 : 15;
             const cameraTarget = new THREE.Vector3(
                 targetPosition.x,
                 targetPosition.y + 10,
@@ -1526,7 +2006,7 @@
 
         // Control functions
         function resetCamera() {
-            camera.position.set(0, 50, 100);
+            camera.position.set(30, 20, 50);
             controls.target.set(0, 0, 0);
             selectedNode = null;
             document.getElementById('info-panel').classList.remove('visible');
@@ -1559,12 +2039,7 @@
             });
         }
 
-        function toggleConnections() {
-            showConnections = !showConnections;
-            connections.forEach(connection => {
-                connection.visible = showConnections;
-            });
-        }
+        // toggleConnections removed - no more connection lines
 
         function expandAll() {
             nodes.forEach(node => {
@@ -1638,12 +2113,6 @@
                 if (node.label) scene.remove(node.label);
             });
             nodes = [];
-
-            // Clear connections
-            connections.forEach(connection => {
-                scene.remove(connection);
-            });
-            connections = [];
 
             // Clear labels
             labels.forEach(label => {
