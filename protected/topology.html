@@ -1332,6 +1332,55 @@
             }
         }
 
+        // Create office building texture with windows (some lit, some dark)
+        function createBuildingTexture(buildingColor) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 512; // Taller for office building
+            const ctx = canvas.getContext('2d');
+            
+            // Draw building base color
+            ctx.fillStyle = '#' + buildingColor.toString(16).padStart(6, '0');
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Add office windows in a grid pattern
+            const windowWidth = 16;
+            const windowHeight = 20;
+            const windowSpacingX = 24;
+            const windowSpacingY = 28;
+            const startX = 16;
+            const startY = 20;
+            
+            // Draw windows (some lit, some dark)
+            for (let floor = 0; floor < 16; floor++) {
+                for (let col = 0; col < 8; col++) {
+                    const wx = startX + col * windowSpacingX;
+                    const wy = startY + floor * windowSpacingY;
+                    
+                    // Random chance of window being lit (60% lit, 40% dark)
+                    const isLit = Math.random() > 0.4;
+                    
+                    if (isLit) {
+                        // Lit window - warm yellow/orange glow
+                        const brightness = 0.7 + Math.random() * 0.3; // Vary brightness
+                        ctx.fillStyle = `rgba(255, 230, 180, ${brightness})`;
+                    } else {
+                        // Dark/unlit window
+                        ctx.fillStyle = 'rgba(20, 30, 40, 0.8)';
+                    }
+                    
+                    ctx.fillRect(wx, wy, windowWidth, windowHeight);
+                    
+                    // Add window frame
+                    ctx.strokeStyle = 'rgba(80, 80, 80, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(wx, wy, windowWidth, windowHeight);
+                }
+            }
+            
+            return new THREE.CanvasTexture(canvas);
+        }
+
         // Create company node
         function createCompanyNode(name, x, y, z) {
             // Realistic building colors - various architectural tones
@@ -1352,11 +1401,31 @@
             const buildingGeometry = geometryCache.building.clone();
             buildingGeometry.scale(1, heightVariation, 1);
             
-            const buildingMaterial = new THREE.MeshLambertMaterial({ 
-                color: buildingColor,
-                flatShading: true // Makes it look more architectural
-            });
-            const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+            // Create office building texture with lit and unlit windows
+            const buildingTexture = createBuildingTexture(buildingColor);
+            buildingTexture.wrapS = THREE.RepeatWrapping;
+            buildingTexture.wrapT = THREE.RepeatWrapping;
+            
+            // Create material array for different faces of building
+            const materials = [];
+            for (let i = 0; i < 6; i++) {
+                if (i < 4) {
+                    // Side faces get the office window texture
+                    materials.push(new THREE.MeshLambertMaterial({ 
+                        map: createBuildingTexture(buildingColor),
+                        emissive: 0x332200, // Slight warm glow from lit windows
+                        emissiveIntensity: 0.2
+                    }));
+                } else {
+                    // Top and bottom faces are solid color (roof/base)
+                    const roofColor = i === 4 ? 0x3A3A3A : buildingColor; // Dark roof
+                    materials.push(new THREE.MeshLambertMaterial({ 
+                        color: roofColor
+                    }));
+                }
+            }
+            
+            const building = new THREE.Mesh(buildingGeometry, materials);
             building.position.set(x, y, z);
             scene.add(building);
 
