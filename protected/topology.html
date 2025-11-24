@@ -554,7 +554,7 @@
         let labels = [];
         let selectedNode = null;
         let networkData = null;
-        let nodeSizeMultiplier = 1;
+        let nodeSizeMultiplier = 3; // Increased from 1 to 3 for better visibility
         let spreadFactor = 1;
         let showLabels = true;
         let autoRotate = false;
@@ -592,14 +592,21 @@
         
         // Initialize shared geometries (called once at startup)
         function initSharedGeometries() {
-            // Companies (large), Devices (medium), Sensors (tiny)
-            const deviceBoxSize = nodeSizeMultiplier * 2;  // Medium size for devices
-            // 1U/2U rack equipment: wide (4x), thin height (0.5x), medium depth (1x)
-            geometryCache.box = new THREE.BoxGeometry(deviceBoxSize * 2, deviceBoxSize * 0.25, deviceBoxSize);
-            geometryCache.building = new THREE.BoxGeometry(6 * nodeSizeMultiplier, 12 * nodeSizeMultiplier, 6 * nodeSizeMultiplier); // Tall building for companies
-            geometryCache.sphere = new THREE.SphereGeometry(4 * nodeSizeMultiplier, 32, 32); // Large for companies
-            geometryCache.circle = new THREE.CircleGeometry(deviceBoxSize * 0.3, 32);
-            geometryCache.sensorSphere = new THREE.SphereGeometry(0.3 * nodeSizeMultiplier, 16, 16); // Tiny for sensors
+            // Companies (motherships), Devices (small ships), Sensors (tiny escorts)
+            const deviceSize = nodeSizeMultiplier * 2;
+            
+            // Mothership: Large elongated diamond shape (company flagship)
+            const mothershipSize = 12 * nodeSizeMultiplier;
+            geometryCache.mothership = new THREE.ConeGeometry(mothershipSize * 0.6, mothershipSize * 2, 6);
+            
+            // Small spaceship: Smaller cone/diamond for devices
+            geometryCache.spaceship = new THREE.ConeGeometry(deviceSize * 0.8, deviceSize * 2, 6);
+            
+            // Sensor escort: Tiny sphere
+            geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
+            
+            // Status indicator circle
+            geometryCache.circle = new THREE.CircleGeometry(deviceSize * 0.3, 32);
             
             // Pre-create materials for common states
             materialCache.company = new THREE.MeshBasicMaterial({ 
@@ -781,80 +788,68 @@
 
         // Update a device node's color based on status
         function updateDeviceNodeStatus(host, name, statusCode) {
-            // Find the device in our data
+            // Find the device in our data and its node
             for (const company of networkData.companies) {
                 const device = company.devices.find(d => 
                     d.host === host || d.name === name);
                 
                 if (device && deviceNodeMap.has(device)) {
-                    const sprite = deviceNodeMap.get(device);
+                    const box = deviceNodeMap.get(device);
                     const oldStatus = device.status;
                     
-                    // Map PRTG status codes to colors
-                    const colorMap = {
-                        3: COLORS.deviceUp,
-                        4: COLORS.deviceWarning,
-                        5: COLORS.deviceDown,
-                        7: '#808080', // paused
-                        10: COLORS.deviceWarning // unusual
-                    };
-                    const newColor = colorMap[statusCode] || COLORS.deviceWarning;
+                    // Find the node object to access status circle
+                    const node = nodes.find(n => n.type === 'device' && n.data === device);
                     
-                    // Update sprite icon with new color
-                    let icon = '\uf233'; // server icon (default)
-                    const deviceName = (device.name || '').toLowerCase();
-                    if (deviceName.includes('router') || deviceName.includes('gateway')) {
-                        icon = '\uf6ff';
-                    } else if (deviceName.includes('switch')) {
-                        icon = '\uf0e8';
-                    } else if (deviceName.includes('firewall')) {
-                        icon = '\uf132';
-                    } else if (deviceName.includes('desktop') || deviceName.includes('pc')) {
-                        icon = '\uf108';
-                    } else if (deviceName.includes('printer')) {
-                        icon = '\uf02f';
+                    // Determine new box color based on status (metallic gray shades)
+                    let deviceColor;
+                    if (statusCode === 5 || statusCode === 'down') {
+                        deviceColor = 0x4A4A4A; // Dark gray for down devices
+                    } else if (statusCode === 4 || statusCode === 10 || statusCode === 1 || statusCode === 'warning') {
+                        deviceColor = 0x5A5A5A; // Medium gray for warning
+                    } else if (statusCode === 3 || statusCode === 'up') {
+                        deviceColor = 0x6B6B6B; // Light gray for healthy devices
+                    } else {
+                        deviceColor = 0x6B6B6B; // Default light gray
                     }
                     
-                    const canvas = document.createElement('canvas');
-                    const size = 256;
-                    canvas.width = size;
-                    canvas.height = size;
-                    const context = canvas.getContext('2d');
+                    // Update box material color
+                    box.material.color.setHex(deviceColor);
+                    box.material.needsUpdate = true;
                     
-                    // Draw circular background with new color
-                    let colorHex = '#00ff00'; // default green
-                    try {
-                        if (typeof newColor === 'number') {
-                            colorHex = '#' + newColor.toString(16).padStart(6, '0');
-                        } else if (typeof newColor === 'string') {
-                            colorHex = newColor.startsWith('#') ? newColor : '#' + newColor;
+                    // Update or create status circle
+                    if (node) {
+                        const boxSize = nodeSizeMultiplier * 2;
+                        const needsCircle = (statusCode === 4 || statusCode === 10 || statusCode === 5);
+                        
+                        if (needsCircle) {
+                            const statusType = (statusCode === 5) ? 'down' : 'warning';
+                            
+                            if (node.statusCircle) {
+                                // Update existing circle material
+                                node.statusCircle.material = materialCache.statusCircles[statusType];
+                            } else {
+                                // Create new circle
+                                node.statusCircle = new THREE.Mesh(
+                                    geometryCache.circle,
+                                    materialCache.statusCircles[statusType]
+                                );
+                                const pos = box.position;
+                                node.statusCircle.position.set(pos.x + boxSize * 0.6, pos.y + boxSize * 0.6, pos.z);
+                                scene.add(node.statusCircle);
+                            }
+                        } else if (node.statusCircle) {
+                            // Remove circle for healthy status
+                            scene.remove(node.statusCircle);
+                            node.statusCircle = null;
                         }
-                    } catch (e) {
-                        console.warn('Color conversion error:', e, newColor);
                     }
-                    context.fillStyle = colorHex;
-                    context.beginPath();
-                    context.arc(size/2, size/2, size/2 - 10, 0, Math.PI * 2);
-                    context.fill();
-                    
-                    // Draw icon
-                    context.fillStyle = '#ffffff';
-                    context.font = 'bold 140px "Font Awesome 6 Free"';
-                    context.textAlign = 'center';
-                    context.textBaseline = 'middle';
-                    context.fillText(icon, size/2, size/2);
-                    
-                    // Update sprite texture
-                    const texture = new THREE.CanvasTexture(canvas);
-                    sprite.material.map = texture;
-                    sprite.material.needsUpdate = true;
                     
                     // Update device status
                     device.status = statusCode;
+                    device.effectiveStatus = statusCode;
                     
-                    // Gentle pulse animation on status change
+                    // Log status change
                     if (oldStatus !== statusCode) {
-                        animateStatusChange(sprite);
                         console.log(`🔄 Updated ${device.name}: ${oldStatus} → ${statusCode}`);
                     }
                     return;
@@ -904,7 +899,7 @@
                 console.log('✅ [STEP 2a] Scene created');
                 
                 scene.background = new THREE.Color(0x0a0a0a);
-                scene.fog = new THREE.Fog(0x0a0a0a, 100, 500);
+                // No fog - objects should stay visible at any distance
                 console.log('✅ [STEP 2b] Scene configured');
             } catch (error) {
                 console.error('❌ [INIT] Error during setup:', error);
@@ -918,10 +913,11 @@
                 60,
                 window.innerWidth / window.innerHeight,
                 0.1,
-                1000
+                5000  // Increased from 1000 to render at much greater distances
             );
-            // Start camera closer - at device/sensor level instead of far away
-            camera.position.set(30, 20, 50);
+            // Position camera directly above galaxy center looking straight down
+            // Height increased to accommodate larger circles with many companies
+            camera.position.set(0, 600, 0);
 
             // Setup renderer
             const canvas = document.getElementById('canvas');
@@ -938,8 +934,12 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.15;  // Increased for more responsive feel
             controls.minDistance = 5;  // Allow zooming much closer
-            controls.maxDistance = 500; // Allow zooming further out
+            controls.maxDistance = 1200; // Allow zooming much further out for large topologies
             controls.maxPolarAngle = Math.PI / 2 + 0.5;
+            
+            // Look at true center
+            controls.target.set(0, 0, 0);
+            camera.lookAt(0, 0, 0);
             
             // Zoom settings - make zoom more responsive and linear
             controls.zoomSpeed = 1.5;  // Faster zoom response
@@ -1206,22 +1206,23 @@
             }
             
             // COLLISION AVOIDANCE: Increase spacing to prevent orbital overlap
-            // Company spacing: 80 base + 10 per company (prevents company building intersections)
-            const radius = Math.max(80, companyCount * 10) * spreadFactor;
+            // Scale radius based on company count to accommodate all companies
+            // Base 100 units + 12 units per company for proper spacing
+            const radius = Math.max(100, companyCount * 12) * spreadFactor;
 
             // Store companies in networkData for WebSocket updates
             networkData.companies = companyNames.map(name => companies[name]);
 
             companyNames.forEach((companyName, index) => {
-                // Position companies in a circle
+                // Position companies in a circle at the edge (all at same radius)
                 const angle = (index / companyCount) * Math.PI * 2;
                 const x = Math.cos(angle) * radius;
                 const z = Math.sin(angle) * radius;
-                const y = 0;
+                const y = 0; // Keep all at same height
 
-                console.log(`  🏢 ${companyName} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`);
+                console.log(`  🏢 ${companyName} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) - radius: ${radius.toFixed(1)}`);
 
-                // Create company node
+                // Create company node at edge of galaxy
                 const companyNode = createCompanyNode(companyName, x, y, z);
                 nodes.push(companyNode);
 
@@ -1242,23 +1243,57 @@
                 
                 console.log(`    💻 ${devices.length} devices for ${companyName}`);
                 
+                // Arrange devices serially along radial spokes
+                const devicesPerSpoke = Math.ceil(Math.sqrt(devices.length)); // Distribute evenly
+                const numSpokes = Math.ceil(devices.length / devicesPerSpoke);
+                const deviceSpacing = 25 * spreadFactor; // More spacing to prevent bunching
+                
                 devices.forEach((device, deviceIndex) => {
-                    const deviceAngle = (deviceIndex / devices.length) * Math.PI * 2;
-                    const dx = x + Math.cos(deviceAngle) * deviceRadius;
-                    const dz = z + Math.sin(deviceAngle) * deviceRadius;
-                    const dy = y + (Math.random() - 0.5) * 5;
+                    // Vertical column arrangement - devices stack vertically like beads
+                    // Each company has a vertical column at their position
+                    const companyAngle = Math.atan2(z, x);
+                    
+                    // Base position at company location
+                    const baseX = x;
+                    const baseZ = z;
+                    
+                    // Vertical spacing between devices (stack them vertically)
+                    const verticalSpacing = 15 * spreadFactor;
+                    
+                    // Calculate column dimensions based on device count
+                    const devicesPerColumn = 8; // Devices per vertical column
+                    const columnIndex = Math.floor(deviceIndex / devicesPerColumn);
+                    const positionInColumn = deviceIndex % devicesPerColumn;
+                    
+                    // For multiple columns, arrange them in a small rectangular grid around company
+                    const columnsPerRow = Math.ceil(Math.sqrt(Math.ceil(devices.length / devicesPerColumn)));
+                    const columnRow = Math.floor(columnIndex / columnsPerRow);
+                    const columnCol = columnIndex % columnsPerRow;
+                    
+                    // Offset columns in a tight grid pattern (30 units apart)
+                    const columnSpacing = 30 * spreadFactor;
+                    const columnOffsetX = (columnCol - columnsPerRow / 2) * columnSpacing;
+                    const columnOffsetZ = (columnRow - columnsPerRow / 2) * columnSpacing;
+                    
+                    // Rotate offsets to align with company's radial position
+                    const perpAngle = companyAngle + Math.PI / 2;
+                    const rotatedOffsetX = columnOffsetX * Math.cos(perpAngle) - columnOffsetZ * Math.sin(perpAngle);
+                    const rotatedOffsetZ = columnOffsetX * Math.sin(perpAngle) + columnOffsetZ * Math.cos(perpAngle);
+                    
+                    // Final position: company base + column grid offset + vertical stack position
+                    const dx = baseX + rotatedOffsetX;
+                    const dz = baseZ + rotatedOffsetZ;
+                    const dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
 
                     const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
                     
-                    // Store orbital animation data
-                    deviceNode.orbit = {
-                        center: { x: x, y: y, z: z }, // Company position (sun)
-                        radius: deviceRadius,
-                        startAngle: deviceAngle,
-                        speed: 0.0005 + Math.random() * 0.0003, // Random orbit speed
-                        currentAngle: deviceAngle,
-                        wobbleSpeed: Math.random() * 0.002,
-                        wobbleAmount: Math.random() * 2
+                    // Store spoke data (static position, no orbiting)
+                    deviceNode.spoke = {
+                        center: { x: 0, y: 0, z: 0 }, // Galaxy center
+                        angle: companyAngle,
+                        distance: Math.sqrt(dx * dx + dz * dz),
+                        position: deviceIndex,
+                        baseY: dy
                     };
                     
                     nodes.push(deviceNode);
@@ -1267,7 +1302,7 @@
                     if (device.sensorStats && device.sensorStats.total > 0) {
                         const sensorCount = Math.min(device.sensorStats.total, 10); // Limit for performance
                         for (let i = 0; i < sensorCount; i++) {
-                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode);
+                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode, i, sensorCount);
                             sensorNode.visible = false; // Hidden by default
                             nodes.push(sensorNode);
                         }
@@ -1276,6 +1311,22 @@
             });
             
             console.log(`✅ Created ${nodes.length} total nodes`);
+            
+            // Calculate actual center of mass to verify positioning
+            let sumX = 0, sumZ = 0, numCompanies = 0;
+            nodes.forEach(node => {
+                if (node.type === 'company' && node.mesh) {
+                    sumX += node.mesh.position.x;
+                    sumZ += node.mesh.position.z;
+                    numCompanies++;
+                }
+            });
+            if (numCompanies > 0) {
+                const centerX = sumX / numCompanies;
+                const centerZ = sumZ / numCompanies;
+                console.log(`📍 Galaxy center of mass: (${centerX.toFixed(2)}, 0, ${centerZ.toFixed(2)})`);
+                console.log(`📍 Expected center: (0, 0, 0)`);
+            }
         }
 
         // Create icon sprite for nodes
@@ -1333,7 +1384,7 @@
         }
 
         // Create office building texture with windows (some lit, some dark)
-        function createBuildingTexture(buildingColor) {
+        function createBuildingTexture(buildingColor, companyName = '') {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
             canvas.height = 512; // Taller for office building
@@ -1378,69 +1429,114 @@
                 }
             }
             
+            // Add company name at the top (for roof texture)
+            if (companyName) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.lineWidth = 3;
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                
+                // Draw text with stroke for better visibility
+                ctx.strokeText(companyName, 128, 10);
+                ctx.fillText(companyName, 128, 10);
+                ctx.restore();
+            }
+            
             return new THREE.CanvasTexture(canvas);
         }
 
-        // Create company node
+        // Create company node (mothership)
         function createCompanyNode(name, x, y, z) {
-            // Realistic building colors - various architectural tones
-            const buildingColors = [
-                0x8B7355, // Brown brick
-                0xA8A8A8, // Light gray concrete
-                0x6B6B6B, // Dark gray stone
-                0xB8956A, // Tan/beige
-                0x9C8B7E, // Warm gray
-                0x7A6F5D, // Brownstone
-                0x8F8F8F, // Medium gray
-                0xA67B5B  // Terra cotta
+            // Mothership colors - metallic fleet colors
+            const shipColors = [
+                0x4A90E2, // Blue fleet
+                0x50C878, // Emerald green
+                0xE74C3C, // Red fleet
+                0xF39C12, // Gold fleet
+                0x9B59B6, // Purple fleet
+                0x1ABC9C, // Teal fleet
+                0xE67E22, // Orange fleet
+                0x34495E  // Dark gray fleet
             ];
-            const buildingColor = buildingColors[Math.floor(Math.random() * buildingColors.length)];
+            const shipColor = shipColors[Math.floor(Math.random() * shipColors.length)];
             
-            // Vary building height slightly for realism
-            const heightVariation = 0.8 + Math.random() * 0.4; // 80-120% of base height
-            const buildingGeometry = geometryCache.building.clone();
-            buildingGeometry.scale(1, heightVariation, 1);
+            // Create mothership geometry (large cone pointing up)
+            const mothershipGeom = geometryCache.mothership.clone();
             
-            // Create office building texture with lit and unlit windows
-            const buildingTexture = createBuildingTexture(buildingColor);
-            buildingTexture.wrapS = THREE.RepeatWrapping;
-            buildingTexture.wrapT = THREE.RepeatWrapping;
+            // Metallic material with emissive glow
+            const material = new THREE.MeshPhongMaterial({
+                color: shipColor,
+                emissive: shipColor,
+                emissiveIntensity: 0.3,
+                specular: 0xffffff,
+                shininess: 100,
+                flatShading: true
+            });
             
-            // Create material array for different faces of building
-            const materials = [];
-            for (let i = 0; i < 6; i++) {
-                if (i < 4) {
-                    // Side faces get the office window texture
-                    materials.push(new THREE.MeshLambertMaterial({ 
-                        map: createBuildingTexture(buildingColor),
-                        emissive: 0x332200, // Slight warm glow from lit windows
-                        emissiveIntensity: 0.2
-                    }));
-                } else {
-                    // Top and bottom faces are solid color (roof/base)
-                    const roofColor = i === 4 ? 0x3A3A3A : buildingColor; // Dark roof
-                    materials.push(new THREE.MeshLambertMaterial({ 
-                        color: roofColor
-                    }));
-                }
-            }
+            const mothership = new THREE.Mesh(mothershipGeom, material);
+            mothership.position.set(x, y, z);
             
-            const building = new THREE.Mesh(buildingGeometry, materials);
-            building.position.set(x, y, z);
-            scene.add(building);
-
-            // Add label
-            const label = createLabel(name, x, y + 5, z);
+            // Point mothership toward galaxy center (0, 0, 0)
+            // Create a direction vector from mothership to center
+            const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
+            direction.normalize();
+            
+            // The cone's tip points along +Y axis by default
+            // We need to align +Y axis with the direction to center
+            const upVector = new THREE.Vector3(0, 1, 0);
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(upVector, direction);
+            mothership.quaternion.copy(quaternion);
+            
+            scene.add(mothership);
+            
+            // Add company name label as floating text sprite
+            const nameLabel = createCompanyNameLabel(name);
+            nameLabel.position.set(x, y + 30, z);
+            scene.add(nameLabel);
 
             return {
                 type: 'company',
                 name: name,
-                mesh: building,
-                label: label,
+                mesh: mothership,
+                label: nameLabel,
                 data: { name: name },
                 connections: [],
                 expanded: false
             };
+        }
+        
+        // Create company name label
+        function createCompanyNameLabel(name) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, 512, 128);
+            
+            // Text
+            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.lineWidth = 4;
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            ctx.strokeText(name, 256, 64);
+            ctx.fillText(name, 256, 64);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(40, 10, 1);
+            
+            return sprite;
         }
 
         // Create device node
@@ -1491,39 +1587,57 @@
                 deviceColor = 0x6B6B6B; // Light gray for healthy devices
             }
             
-            // Create rack equipment material with metallic appearance
+            // Create small spaceship material with metallic appearance
             const material = new THREE.MeshPhongMaterial({
                 color: deviceColor,
-                specular: 0x444444,
-                shininess: 30,
-                flatShading: false
+                emissive: deviceColor,
+                emissiveIntensity: 0.2,
+                specular: 0x888888,
+                shininess: 80,
+                flatShading: true
             });
             
-            // Use shared rack geometry (1U/2U dimensions)
-            const box = new THREE.Mesh(geometryCache.box, material);
-            box.position.set(x, y, z);
-            scene.add(box);
+            // Use shared spaceship geometry (small cone)
+            const ship = new THREE.Mesh(geometryCache.spaceship, material);
+            ship.position.set(x, y, z);
             
-            // Add status indicator circle (yellow/red) using shared geometry and materials
+            // Point ship toward galaxy center (0, 0, 0)
+            // Create a direction vector from ship to center
+            const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
+            direction.normalize();
+            
+            // The cone's tip points along +Y axis by default
+            // We need to align +Y axis with the direction to center
+            const upVector = new THREE.Vector3(0, 1, 0);
+            const quaternion = new THREE.Quaternion();
+            quaternion.setFromUnitVectors(upVector, direction);
+            ship.quaternion.copy(quaternion);
+            
+            scene.add(ship);
+            
+            // Add status indicator circle (yellow/red) behind ship engines
+            let statusCircle = null;
             if (color === COLORS.deviceWarning || color === COLORS.deviceDown) {
                 const statusType = color === COLORS.deviceWarning ? 'warning' : 'down';
-                const statusCircle = new THREE.Mesh(
+                statusCircle = new THREE.Mesh(
                     geometryCache.circle, 
                     materialCache.statusCircles[statusType]
                 );
-                const boxSize = nodeSizeMultiplier * 2;  // Match device box size
-                statusCircle.position.set(x + boxSize * 0.6, y + boxSize * 0.6, z);
+                const shipSize = nodeSizeMultiplier * 2;
+                // Position behind ship (away from center, engine glow)
+                const angleFromCenter = Math.atan2(z, x);
+                const behindX = x + Math.cos(angleFromCenter) * shipSize;
+                const behindZ = z + Math.sin(angleFromCenter) * shipSize;
+                statusCircle.position.set(behindX, y, behindZ);
                 scene.add(statusCircle);
             }
-
-            // Add label
-            const label = createLabel(device.name, x, y + 3, z);
 
             const node = {
                 type: 'device',
                 name: device.name,
-                mesh: box,
-                label: label,
+                mesh: ship,
+                label: null,  // No label
+                statusCircle: statusCircle,  // Track status circle for updates
                 data: device,
                 parent: parent,
                 connections: [],
@@ -1531,7 +1645,7 @@
             };
             
                 // Register node for real-time updates
-                deviceNodeMap.set(device, box);
+                deviceNodeMap.set(device, ship);
                 
                 return node;
             } catch (error) {
@@ -1551,7 +1665,7 @@
         }
 
         // Create sensor node
-        function createSensorNode(device, x, y, z, parent) {
+        function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors) {
             // Tiny sphere for sensor (0.3x size)
             const sensorMaterial = new THREE.MeshBasicMaterial({ 
                 color: COLORS.sensor,
@@ -1560,9 +1674,9 @@
             });
             const sphere = new THREE.Mesh(geometryCache.sensorSphere, sensorMaterial);
             
-            // Initial random position around device
-            const angle = Math.random() * Math.PI * 2;
-            const distance = 6 * spreadFactor;  // Orbit distance from device (increased for spacing)
+            // Evenly space sensors around device like beads on a necklace
+            const angle = (sensorIndex / totalSensors) * Math.PI * 2;
+            const distance = 6 * spreadFactor;  // Orbit distance from device
             sphere.position.set(
                 x + Math.cos(angle) * distance,
                 y,
@@ -1572,7 +1686,7 @@
 
             const node = {
                 type: 'sensor',
-                name: 'Sensor',
+                name: device.name || 'Sensor',  // Use device name for sensor identification
                 mesh: sphere,
                 label: null,
                 data: device,
@@ -1582,13 +1696,9 @@
                 orbit: {
                     center: { x: x, y: y, z: z },  // Device position (will be updated)
                     radius: distance,
-                    startAngle: angle,
-                    speed: 0.002 + Math.random() * 0.001,  // Faster than devices
-                    currentAngle: angle,
-                    // Different orbital planes like moons
-                    tiltX: (Math.random() - 0.5) * Math.PI * 0.8,  // Tilt around X axis
-                    tiltZ: (Math.random() - 0.5) * Math.PI * 0.8,  // Tilt around Z axis
-                    planeRotation: Math.random() * Math.PI * 2     // Plane orientation
+                    speed: 0.002,  // Uniform speed for all sensors
+                    currentAngle: angle,  // Start at evenly spaced positions
+                    angleOffset: angle    // Maintain even spacing throughout orbit
                 }
             };
             
@@ -1691,36 +1801,32 @@
 
             // Animate devices first, then sensors (so sensors follow updated device positions)
             
-            // PASS 1: Update device positions
+            // PASS 1: Update device positions (static on spokes with status effects)
             nodes.forEach(node => {
-                if (node.type === 'device' && node.mesh && node.orbit) {
+                if (node.type === 'device' && node.mesh && node.spoke) {
                     const status = node.data.status;
+                    const spoke = node.spoke;
                     
-                    // Green devices - orbit around company like planets
+                    // Calculate static position on spoke
+                    const baseX = spoke.center.x + Math.cos(spoke.angle) * spoke.distance;
+                    const baseZ = spoke.center.z + Math.sin(spoke.angle) * spoke.distance;
+                    
+                    // Green devices - subtle pulse only
                     if (status === 3 || status === 'up') {
-                        node.orbit.currentAngle += node.orbit.speed;
-                        const newX = node.orbit.center.x + Math.cos(node.orbit.currentAngle) * node.orbit.radius;
-                        const newZ = node.orbit.center.z + Math.sin(node.orbit.currentAngle) * node.orbit.radius;
-                        const wobble = Math.sin(time * node.orbit.wobbleSpeed) * node.orbit.wobbleAmount;
-                        node.mesh.position.set(newX, node.orbit.center.y + wobble, newZ);
+                        const pulse = Math.sin(time * 2) * 0.5;
+                        node.mesh.position.set(baseX, spoke.baseY + pulse, baseZ);
                         
                         // Update label position if exists
                         if (node.label) {
-                            node.label.position.set(newX, node.orbit.center.y + wobble + 3, newZ);
-                        }
-                        
-                        // Gentle rotation
-                        if (node !== selectedNode) {
-                            node.mesh.rotation.y += 0.005;
+                            node.label.position.set(baseX, spoke.baseY + pulse + 3, baseZ);
                         }
                     }
-                    // Red devices - violent shake and pulse
+                    // Red devices - violent shake and pulse (stay on spoke)
                     else if (status === 5 || status === 'down') {
                         const shake = Math.sin(time * 10) * 0.5 + Math.cos(time * 7) * 0.3;
                         const pulse = 1 + Math.sin(time * 3) * 0.3;
-                        const baseX = node.orbit.center.x + Math.cos(node.orbit.startAngle) * node.orbit.radius;
-                        const baseZ = node.orbit.center.z + Math.sin(node.orbit.startAngle) * node.orbit.radius;
                         node.mesh.position.x = baseX + shake;
+                        node.mesh.position.y = spoke.baseY + shake;
                         node.mesh.position.z = baseZ + shake;
                         node.mesh.scale.set(pulse, pulse, pulse);
                         
@@ -1729,14 +1835,12 @@
                         node.mesh.rotation.y = Math.cos(time * 3) * 0.5;
                         node.mesh.rotation.z = Math.sin(time * 4) * 0.3;
                     }
-                    // Yellow devices - slow bounce and glow pulse
+                    // Yellow devices - slow bounce and glow pulse (stay on spoke)
                     else if (status === 4 || status === 10 || status === 'warning') {
                         const bounce = Math.abs(Math.sin(time * 0.8)) * 5;
                         const pulse = 1 + Math.sin(time * 2) * 0.15;
-                        const baseX = node.orbit.center.x + Math.cos(node.orbit.startAngle) * node.orbit.radius;
-                        const baseZ = node.orbit.center.z + Math.sin(node.orbit.startAngle) * node.orbit.radius;
                         node.mesh.position.x = baseX;
-                        node.mesh.position.y = node.orbit.center.y + bounce;
+                        node.mesh.position.y = spoke.baseY + bounce;
                         node.mesh.position.z = baseZ;
                         node.mesh.scale.set(pulse, pulse, pulse);
                         
@@ -1750,53 +1854,26 @@
             });
             
             // PASS 2: Update sensor positions (after devices have moved)
-            // VERIFIED: Sensors follow parent devices by using parentPos from device's CURRENT mesh.position
-            // This ensures sensors orbit their parent device like moons, moving with the device as it orbits the company
+            // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
             nodes.forEach(node => {
                 if (node.type === 'sensor' && node.mesh && node.orbit && node.parent && node.parent.mesh) {
-                    // Use parent device's CURRENT position (sensors follow devices like moons)
+                    // Use parent device's CURRENT position (sensors follow devices)
                     const parentPos = node.parent.mesh.position;
                     
-                    // Calculate position in tilted orbital plane
+                    // All sensors rotate at same speed, maintaining even spacing
                     node.orbit.currentAngle += node.orbit.speed;
                     
-                    // Base circular orbit
-                    let x = Math.cos(node.orbit.currentAngle) * node.orbit.radius;
-                    let y = Math.sin(node.orbit.currentAngle) * node.orbit.radius;
-                    let z = 0;
-                    
-                    // Apply plane rotation
-                    const cos = Math.cos(node.orbit.planeRotation);
-                    const sin = Math.sin(node.orbit.planeRotation);
-                    let tempX = x * cos - y * sin;
-                    let tempY = x * sin + y * cos;
-                    x = tempX;
-                    y = tempY;
-                    
-                    // Apply tilt around X axis (creates vertical orbits)
-                    const cosX = Math.cos(node.orbit.tiltX);
-                    const sinX = Math.sin(node.orbit.tiltX);
-                    tempY = y * cosX - z * sinX;
-                    let tempZ = y * sinX + z * cosX;
-                    y = tempY;
-                    z = tempZ;
-                    
-                    // Apply tilt around Z axis (creates diagonal orbits)
-                    const cosZ = Math.cos(node.orbit.tiltZ);
-                    const sinZ = Math.sin(node.orbit.tiltZ);
-                    tempX = x * cosZ - y * sinZ;
-                    tempY = x * sinZ + y * cosZ;
-                    x = tempX;
-                    y = tempY;
+                    // Simple horizontal circular orbit (no tilting)
+                    const x = Math.cos(node.orbit.currentAngle) * node.orbit.radius;
+                    const z = Math.sin(node.orbit.currentAngle) * node.orbit.radius;
                     
                     // Set final position relative to parent device's CURRENT position
+                    // Keep Y constant for flat horizontal orbit
                     node.mesh.position.set(
                         parentPos.x + x,
-                        parentPos.y + y,
+                        parentPos.y,
                         parentPos.z + z
                     );
-                    
-                    // NO pulse animation - keep sensors at constant size
                 }
             });
 
@@ -1829,10 +1906,19 @@
                 if (clickedNode) {
                     selectNode(clickedNode);
                 }
+            } else {
+                // Clicked on empty space - reset any rotated company
+                if (lastHoveredCompany) {
+                    resetCompanyRotation(lastHoveredCompany);
+                    lastHoveredCompany = null;
+                }
             }
         }
 
         // Canvas mouse move
+        let lastHoveredCompany = null;
+        const companyOriginalRotations = new Map();
+        
         function onCanvasMouseMove(event) {
             const mouse = new THREE.Vector2();
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -1841,10 +1927,115 @@
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
 
-            const meshes = nodes.map(n => n.mesh);
+            const meshes = nodes.map(n => n.mesh).filter(m => m);
             const intersects = raycaster.intersectObjects(meshes);
 
-            document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+            // Update cursor and show tooltip for sensors/devices, rotate companies
+            if (intersects.length > 0) {
+                const hoveredMesh = intersects[0].object;
+                const hoveredNode = nodes.find(n => n.mesh === hoveredMesh);
+                
+                if (hoveredNode && hoveredNode.type === 'sensor') {
+                    document.body.style.cursor = 'pointer';
+                    
+                    // Show device name and company
+                    let tooltipText = hoveredNode.name || 'Sensor';
+                    if (hoveredNode.parent && hoveredNode.parent.parent) {
+                        tooltipText += ` (${hoveredNode.parent.parent.name})`;
+                    }
+                    
+                    showTooltip(event.clientX, event.clientY, tooltipText);
+                    
+                    // Reset any previously hovered company
+                    if (lastHoveredCompany) {
+                        resetCompanyRotation(lastHoveredCompany);
+                        lastHoveredCompany = null;
+                    }
+                } else if (hoveredNode && hoveredNode.type === 'device') {
+                    document.body.style.cursor = 'pointer';
+                    
+                    // Show device name
+                    showTooltip(event.clientX, event.clientY, hoveredNode.name || 'Device');
+                    
+                    // Reset any previously hovered company
+                    if (lastHoveredCompany) {
+                        resetCompanyRotation(lastHoveredCompany);
+                        lastHoveredCompany = null;
+                    }
+                } else if (hoveredNode && hoveredNode.type === 'company') {
+                    document.body.style.cursor = 'pointer';
+                    
+                    // Show company name in tooltip
+                    showTooltip(event.clientX, event.clientY, hoveredNode.name);
+                    
+                    // Optional: gentle rotation animation for mothership on hover
+                    if (lastHoveredCompany !== hoveredNode) {
+                        // Reset previous company
+                        if (lastHoveredCompany) {
+                            resetCompanyRotation(lastHoveredCompany);
+                        }
+                        
+                        lastHoveredCompany = hoveredNode;
+                    }
+                } else {
+                    document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+                    hideTooltip();
+                    
+                    // Reset company rotation
+                    if (lastHoveredCompany) {
+                        resetCompanyRotation(lastHoveredCompany);
+                        lastHoveredCompany = null;
+                    }
+                }
+            } else {
+                document.body.style.cursor = 'default';
+                hideTooltip();
+                
+                // Reset company rotation
+                if (lastHoveredCompany) {
+                    resetCompanyRotation(lastHoveredCompany);
+                    lastHoveredCompany = null;
+                }
+            }
+        }
+        
+        function resetCompanyRotation(companyNode) {
+            if (companyOriginalRotations.has(companyNode)) {
+                const original = companyOriginalRotations.get(companyNode);
+                companyNode.mesh.rotation.x = original.x;
+                companyNode.mesh.rotation.y = original.y;
+                companyNode.mesh.rotation.z = original.z;
+            }
+        }
+        
+        // Tooltip functions
+        let tooltipElement = null;
+        
+        function showTooltip(x, y, text) {
+            if (!tooltipElement) {
+                tooltipElement = document.createElement('div');
+                tooltipElement.style.position = 'fixed';
+                tooltipElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                tooltipElement.style.color = 'white';
+                tooltipElement.style.padding = '8px 12px';
+                tooltipElement.style.borderRadius = '4px';
+                tooltipElement.style.fontSize = '14px';
+                tooltipElement.style.pointerEvents = 'none';
+                tooltipElement.style.zIndex = '10000';
+                tooltipElement.style.whiteSpace = 'nowrap';
+                document.body.appendChild(tooltipElement);
+            }
+            
+            tooltipElement.textContent = text;
+            tooltipElement.style.left = (x + 15) + 'px';
+            tooltipElement.style.top = (y + 15) + 'px';
+            tooltipElement.style.display = 'block';
+        }
+        
+        function hideTooltip() {
+            if (tooltipElement) {
+                tooltipElement.style.display = 'none';
+            }
         }
 
         // Select node
@@ -2075,7 +2266,7 @@
 
         // Control functions
         function resetCamera() {
-            camera.position.set(30, 20, 50);
+            camera.position.set(0, 350, 0);
             controls.target.set(0, 0, 0);
             selectedNode = null;
             document.getElementById('info-panel').classList.remove('visible');
