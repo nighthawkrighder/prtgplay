@@ -830,7 +830,7 @@
                             } else {
                                 // Create new circle
                                 node.statusCircle = new THREE.Mesh(
-                                    geometryCache.circle,
+                                    geometryCache.circle.clone(),
                                     materialCache.statusCircles[statusType]
                                 );
                                 const pos = box.position;
@@ -919,15 +919,20 @@
             // Height increased to accommodate larger circles with many companies
             camera.position.set(0, 600, 0);
 
-            // Setup renderer
+            // Setup renderer with enhanced settings
             const canvas = document.getElementById('canvas');
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas,
                 antialias: true,
-                alpha: true 
+                alpha: true,
+                powerPreference: "high-performance"
             });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap at 2x for performance
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
 
             // Setup controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -947,17 +952,31 @@
             controls.screenSpacePanning = false;  // Keep panning in world space
             controls.keyPanSpeed = 10;
 
-            // Add lights
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            // Enhanced lighting system for realism
+            const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
-            directionalLight.position.set(50, 100, 50);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 200, 100);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.far = 500;
             scene.add(directionalLight);
+            
+            // Add rim lighting for better ship definition
+            const rimLight1 = new THREE.DirectionalLight(0x4080ff, 0.3);
+            rimLight1.position.set(-100, 50, -100);
+            scene.add(rimLight1);
+            
+            const rimLight2 = new THREE.DirectionalLight(0xff8040, 0.2);
+            rimLight2.position.set(100, 30, -100);
+            scene.add(rimLight2);
 
-            const pointLight = new THREE.PointLight(0x667eea, 0.5, 200);
-            pointLight.position.set(0, 50, 0);
-            scene.add(pointLight);
+            // Central galaxy glow
+            const centerLight = new THREE.PointLight(0x667eea, 1.0, 300);
+            centerLight.position.set(0, 50, 0);
+            scene.add(centerLight);
 
             // Add grid
             const gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
@@ -1466,18 +1485,22 @@
             // Create mothership geometry (large cone pointing up)
             const mothershipGeom = geometryCache.mothership.clone();
             
-            // Metallic material with emissive glow
+            // Enhanced metallic material with realistic reflections
             const material = new THREE.MeshPhongMaterial({
                 color: shipColor,
                 emissive: shipColor,
-                emissiveIntensity: 0.3,
+                emissiveIntensity: 0.4,
                 specular: 0xffffff,
-                shininess: 100,
-                flatShading: true
+                shininess: 120,
+                flatShading: false,
+                reflectivity: 0.8,
+                combine: THREE.MultiplyOperation
             });
             
             const mothership = new THREE.Mesh(mothershipGeom, material);
             mothership.position.set(x, y, z);
+            mothership.castShadow = true;
+            mothership.receiveShadow = true;
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1491,6 +1514,37 @@
             mothership.rotation.y = Math.random() * Math.PI * 2;
             
             scene.add(mothership);
+            
+            // Add engine glow (point light behind ship)
+            const engineLight = new THREE.PointLight(shipColor, 1.5, 50);
+            engineLight.position.set(x, y, z);
+            scene.add(engineLight);
+            
+            // Add subtle engine particles
+            const particleGeometry = new THREE.BufferGeometry();
+            const particleCount = 20;
+            const positions = new Float32Array(particleCount * 3);
+            
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = 0;
+            }
+            
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const particleMaterial = new THREE.PointsMaterial({
+                color: shipColor,
+                size: 0.5,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            
+            const particles = new THREE.Points(particleGeometry, particleMaterial);
+            particles.position.set(x, y, z);
+            scene.add(particles);
             
             // Add company name label as floating text sprite
             const nameLabel = createCompanyNameLabel(name);
@@ -1507,7 +1561,10 @@
                 expanded: false,
                 targetQuaternion: targetQuaternion,
                 rotationComplete: false,
-                rotationProgress: 0
+                rotationProgress: 0,
+                engineLight: engineLight,
+                particles: particles,
+                particleTime: 0
             };
         }
         
@@ -1589,19 +1646,23 @@
                 deviceColor = 0x6B6B6B; // Light gray for healthy devices
             }
             
-            // Create small spaceship material with metallic appearance
+            // Enhanced metallic material for device ships
             const material = new THREE.MeshPhongMaterial({
                 color: deviceColor,
                 emissive: deviceColor,
-                emissiveIntensity: 0.2,
-                specular: 0x888888,
-                shininess: 80,
-                flatShading: true
+                emissiveIntensity: 0.3,
+                specular: 0xaaaaaa,
+                shininess: 90,
+                flatShading: false,
+                reflectivity: 0.7,
+                combine: THREE.MultiplyOperation
             });
             
-            // Use shared spaceship geometry (small cone)
-            const ship = new THREE.Mesh(geometryCache.spaceship, material);
+            // Clone spaceship geometry (each mesh needs its own geometry)
+            const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
             ship.position.set(x, y, z);
+            ship.castShadow = true;
+            ship.receiveShadow = true;
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1616,12 +1677,43 @@
             
             scene.add(ship);
             
+            // Add subtle engine glow (smaller for device ships)
+            const engineLight = new THREE.PointLight(deviceColor, 0.8, 25);
+            engineLight.position.set(x, y, z);
+            scene.add(engineLight);
+            
+            // Add micro particles for device engines
+            const particleGeometry = new THREE.BufferGeometry();
+            const particleCount = 10;
+            const positions = new Float32Array(particleCount * 3);
+            
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = 0;
+            }
+            
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const particleMaterial = new THREE.PointsMaterial({
+                color: deviceColor,
+                size: 0.3,
+                transparent: true,
+                opacity: 0.5,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            
+            const particles = new THREE.Points(particleGeometry, particleMaterial);
+            particles.position.set(x, y, z);
+            scene.add(particles);
+            
             // Add status indicator circle (yellow/red) behind ship engines
             let statusCircle = null;
             if (color === COLORS.deviceWarning || color === COLORS.deviceDown) {
                 const statusType = color === COLORS.deviceWarning ? 'warning' : 'down';
                 statusCircle = new THREE.Mesh(
-                    geometryCache.circle, 
+                    geometryCache.circle.clone(), 
                     materialCache.statusCircles[statusType]
                 );
                 const shipSize = nodeSizeMultiplier * 2;
@@ -1645,7 +1737,10 @@
                 expanded: false,
                 targetQuaternion: targetQuaternion,
                 rotationComplete: false,
-                rotationProgress: 0
+                rotationProgress: 0,
+                engineLight: engineLight,
+                particles: particles,
+                particleTime: 0
             };
             
                 // Register node for real-time updates
@@ -1676,7 +1771,7 @@
                 transparent: true,
                 opacity: 0.8
             });
-            const sphere = new THREE.Mesh(geometryCache.sensorSphere, sensorMaterial);
+            const sphere = new THREE.Mesh(geometryCache.sensorSphere.clone(), sensorMaterial);
             
             // Evenly space sensors around device like beads on a necklace
             const angle = (sensorIndex / totalSensors) * Math.PI * 2;
@@ -1878,6 +1973,43 @@
             });
             
             // Note: Ships rotate to orient toward center, then lock in place
+            
+            // PASS 1.75: Animate engine particles and lights
+            nodes.forEach(node => {
+                if ((node.type === 'company' || node.type === 'device') && node.particles && node.engineLight) {
+                    node.particleTime = (node.particleTime || 0) + 0.016;
+                    
+                    const positions = node.particles.geometry.attributes.position.array;
+                    const particleCount = positions.length / 3;
+                    
+                    // Get ship's orientation to emit particles backward
+                    const shipPos = node.mesh.position;
+                    const direction = new THREE.Vector3(shipPos.x, shipPos.y, shipPos.z);
+                    direction.normalize();
+                    direction.negate(); // Opposite direction from center (exhaust away from target)
+                    
+                    // Animate each particle
+                    for (let i = 0; i < particleCount; i++) {
+                        const offset = i * 3;
+                        const phase = node.particleTime + i * 0.5;
+                        
+                        // Particles trail behind ship
+                        const trailDistance = (Math.sin(phase * 2) * 0.5 + 0.5) * 3;
+                        const spread = Math.sin(phase * 3) * 0.5;
+                        
+                        positions[offset] = shipPos.x + direction.x * trailDistance + spread;
+                        positions[offset + 1] = shipPos.y + direction.y * trailDistance + spread;
+                        positions[offset + 2] = shipPos.z + direction.z * trailDistance + spread;
+                    }
+                    
+                    node.particles.geometry.attributes.position.needsUpdate = true;
+                    
+                    // Pulse engine light
+                    const pulse = Math.sin(time * 4) * 0.2 + 1;
+                    node.engineLight.intensity = (node.type === 'company' ? 1.5 : 0.8) * pulse;
+                    node.engineLight.position.copy(shipPos);
+                }
+            });
             
             // PASS 2: Update sensor positions (after devices have moved)
             // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
