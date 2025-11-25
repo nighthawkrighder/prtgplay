@@ -927,20 +927,15 @@
             // Height increased to accommodate larger circles with many companies
             camera.position.set(0, 600, 0);
 
-            // Setup renderer with enhanced settings
+            // Setup renderer
             const canvas = document.getElementById('canvas');
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas,
                 antialias: true,
-                alpha: true,
-                powerPreference: "high-performance"
+                alpha: true
             });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap at 2x for performance
-            renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.2;
+            renderer.setPixelRatio(window.devicePixelRatio);
 
             // Setup controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -960,31 +955,17 @@
             controls.screenSpacePanning = false;  // Keep panning in world space
             controls.keyPanSpeed = 10;
 
-            // Enhanced lighting system for realism
-            const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
+            // Lighting system
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
 
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(100, 200, 100);
-            directionalLight.castShadow = true;
-            directionalLight.shadow.mapSize.width = 2048;
-            directionalLight.shadow.mapSize.height = 2048;
-            directionalLight.shadow.camera.far = 500;
+            directionalLight.position.set(50, 100, 50);
             scene.add(directionalLight);
-            
-            // Add rim lighting for better ship definition
-            const rimLight1 = new THREE.DirectionalLight(0x4080ff, 0.3);
-            rimLight1.position.set(-100, 50, -100);
-            scene.add(rimLight1);
-            
-            const rimLight2 = new THREE.DirectionalLight(0xff8040, 0.2);
-            rimLight2.position.set(100, 30, -100);
-            scene.add(rimLight2);
 
-            // Central galaxy glow
-            const centerLight = new THREE.PointLight(0x667eea, 1.0, 300);
-            centerLight.position.set(0, 50, 0);
-            scene.add(centerLight);
+            const pointLight = new THREE.PointLight(0x667eea, 0.5, 200);
+            pointLight.position.set(0, 50, 0);
+            scene.add(pointLight);
 
             // Add grid
             const gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
@@ -1510,8 +1491,6 @@
             
             const mothership = new THREE.Mesh(mothershipGeom, material);
             mothership.position.set(x, y, z);
-            mothership.castShadow = true;
-            mothership.receiveShadow = true;
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1673,8 +1652,6 @@
             // Clone spaceship geometry (each mesh needs its own geometry)
             const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
             ship.position.set(x, y, z);
-            ship.castShadow = true;
-            ship.receiveShadow = true;
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
