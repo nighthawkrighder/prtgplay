@@ -1479,17 +1479,16 @@
             const mothership = new THREE.Mesh(mothershipGeom, material);
             mothership.position.set(x, y, z);
             
-            // Point mothership toward galaxy center (0, 0, 0)
-            // Create a direction vector from mothership to center
+            // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
             direction.normalize();
             
-            // The cone's tip points along +Y axis by default
-            // We need to align +Y axis with the direction to center
             const upVector = new THREE.Vector3(0, 1, 0);
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromUnitVectors(upVector, direction);
-            mothership.quaternion.copy(quaternion);
+            const targetQuaternion = new THREE.Quaternion();
+            targetQuaternion.setFromUnitVectors(upVector, direction);
+            
+            // Start with random rotation for animation effect
+            mothership.rotation.y = Math.random() * Math.PI * 2;
             
             scene.add(mothership);
             
@@ -1505,7 +1504,10 @@
                 label: nameLabel,
                 data: { name: name },
                 connections: [],
-                expanded: false
+                expanded: false,
+                targetQuaternion: targetQuaternion,
+                rotationComplete: false,
+                rotationProgress: 0
             };
         }
         
@@ -1601,17 +1603,16 @@
             const ship = new THREE.Mesh(geometryCache.spaceship, material);
             ship.position.set(x, y, z);
             
-            // Point ship toward galaxy center (0, 0, 0)
-            // Create a direction vector from ship to center
+            // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
             direction.normalize();
             
-            // The cone's tip points along +Y axis by default
-            // We need to align +Y axis with the direction to center
             const upVector = new THREE.Vector3(0, 1, 0);
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromUnitVectors(upVector, direction);
-            ship.quaternion.copy(quaternion);
+            const targetQuaternion = new THREE.Quaternion();
+            targetQuaternion.setFromUnitVectors(upVector, direction);
+            
+            // Start with random rotation for animation effect
+            ship.rotation.y = Math.random() * Math.PI * 2;
             
             scene.add(ship);
             
@@ -1641,7 +1642,10 @@
                 data: device,
                 parent: parent,
                 connections: [],
-                expanded: false
+                expanded: false,
+                targetQuaternion: targetQuaternion,
+                rotationComplete: false,
+                rotationProgress: 0
             };
             
                 // Register node for real-time updates
@@ -1847,11 +1851,33 @@
                         // Gentle rotation
                         node.mesh.rotation.y = time * 0.5;
                     }
-                } else if (node.mesh && node !== selectedNode && node.type !== 'device') {
-                    // Gentle rotation for non-device nodes
-                    node.mesh.rotation.y += 0.005;
                 }
             });
+            
+            // PASS 1.5: Animate ship rotation toward center (lock-on effect)
+            nodes.forEach(node => {
+                if ((node.type === 'company' || node.type === 'device') && !node.rotationComplete && node.targetQuaternion) {
+                    // Smooth rotation animation over 2 seconds
+                    const rotationSpeed = 0.02; // Adjust speed (higher = faster)
+                    node.rotationProgress = Math.min(node.rotationProgress + rotationSpeed, 1);
+                    
+                    // Smooth easing
+                    const eased = node.rotationProgress < 0.5 
+                        ? 2 * node.rotationProgress * node.rotationProgress 
+                        : -1 + (4 - 2 * node.rotationProgress) * node.rotationProgress;
+                    
+                    // Interpolate quaternion
+                    node.mesh.quaternion.slerp(node.targetQuaternion, eased);
+                    
+                    // Mark as complete when done
+                    if (node.rotationProgress >= 1) {
+                        node.rotationComplete = true;
+                        node.mesh.quaternion.copy(node.targetQuaternion);
+                    }
+                }
+            });
+            
+            // Note: Ships rotate to orient toward center, then lock in place
             
             // PASS 2: Update sensor positions (after devices have moved)
             // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
@@ -2236,10 +2262,12 @@
         // Zoom to node
         function zoomToNode(node) {
             const targetPosition = node.mesh.position.clone();
-            const distance = node.type === 'company' ? 40 : 15;
+            // Increased distance to show all sensors orbiting around devices
+            // Company: 80 units, Device: 50 units (enough to see sensor orbits)
+            const distance = node.type === 'company' ? 80 : 50;
             const cameraTarget = new THREE.Vector3(
                 targetPosition.x,
-                targetPosition.y + 10,
+                targetPosition.y + 30,  // Higher elevation for better view
                 targetPosition.z + distance
             );
 
