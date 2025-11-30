@@ -2824,14 +2824,27 @@
                 }
             }
 
+            /**
+             * Redirect user to login page with post-login return URL
+             * @param {string|null} targetUrl - Optional specific URL to redirect to after login
+             * @description Handles authentication redirects. Preserves current URL in 'next' parameter
+             *              so user returns to original page after successful login.
+             * @added v8.1 - Duplicated from SecurityManager to resolve cross-class method call
+             */
             redirectToLogin(targetUrl = null) {
                 const fallback = '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
                 const destination = (typeof targetUrl === 'string' && targetUrl.length > 0) ? targetUrl : fallback;
                 window.location.href = destination;
             }
 
+            /**
+             * Require authentication and redirect if not authenticated
+             * @description Called when protected operations need authentication.
+             *              Hides main content and redirects to login page.
+             * @security Ensures sensitive data not visible during redirect
+             */
             requireAuthentication() {
-                // Hide main content immediately
+                // Hide main content immediately to prevent data exposure
                 const mainContent = document.querySelector('.main-content');
                 if (mainContent) mainContent.style.display = 'none';
                 

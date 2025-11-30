@@ -205,7 +205,18 @@ router.get('/devices/enhanced', async (req, res) => {
     logger.info(`[${requestId}] Executing database query...`);
     const queryStart = Date.now();
     
-    // Get total count for proper pagination
+    /**
+     * CRITICAL FIX v8.0: Get actual total count from database
+     * 
+     * BEFORE: pagination.total was set to enhancedDevices.length (200)
+     * AFTER: pagination.total is actual DB count (974)
+     * 
+     * This enables client-side pagination to continue fetching until all
+     * devices are loaded. Without this, pagination stops after first page
+     * because hasMore calculation thinks 200 is the total.
+     * 
+     * @returns {number} totalCount - Actual number of devices in database
+     */
     const totalCount = await Device.count({
       where: deviceWhere,
       include: Object.keys(metadataWhere).length > 0 ? [{
@@ -248,7 +259,20 @@ router.get('/devices/enhanced', async (req, res) => {
     const processTime = Date.now() - processStart;
     logger.info(`[${requestId}] Processing completed in ${processTime}ms`);
     
-    // Calculate pagination metadata
+    /**
+     * PAGINATION METADATA CALCULATION v8.0
+     * 
+     * Calculates complete pagination information for client-side pagination continuation.
+     * Client uses 'hasMore' flag to determine if additional pages should be fetched.
+     * 
+     * @property {number} currentPage - Current page number (1-indexed)
+     * @property {number} totalPages - Total pages needed to load all devices
+     * @property {boolean} hasMore - True if more pages available to fetch
+     * 
+     * Formula: hasMore = (currentOffset + devicesInThisPage) < totalCount
+     * Example: Page 1: (0 + 200) < 974 = true (more pages available)
+     *          Page 5: (800 + 174) < 974 = false (last page reached)
+     */
     const currentLimit = parseInt(limit);
     const currentOffset = parseInt(offset);
     const currentPage = Math.floor(currentOffset / currentLimit) + 1;
@@ -265,16 +289,33 @@ router.get('/devices/enhanced', async (req, res) => {
     const totalTime = Date.now() - startTime;
     logger.info(`[${requestId}] ========== REQUEST COMPLETE in ${totalTime}ms ==========`);
     
+    /**
+     * RESPONSE FORMAT v8.0
+     * 
+     * Returns complete pagination metadata to enable client-side pagination.
+     * All fields are required for proper pagination continuation.
+     * 
+     * @returns {Object} response
+     * @returns {Array} response.devices - Enhanced device objects with sensor stats
+     * @returns {Object} response.pagination - Pagination metadata
+     * @returns {number} response.pagination.total - Total devices in DB (974)
+     * @returns {number} response.pagination.fetched - Devices in this response (200)
+     * @returns {number} response.pagination.limit - Page size (200)
+     * @returns {number} response.pagination.offset - Current offset (0, 200, 400, etc)
+     * @returns {number} response.pagination.page - Current page number (1-5)
+     * @returns {number} response.pagination.totalPages - Total pages needed (5)
+     * @returns {boolean} response.pagination.hasMore - More pages available (true/false)
+     */
     res.json({
       devices: enhancedDevices,
       pagination: {
-        total: totalCount,
+        total: totalCount,              // ✅ Actual DB count, not page size
         fetched: enhancedDevices.length,
         limit: currentLimit,
         offset: currentOffset,
         page: currentPage,
         totalPages: totalPages,
-        hasMore: hasMore
+        hasMore: hasMore                // ✅ Enables pagination continuation
       }
     });
   } catch (error) {
