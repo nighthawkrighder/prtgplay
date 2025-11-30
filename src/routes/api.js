@@ -142,7 +142,13 @@ router.get('/devices', async (req, res) => {
 
 // Get enhanced device list with metadata (must be before :id route)
 router.get('/devices/enhanced', async (req, res) => {
-  logger.info(`[API] /devices/enhanced called with query:`, req.query);
+  const startTime = Date.now();
+  const requestId = `enhanced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  logger.info(`[${requestId}] ========== /api/devices/enhanced START ==========`);
+  logger.info(`[${requestId}] Query params:`, req.query);
+  logger.info(`[${requestId}] User: ${req.session?.user?.email || 'UNKNOWN'}`);
+  
   try {
     const { 
       company, 
@@ -150,24 +156,20 @@ router.get('/devices/enhanced', async (req, res) => {
       category, 
       environment, 
       search, 
-      limit = 100,  // Increased default limit
+      limit = 100,
       offset = 0,
-      all = false   // New parameter to get all devices
+      all = false
     } = req.query;
     
     const deviceWhere = {};
     const metadataWhere = {};
     
-    if (search) {
-      deviceWhere.name = { [Op.like]: `%${search}%` };
-    }
-    
+    if (search) deviceWhere.name = { [Op.like]: `%${search}%` };
     if (company) metadataWhere.company_code = company;
     if (site) metadataWhere.site_identifier = site;
     if (category) metadataWhere.device_category = category;
     if (environment) metadataWhere.environment = environment;
 
-    // Build query options
     const queryOptions = {
       where: deviceWhere,
       order: [['status', 'DESC'], ['priority', 'DESC'], ['name', 'ASC']],
@@ -181,29 +183,29 @@ router.get('/devices/enhanced', async (req, res) => {
           model: DeviceMetadata,
           as: 'metadata',
           where: Object.keys(metadataWhere).length > 0 ? metadataWhere : undefined,
-          required: false,
-          attributes: [
-            'company_code', 'company_name', 'site_identifier', 'site_type', 
-            'device_category', 'device_type_full', 'vendor', 'model',
-            'environment', 'criticality', 'tags', 'raw_metadata', 'extraction_confidence'
-          ]
+          required: false
         },
         {
           model: Sensor,
           as: 'sensors',
           required: false,
-          attributes: ['id', 'status', 'sensor_type', 'priority', 'last_message']
+          attributes: ['id', 'status', 'sensor_type', 'priority']
         }
       ]
     };
 
-    // Apply pagination only if not requesting all devices
     if (all !== 'true') {
       queryOptions.limit = parseInt(limit);
       queryOptions.offset = parseInt(offset);
+      logger.info(`[${requestId}] Pagination: limit=${limit}, offset=${offset}`);
+    } else {
+      logger.info(`[${requestId}] Fetching ALL devices (no pagination)`);
     }
 
-    // Get total count for pagination metadata
+    logger.info(`[${requestId}] Executing database query...`);
+    const queryStart = Date.now();
+    
+    // Get total count for proper pagination
     const totalCount = await Device.count({
       where: deviceWhere,
       include: Object.keys(metadataWhere).length > 0 ? [{
@@ -213,99 +215,79 @@ router.get('/devices/enhanced', async (req, res) => {
         required: false
       }] : []
     });
-
-    // Fetch devices
+    
     const devices = await Device.findAll(queryOptions);
-
-    // Calculate pagination metadata
-    const currentLimit = parseInt(limit);
-    const currentOffset = parseInt(offset);
-    const hasMore = currentOffset + currentLimit < totalCount;
-    const totalPages = Math.ceil(totalCount / currentLimit);
-    const currentPage = Math.floor(currentOffset / currentLimit) + 1;
-
-    // Process devices with enhanced metadata
+    const queryTime = Date.now() - queryStart;
+    logger.info(`[${requestId}] Query completed in ${queryTime}ms, found ${devices.length} devices out of ${totalCount} total`);
+    
+    logger.info(`[${requestId}] Processing device data...`);
+    const processStart = Date.now();
     const enhancedDevices = devices.map(device => {
       const deviceData = device.toJSON();
-      
-      // Extract company information
-      const companyCode = extractCompanyCode(deviceData.name);
-      
-      // Calculate sensor statistics
       const sensors = deviceData.sensors || [];
       const sensorStats = {
         total: sensors.length,
         up: sensors.filter(s => s.status === 3).length,
         down: sensors.filter(s => s.status === 5).length,
         warning: sensors.filter(s => s.status === 4).length,
-        paused: sensors.filter(s => s.status === 7).length,
-        unusual: sensors.filter(s => s.status === 10).length,
-        unknown: sensors.filter(s => s.status === 1).length
+        paused: sensors.filter(s => s.status === 7).length
       };
       
-      // Calculate effective device status based on sensors
-      // If device has down sensors, mark as down
-      // If device has warning sensors (but no down), mark as warning
-      // Otherwise use device's own status
       let effectiveStatus = deviceData.status;
-      if (sensorStats.down > 0) {
-        effectiveStatus = 5; // Down
-      } else if (sensorStats.warning > 0) {
-        effectiveStatus = 4; // Warning
-      } else if (sensorStats.unknown > 0 && deviceData.status === 1) {
-        effectiveStatus = 1; // Unknown
-      }
-      
-      // Determine device type and criticality
-      const deviceType = getDeviceType(deviceData.name);
-      const criticality = getCriticality(deviceData.name, deviceType);
+      if (sensorStats.down > 0) effectiveStatus = 5;
+      else if (sensorStats.warning > 0) effectiveStatus = 4;
       
       return {
         ...deviceData,
-        status: effectiveStatus, // Use calculated effective status
+        status: effectiveStatus,
         effectiveStatus: effectiveStatus,
-        deviceStatus: deviceData.status, // Original device status
-        companyCode,
-        companyName: getCompanyName(companyCode),
-        deviceType,
-        criticality,
         sensorStats,
-        alertCount: sensorStats.down + sensorStats.warning,
-        healthScore: calculateHealthScore(sensorStats),
-        lastSeen: deviceData.last_seen || deviceData.updated_at
+        companyName: deviceData.metadata?.company_name || 'Unknown'
       };
     });
-
-    // Return paginated response
+    const processTime = Date.now() - processStart;
+    logger.info(`[${requestId}] Processing completed in ${processTime}ms`);
+    
+    // Calculate pagination metadata
+    const currentLimit = parseInt(limit);
+    const currentOffset = parseInt(offset);
+    const currentPage = Math.floor(currentOffset / currentLimit) + 1;
+    const totalPages = Math.ceil(totalCount / currentLimit);
+    const hasMore = (currentOffset + enhancedDevices.length) < totalCount;
+    
+    logger.info(`[${requestId}] 📊 PAGINATION DETAILS:`);
+    logger.info(`[${requestId}]    Total devices in DB: ${totalCount}`);
+    logger.info(`[${requestId}]    Devices in this response: ${enhancedDevices.length}`);
+    logger.info(`[${requestId}]    Page: ${currentPage}/${totalPages}`);
+    logger.info(`[${requestId}]    Offset: ${currentOffset}, Limit: ${currentLimit}`);
+    logger.info(`[${requestId}]    Has more pages: ${hasMore}`);
+    
+    const totalTime = Date.now() - startTime;
+    logger.info(`[${requestId}] ========== REQUEST COMPLETE in ${totalTime}ms ==========`);
+    
     res.json({
       devices: enhancedDevices,
       pagination: {
         total: totalCount,
+        fetched: enhancedDevices.length,
         limit: currentLimit,
         offset: currentOffset,
         page: currentPage,
         totalPages: totalPages,
-        hasMore: hasMore,
-        hasNext: hasMore,
-        hasPrev: currentOffset > 0
-      },
-      meta: {
-        fetched: enhancedDevices.length,
-        requestedAll: all === 'true',
-        filters: {
-          company,
-          site,
-          category,
-          environment,
-          search
-        }
+        hasMore: hasMore
       }
     });
-
   } catch (error) {
-    logger.error('Error fetching enhanced devices:', error);
+    const totalTime = Date.now() - startTime;
+    logger.error(`[${requestId}] ❌ ERROR after ${totalTime}ms:`, error);
+    logger.error(`[${requestId}] Error stack:`, error.stack);
+    
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to fetch enhanced devices' });
+      res.status(500).json({ 
+        error: 'Internal server error',
+        requestId: requestId,
+        duration: totalTime
+      });
     }
   }
 });
