@@ -2824,6 +2824,12 @@
                 }
             }
 
+            redirectToLogin(targetUrl = null) {
+                const fallback = '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+                const destination = (typeof targetUrl === 'string' && targetUrl.length > 0) ? targetUrl : fallback;
+                window.location.href = destination;
+            }
+
             requireAuthentication() {
                 // Hide main content immediately
                 const mainContent = document.querySelector('.main-content');
