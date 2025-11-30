@@ -1998,7 +1998,10 @@
         async function syncSessionContext() {
             try {
                 const res = await fetch('/api/session/status', { credentials: 'include' });
-                if (!res.ok) return null;
+                if (!res.ok) {
+                    console.debug('Session status endpoint not available (404)');
+                    return null;
+                }
                 const data = await res.json();
                 applySessionContext({ username: data.username, role: data.role });
                 if (window.securityManager && data.authenticated && typeof window.securityManager.applyServerSession === 'function') {
@@ -2111,7 +2114,8 @@
                 }
 
                 this.clearSession();
-                this.requireAuthentication();
+                // Don't call requireAuthentication here - SOCDashboard will handle it
+                console.debug('SecurityManager: No valid session found, dashboard will handle authentication');
             }
 
             ensureActivityTracking() {
@@ -2124,13 +2128,18 @@
             async syncWithServer() {
                 try {
                     const response = await fetch('/api/session/status', { credentials: 'include' });
-                    if (!response.ok) return null;
+                    if (!response.ok) {
+                        // Endpoint doesn't exist yet, fail silently
+                        console.debug('Session status endpoint not available (404)');
+                        return null;
+                    }
                     const data = await response.json();
                     if (data && data.authenticated) {
                         this.applyServerSession(data);
                         return data;
                     }
                 } catch (error) {
+                    console.debug('Session sync error (expected if endpoint not implemented):', error.message);
                     console.debug('Server session sync failed:', error);
                 }
                 return null;
@@ -4723,7 +4732,10 @@
             async function fetchStatus(){
                 try {
                     const res = await fetch('/api/session/status', { credentials: 'same-origin' });
-                    if (!res.ok) return;
+                    if (!res.ok) {
+                        console.debug('Session status endpoint not available (404)');
+                        return;
+                    }
                     const data = await res.json();
                     if (data.restoredFromCache && data.expiresAt) {
                         // Use absolute expiry time from database (does NOT reset on activity)
@@ -4745,7 +4757,10 @@
                             serverPollInterval = setInterval(async () => {
                                 try {
                                     const r = await fetch('/api/session/status', { credentials: 'same-origin' });
-                                    if (!r.ok) return;
+                                    if (!r.ok) {
+                                        console.debug('Session status endpoint not available (404)');
+                                        return;
+                                    }
                                     const d = await r.json();
                                     if (d.expiresAt) {
                                         const newExpiry = new Date(d.expiresAt).getTime();
