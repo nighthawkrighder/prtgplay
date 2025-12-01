@@ -5131,14 +5131,24 @@
             const openDeviceId = urlParams.get('openDevice');
             const sensorId = urlParams.get('sensorId');
             if (openDeviceId) {
-                // Wait for dashboard to load, then open the device
+                // Wait for dashboard to load, then apply filters and open device
                 setTimeout(async () => {
                     const deviceId = parseInt(openDeviceId);
                     // Find device name from loaded devices
                     const device = window.dashboard.allDevices.find(d => d.id === deviceId);
                     if (device) {
+                        // First, filter the dashboard to show only this device (like the search box does)
+                        const searchBox = document.getElementById('searchBox');
+                        if (searchBox) {
+                            searchBox.value = device.name;
+                            window.dashboard.filters.search = device.name.toLowerCase();
+                            window.dashboard.applyFilters();
+                        }
+                        
+                        // Then open the device detail modal
                         showDeviceDetail(deviceId, device.name);
-                        // If sensorId provided, filter to show only that sensor
+                        
+                        // If sensorId provided, filter to show only that sensor in the modal
                         if (sensorId) {
                             setTimeout(async () => {
                                 const sensorIdInt = parseInt(sensorId);
@@ -5172,8 +5182,8 @@
                                                         </div>
                                                     </div>
                                                     <div style="text-align: center; padding: 1rem;">
-                                                        <button onclick="filterSensorsByStatus(${deviceId}, 'all')" style="background: #3498db; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
-                                                            Show All ${allSensors.length} Sensors
+                                                        <button onclick="document.getElementById('searchBox').value=''; window.dashboard.filters.search=''; window.dashboard.applyFilters(); filterSensorsByStatus(${deviceId}, 'all')" style="background: #3498db; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+                                                            Clear Filters & Show All
                                                         </button>
                                                     </div>
                                                 `;
