@@ -2674,8 +2674,12 @@
         function expandAll() {
             nodes.forEach(node => {
                 if (node.type === 'sensor') {
-                    node.mesh.visible = true;
-                    node.visible = true;
+                    // Only show sensor if its parent device is visible
+                    const parentDevice = nodes.find(n => n.type === 'device' && n.data.id === node.data.deviceId);
+                    if (parentDevice && parentDevice.mesh.visible) {
+                        node.mesh.visible = true;
+                        node.visible = true;
+                    }
                 }
             });
         }
