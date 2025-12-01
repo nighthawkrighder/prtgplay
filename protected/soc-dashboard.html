@@ -3832,29 +3832,53 @@
                     const companyCode = section.dataset.company;
                     const company = this.companies.get(companyCode);
                     
-                    let shouldShow = true;
-                    
-                    // Company filter
+                    // Company filter check first
                     if (this.filters.company !== 'all' && companyCode !== this.filters.company) {
-                        shouldShow = false;
+                        section.style.display = 'none';
+                        return;
                     }
                     
-                    // Search filter
-                    if (this.filters.search && shouldShow) {
-                        const searchMatch = company.name.toLowerCase().includes(this.filters.search) ||
-                                          company.devices.some(d => d.name.toLowerCase().includes(this.filters.search));
-                        if (!searchMatch) shouldShow = false;
-                    }
+                    // Get all device cards in this company
+                    const deviceCards = section.querySelectorAll('.device-card');
+                    let visibleDeviceCount = 0;
                     
-                    // Status filter
-                    if (this.filters.status !== 'all' && shouldShow) {
-                        const hasMatchingDevices = company.devices.some(d => 
-                            this.getStatusKey(d.status) === this.filters.status
-                        );
-                        if (!hasMatchingDevices) shouldShow = false;
-                    }
+                    // Filter individual device cards based on search and status
+                    deviceCards.forEach(card => {
+                        const deviceId = parseInt(card.dataset.deviceId);
+                        const device = company.devices.find(d => d.id === deviceId);
+                        
+                        if (!device) {
+                            card.style.display = 'none';
+                            return;
+                        }
+                        
+                        let shouldShowDevice = true;
+                        
+                        // Search filter - check device name
+                        if (this.filters.search) {
+                            const searchLower = this.filters.search.toLowerCase();
+                            const deviceNameMatch = device.name.toLowerCase().includes(searchLower);
+                            const companyNameMatch = company.name.toLowerCase().includes(searchLower);
+                            
+                            if (!deviceNameMatch && !companyNameMatch) {
+                                shouldShowDevice = false;
+                            }
+                        }
+                        
+                        // Status filter
+                        if (this.filters.status !== 'all' && shouldShowDevice) {
+                            if (this.getStatusKey(device.status) !== this.filters.status) {
+                                shouldShowDevice = false;
+                            }
+                        }
+                        
+                        // Show/hide individual device card
+                        card.style.display = shouldShowDevice ? 'block' : 'none';
+                        if (shouldShowDevice) visibleDeviceCount++;
+                    });
                     
-                    section.style.display = shouldShow ? 'block' : 'none';
+                    // Show company section only if it has visible devices
+                    section.style.display = visibleDeviceCount > 0 ? 'block' : 'none';
                 });
             }
 
