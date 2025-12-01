@@ -2564,6 +2564,7 @@
         
         // Show individual sensor popup
         function showIndividualSensorPopup(sensorNode) {
+            console.log('🔍 showIndividualSensorPopup called for:', sensorNode.name);
             const sensor = sensorNode.sensorData || {};
             const device = sensorNode.data;
             const parentDevice = sensorNode.parent;
@@ -2571,6 +2572,7 @@
             // Create or update popup
             let popup = document.getElementById('sensor-popup');
             if (!popup) {
+                console.log('📦 Creating new popup');
                 popup = document.createElement('div');
                 popup.id = 'sensor-popup';
                 popup.style.cssText = `
@@ -2593,10 +2595,13 @@
                     display: block;
                 `;
                 document.body.appendChild(popup);
+            } else {
+                console.log('♻️ Reusing existing popup');
             }
             
-            // Always make popup visible
+            // Always make popup visible and ensure it's on top
             popup.style.display = 'block';
+            popup.style.zIndex = '10000';
             
             // Status display configurations
             const statusConfigs = {
