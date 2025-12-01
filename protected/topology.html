@@ -2029,6 +2029,9 @@
 
         // Canvas click
         function onCanvasClick(event) {
+            // Set flag to prevent click-outside listener from interfering
+            isProcessingCanvasClick = true;
+            
             const mouse = new THREE.Vector2();
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -2069,6 +2072,11 @@
                     lastHoveredCompany = null;
                 }
             }
+            
+            // Reset flag after processing (use setTimeout to ensure it happens after event bubbling)
+            setTimeout(() => {
+                isProcessingCanvasClick = false;
+            }, 0);
         }
 
         // Canvas mouse move
@@ -2562,6 +2570,9 @@
             }, 100);
         }
         
+        // Track if we're currently processing a canvas click (to prevent close listener interference)
+        let isProcessingCanvasClick = false;
+        
         // Close sensor popup
         function closeSensorPopup() {
             const popup = document.getElementById('sensor-popup');
@@ -2607,6 +2618,11 @@
                 
                 // Add click-outside-to-close (close when clicking UI elements, NOT when clicking canvas/sensors)
                 document.addEventListener('click', function(e) {
+                    // Don't interfere if canvas click is being processed
+                    if (isProcessingCanvasClick) {
+                        return;
+                    }
+                    
                     const popup = document.getElementById('sensor-popup');
                     if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
                         // Close popup ONLY if clicking UI elements (NOT canvas where sensors are)
