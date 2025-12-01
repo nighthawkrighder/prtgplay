@@ -5145,15 +5145,16 @@
                         if (device) {
                             clearInterval(checkAndFilter);
                             
-                            // Populate the search box and trigger filter
+                            // Populate the search box
                             const searchBox = document.getElementById('searchBox');
                             if (searchBox) {
                                 searchBox.value = device.name;
-                                // Trigger input event to apply filter (same as typing in search box)
-                                const event = new Event('input', { bubbles: true });
-                                searchBox.dispatchEvent(event);
-                                console.log(`🔍 Filtered dashboard to device: ${device.name}`);
                             }
+                            
+                            // Directly set filter and apply (match dashboard's internal logic)
+                            window.dashboard.filters.search = device.name.toLowerCase();
+                            window.dashboard.applyFilters();
+                            console.log(`🔍 Filtered dashboard to device: ${device.name}`);
                         } else if (attempts >= maxAttempts) {
                             clearInterval(checkAndFilter);
                             console.warn('⚠️ Device not found after multiple attempts:', deviceId);

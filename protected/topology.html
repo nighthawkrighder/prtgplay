@@ -2755,21 +2755,21 @@
                     const isCritical = deviceStatus === 5 || hasDownSensors;
                     // Warning: device is WARNING (4) OR has warning sensors (but NOT critical)
                     const isWarning = (deviceStatus === 4 || hasWarningSensors) && !isCritical;
+                    // Up/Healthy: status 3 with no alarms
+                    const isHealthy = deviceStatus === 3 && !hasAlarms;
                     
                     let shouldShow = false;
                     
                     if (status === 'all') {
-                        shouldShow = true;
+                        shouldShow = true;  // Show ALL devices including unusual/paused (purple)
                     } else if (status === 'alarms') {
                         shouldShow = hasAlarms || deviceStatus === 5 || deviceStatus === 4;
                     } else if (status === 'critical') {
-                        // STRICT: only show if critical, exclude warning
                         shouldShow = isCritical;
                     } else if (status === 'warning') {
-                        // STRICT: only show if warning, exclude critical
                         shouldShow = isWarning;
                     } else if (status === 'up') {
-                        shouldShow = deviceStatus === 3 && !hasAlarms;
+                        shouldShow = isHealthy;
                     }
                     
                     node.mesh.visible = shouldShow;
