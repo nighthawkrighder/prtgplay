@@ -1743,9 +1743,6 @@
             );
             scene.add(sphere);
 
-            const isDown = device.status === 5;
-            const isWarning = device.status === 4;
-            
             const node = {
                 type: 'sensor',
                 name: device.name || 'Sensor',  // Use device name for sensor identification
