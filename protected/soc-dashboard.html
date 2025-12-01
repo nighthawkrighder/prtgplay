@@ -5131,23 +5131,38 @@
             const openDeviceId = urlParams.get('openDevice');
             const sensorId = urlParams.get('sensorId');
             if (openDeviceId) {
-                // Wait for dashboard to load, then set the search box (just like manual search)
-                setTimeout(() => {
-                    const deviceId = parseInt(openDeviceId);
-                    // Find device name from loaded devices
-                    const device = window.dashboard.allDevices.find(d => d.id === deviceId);
-                    if (device) {
-                        // Simply populate the search box - let the user see filtered results and click to open
-                        const searchBox = document.getElementById('searchBox');
-                        if (searchBox) {
-                            searchBox.value = device.name;
-                            // Trigger input event to apply filter (same as typing in search box)
-                            const event = new Event('input', { bubbles: true });
-                            searchBox.dispatchEvent(event);
-                            console.log(`🔍 Filtered dashboard to device: ${device.name}`);
+                // Wait for dashboard to ACTUALLY load data (check multiple times)
+                const deviceId = parseInt(openDeviceId);
+                let attempts = 0;
+                const maxAttempts = 20; // Try for up to 10 seconds
+                
+                const checkAndFilter = setInterval(() => {
+                    attempts++;
+                    
+                    // Check if devices are loaded
+                    if (window.dashboard && window.dashboard.allDevices && window.dashboard.allDevices.length > 0) {
+                        const device = window.dashboard.allDevices.find(d => d.id === deviceId);
+                        if (device) {
+                            clearInterval(checkAndFilter);
+                            
+                            // Populate the search box and trigger filter
+                            const searchBox = document.getElementById('searchBox');
+                            if (searchBox) {
+                                searchBox.value = device.name;
+                                // Trigger input event to apply filter (same as typing in search box)
+                                const event = new Event('input', { bubbles: true });
+                                searchBox.dispatchEvent(event);
+                                console.log(`🔍 Filtered dashboard to device: ${device.name}`);
+                            }
+                        } else if (attempts >= maxAttempts) {
+                            clearInterval(checkAndFilter);
+                            console.warn('⚠️ Device not found after multiple attempts:', deviceId);
                         }
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(checkAndFilter);
+                        console.warn('⚠️ Dashboard data not loaded after 10 seconds');
                     }
-                }, 2000); // Wait 2 seconds for dashboard to load
+                }, 500); // Check every 500ms
             }
             
             // Add beforeunload handler to attempt logout when tab/window closes

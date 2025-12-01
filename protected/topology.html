@@ -2747,9 +2747,14 @@
             nodes.forEach(node => {
                 if (node.type === 'device') {
                     const deviceStatus = node.data.status;
-                    const hasAlarms = node.data.sensorStats?.down > 0 || node.data.sensorStats?.warning > 0;
-                    const isCritical = node.data.status === 5 || node.data.sensorStats?.down > 0;
-                    const isWarning = node.data.status === 4 || (node.data.sensorStats?.warning > 0 && !isCritical);
+                    const hasDownSensors = node.data.sensorStats?.down > 0;
+                    const hasWarningSensors = node.data.sensorStats?.warning > 0;
+                    const hasAlarms = hasDownSensors || hasWarningSensors;
+                    
+                    // Critical: device is DOWN (5) OR has down sensors
+                    const isCritical = deviceStatus === 5 || hasDownSensors;
+                    // Warning: device is WARNING (4) OR has warning sensors (but NOT critical)
+                    const isWarning = (deviceStatus === 4 || hasWarningSensors) && !isCritical;
                     
                     let shouldShow = false;
                     
@@ -2758,8 +2763,10 @@
                     } else if (status === 'alarms') {
                         shouldShow = hasAlarms || deviceStatus === 5 || deviceStatus === 4;
                     } else if (status === 'critical') {
+                        // STRICT: only show if critical, exclude warning
                         shouldShow = isCritical;
                     } else if (status === 'warning') {
+                        // STRICT: only show if warning, exclude critical
                         shouldShow = isWarning;
                     } else if (status === 'up') {
                         shouldShow = deviceStatus === 3 && !hasAlarms;
