@@ -2186,72 +2186,20 @@
 
             selectedNode = node;
             
-            // If clicking a sensor, zoom to its parent company and show info
+            // If clicking a sensor, show sensor popup instead
             if (node.type === 'sensor') {
-                // Find parent device, then parent company
+                // Find parent device
                 const parentDevice = node.parent;
-                const parentCompany = parentDevice?.parent;
                 
-                if (parentCompany) {
-                    console.log(`Sensor clicked: ${node.name}, zooming to company: ${parentCompany.name}`);
-                    zoomToNode(parentCompany);
-                    
-                    // Highlight the parent device
-                    if (parentDevice && parentDevice.mesh) {
-                        parentDevice.mesh.scale.set(1.8, 1.8, 1.8);
-                        setTimeout(() => {
-                            const currentStatus = parentDevice.data?.status;
-                            if (currentStatus !== 5 && currentStatus !== 'down' && currentStatus !== 4 && currentStatus !== 10 && currentStatus !== 'warning') {
-                                if (parentDevice.mesh) parentDevice.mesh.scale.set(1, 1, 1);
-                            }
-                        }, 800);
-                    }
-                    
-                    // Show sensor info panel
-                    const infoPanel = document.getElementById('info-panel');
-                    infoPanel.classList.add('visible');
-
-                    const infoTitle = document.getElementById('info-title');
-                    const infoSubtitle = document.getElementById('info-subtitle');
-                    const infoDetails = document.getElementById('info-details');
-
-                    infoTitle.textContent = node.name;
-                    infoSubtitle.textContent = `SENSOR - ${parentCompany.name}`;
-
-                    const sensorData = node.data;
-                    const statusText = sensorData.status === 3 ? 'UP' : 
-                                     sensorData.status === 5 ? 'DOWN' : 
-                                     sensorData.status === 4 ? 'WARNING' : 
-                                     sensorData.status === 7 ? 'PAUSED' : 'UNKNOWN';
-                    const statusClass = sensorData.status === 3 ? 'status-up' : 
-                                       sensorData.status === 5 ? 'status-down' : 
-                                       sensorData.status === 4 ? 'status-warning' : '';
-
-                    let detailsHTML = `
-                        <div class="info-row">
-                            <span class="info-label">Status</span>
-                            <span class="status-badge ${statusClass}">${statusText}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Parent Device</span>
-                            <span class="info-value">${parentDevice.name}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Company</span>
-                            <span class="info-value">${parentCompany.name}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Sensor Type</span>
-                            <span class="info-value">${sensorData.sensor_type || 'N/A'}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Last Value</span>
-                            <span class="info-value">${sensorData.last_value || 'N/A'}</span>
-                        </div>
-                        <div class="info-row" style="margin-top: 1rem;">
-                            <a href="javascript:void(0);" onclick="window.open('/?openDevice=${parentDevice.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
-                        </div>
-                    `;
+                if (parentDevice) {
+                    console.log(`Sensor clicked for device: ${parentDevice.name}`);
+                    // Show device sensor popup (which lists all sensors)
+                    showSensorPopup(parentDevice);
+                } else {
+                    console.warn('Sensor has no parent device');
+                }
+                return;
+            }
 
                     infoDetails.innerHTML = detailsHTML;
                 }
@@ -2300,9 +2248,9 @@
             const infoPanel = document.getElementById('info-panel');
             infoPanel.classList.add('visible');
 
-            const infoTitle = document.getElementById('info-title');
-            const infoSubtitle = document.getElementById('info-subtitle');
-            const infoDetails = document.getElementById('info-details');
+                        <div class="info-row" style="margin-top: 1rem;">
+                            <a href="javascript:void(0);" onclick="window.open('/?openDevice=${parentDevice.data.id || parentDevice.data.objid}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
+                        </div>= document.getElementById('info-details');
 
             infoTitle.textContent = node.name;
             infoSubtitle.textContent = node.type.toUpperCase();
@@ -2885,20 +2833,38 @@
                     if (nodes.length > 0) {
                         clearInterval(checkLoaded);
                         
-                        // Find the device node
+                        // Find the device node - check multiple ID fields
                         const deviceNode = nodes.find(n => 
                             n.type === 'device' && 
-                            (n.data.id == openDeviceId || n.name.includes(openDeviceId))
+                            (String(n.data.id) === String(openDeviceId) || 
+                             String(n.data.objid) === String(openDeviceId) ||
+                             String(n.data.deviceId) === String(openDeviceId))
                         );
                         
                         if (deviceNode && deviceNode.mesh) {
-                            console.log(`✅ Found device: ${deviceNode.name}`);
+                            console.log(`✅ Found device: ${deviceNode.name} (ID: ${openDeviceId})`);
                             
-                            // Expand sensors for this device
+                            // Hide all other devices and their sensors
                             nodes.forEach(node => {
-                                if (node.type === 'sensor' && node.parent === deviceNode) {
-                                    node.visible = true;
-                                    node.mesh.visible = true;
+                                if (node.type === 'device' && node !== deviceNode) {
+                                    node.mesh.visible = false;
+                                    node.visible = false;
+                                } else if (node.type === 'sensor') {
+                                    if (node.parent === deviceNode) {
+                                        // Show sensors for target device
+                                        node.visible = true;
+                                        node.mesh.visible = true;
+                                    } else {
+                                        // Hide sensors for other devices
+                                        node.mesh.visible = false;
+                                        node.visible = false;
+                                    }
+                                } else if (node.type === 'company' && node !== deviceNode.parent) {
+                                    // Dim other companies
+                                    if (node.mesh && node.mesh.material) {
+                                        node.mesh.material.opacity = 0.2;
+                                        node.mesh.material.transparent = true;
+                                    }
                                 }
                             });
                             
@@ -2909,6 +2875,7 @@
                             }, 1000);
                         } else {
                             console.warn(`⚠️ Device not found with ID: ${openDeviceId}`);
+                            console.log('Available device IDs:', nodes.filter(n => n.type === 'device').map(n => `${n.name}: ${n.data.id || n.data.objid}`).slice(0, 5));
                         }
                     }
                 }, 100);
