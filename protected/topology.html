@@ -2207,7 +2207,7 @@
                             <span class="info-value">${sensorData.last_value || 'N/A'}</span>
                         </div>
                         <div class="info-row" style="margin-top: 1rem;">
-                            <a href="javascript:void(0);" onclick="window.open('/soc-dashboard.html?openDevice=${parentDevice.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
+                            <a href="javascript:void(0);" onclick="window.open('/?openDevice=${parentDevice.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
                         </div>
                     `;
 
@@ -2336,7 +2336,7 @@
                 
                 detailsHTML += `
                     <div class="info-row" style="margin-top: 1rem;">
-                        <a href="javascript:void(0);" onclick="window.open('/soc-dashboard.html?openDevice=${node.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
+                        <a href="javascript:void(0);" onclick="window.open('/?openDevice=${node.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
                     </div>
                 `;
             }
@@ -2557,7 +2557,7 @@
                                     </div>
                                 ` : ''}
                             </div>
-                            ${sensor.lastMessage ? `
+                            ${sensor.lastMessage && sensor.lastMessage.trim() ? `
                                 <div style="font-size: 10px; color: #6b7280; padding: 4px 6px; background: rgba(0,0,0,0.2); border-radius: 4px; margin-top: 4px; white-space: pre-wrap;">
                                     💬 ${sensor.lastMessage.trim()}
                                 </div>
