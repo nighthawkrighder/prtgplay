@@ -5126,6 +5126,23 @@
             window.dashboard = new SOCDashboard();
             await syncSessionContext();
             
+            // Check for openDevice URL parameter from topology
+            const urlParams = new URLSearchParams(window.location.search);
+            const openDeviceId = urlParams.get('openDevice');
+            if (openDeviceId) {
+                // Wait for dashboard to load, then open the device
+                setTimeout(() => {
+                    const deviceId = parseInt(openDeviceId);
+                    // Find device name from loaded devices
+                    const device = window.dashboard.allDevices.find(d => d.id === deviceId);
+                    if (device) {
+                        showDeviceDetail(deviceId, device.name);
+                    } else {
+                        showDeviceDetail(deviceId, 'Device');
+                    }
+                }, 2000); // Wait 2 seconds for dashboard to load
+            }
+            
             // Add beforeunload handler to attempt logout when tab/window closes
             // Note: This is best-effort, as browsers limit what can be done in this event
             window.addEventListener('beforeunload', (e) => {
