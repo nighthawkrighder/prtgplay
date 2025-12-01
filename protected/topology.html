@@ -1932,6 +1932,21 @@
             // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
             nodes.forEach(node => {
                 if (node.type === 'sensor' && node.mesh && node.orbit && node.parent && node.parent.mesh) {
+                    // Only animate sensors if parent device is visible
+                    if (!node.parent.mesh.visible || !node.parent.visible) {
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // Only show sensor if node.visible is true (controlled by expand/collapse)
+                    if (!node.visible) {
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // If we reach here, sensor should be visible
+                    node.mesh.visible = true;
+                    
                     // Use parent device's CURRENT position (sensors follow devices)
                     const parentPos = node.parent.mesh.position;
                     
@@ -2751,12 +2766,14 @@
                     }
                     
                     node.mesh.visible = shouldShow;
+                    node.visible = shouldShow;
                     if (node.label) node.label.visible = shouldShow;
                     
                     // Show/hide sensors orbiting this device
                     nodes.forEach(sensorNode => {
                         if (sensorNode.type === 'sensor' && sensorNode.data.deviceId === node.data.id) {
                             sensorNode.mesh.visible = shouldShow;
+                            sensorNode.visible = shouldShow;
                             if (sensorNode.label) sensorNode.label.visible = shouldShow;
                         }
                     });
