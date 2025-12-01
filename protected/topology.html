@@ -2575,11 +2575,15 @@
         // Track if we're currently processing a canvas click (to prevent close listener interference)
         let isProcessingCanvasClick = false;
         
+        // Track the last node that had a popup open (for sensor-to-sensor transitions)
+        let lastPopupNode = null;
+        
         // Close sensor popup
         function closeSensorPopup() {
             const popup = document.getElementById('sensor-popup');
             if (popup) {
                 popup.style.display = 'none';
+                lastPopupNode = null; // Clear tracking when popup closes
                 console.log('✅ Sensor popup closed');
             }
         }
@@ -2587,6 +2591,16 @@
         // Show individual sensor popup
         function showIndividualSensorPopup(sensorNode) {
             console.log('🔍 showIndividualSensorPopup called for:', sensorNode.name);
+            
+            // Check if switching from one sensor/device to another
+            const isSwitchingNodes = lastPopupNode && lastPopupNode !== sensorNode;
+            if (isSwitchingNodes) {
+                console.log('🔄 Switching from', lastPopupNode.name, 'to', sensorNode.name);
+            }
+            
+            // Update last popup node
+            lastPopupNode = sensorNode;
+            
             const sensor = sensorNode.sensorData || {};
             const device = sensorNode.data;
             const parentDevice = sensorNode.parent;
@@ -2644,7 +2658,14 @@
                     }, 10); // Small delay to ensure popup update completes first
                 });
             } else {
-                console.log('♻️ Reusing existing popup');
+                console.log('♻️ Reusing existing popup for node:', sensorNode.name);
+                // If switching nodes, briefly hide and show to force update
+                if (isSwitchingNodes) {
+                    console.log('🔃 Forcing popup refresh for new node');
+                    popup.style.display = 'none'; // Briefly hide
+                    // Force reflow to ensure display change is registered
+                    void popup.offsetHeight;
+                }
                 // Add flash animation to show popup is updating
                 popup.style.borderColor = '#00ffff';
                 setTimeout(() => {
@@ -2655,6 +2676,7 @@
             // Always make popup visible and ensure it's on top
             popup.style.display = 'block';
             popup.style.zIndex = '10000';
+            console.log('📋 Popup display set to: block');
             
             // Status display configurations
             const statusConfigs = {
