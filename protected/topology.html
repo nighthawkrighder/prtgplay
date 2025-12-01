@@ -2605,15 +2605,18 @@
                 `;
                 document.body.appendChild(popup);
                 
-                // Add click-outside-to-close
+                // Add click-outside-to-close (close when clicking UI elements, NOT when clicking canvas/sensors)
                 document.addEventListener('click', function(e) {
                     const popup = document.getElementById('sensor-popup');
                     if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
-                        // Check if click was on a sensor mesh (allow sensor clicks to work)
+                        // Close popup ONLY if clicking UI elements (NOT canvas where sensors are)
                         const canvas = document.getElementById('canvas');
-                        if (e.target !== canvas) {
-                            closeSensorPopup();
+                        if (e.target === canvas) {
+                            // Clicking on canvas - let sensor click handler manage popup
+                            return;
                         }
+                        // Clicking outside canvas and outside popup - close it
+                        closeSensorPopup();
                     }
                 });
             } else {
