@@ -2258,10 +2258,10 @@
                 console.log(`✨ Selected ${node.type}: ${node.name} - highlighted with cyan`);
             }
             
-            // If clicking a sensor, show individual sensor details
+            // If clicking a sensor, zoom to it and show individual sensor details
             if (node.type === 'sensor') {
                 console.log(`Sensor clicked: ${node.name}`);
-                // Show individual sensor popup
+                zoomToNode(node);  // Zoom directly to the sensor
                 showIndividualSensorPopup(node);
                 return;
             }
@@ -2290,16 +2290,10 @@
                 return;
             }
             
-            // If clicking a device node (spaceship), zoom to parent company and show sensor popup
+            // If clicking a device node (spaceship), zoom directly to it and show sensor popup
             if (node.type === 'device') {
-                // Zoom to parent company instead of just the device
-                const parentCompany = node.parent;
-                if (parentCompany) {
-                    console.log(`Device clicked: ${node.name}, zooming to company: ${parentCompany.name}`);
-                    zoomToNode(parentCompany);
-                } else {
-                    zoomToNode(node);
-                }
+                console.log(`Device clicked: ${node.name}`);
+                zoomToNode(node);  // Zoom directly to the device
                 showSensorPopup(node);
                 return;
             }
