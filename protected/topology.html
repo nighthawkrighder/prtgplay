@@ -2196,8 +2196,8 @@
 
         // Select node
         function selectNode(node) {
-            // Deselect previous - restore original material
-            if (selectedNode && selectedNode.mesh) {
+            // Deselect previous - restore original material (only if different node)
+            if (selectedNode && selectedNode !== node && selectedNode.mesh) {
                 // Restore original material/color
                 if (selectedNode.originalMaterial) {
                     selectedNode.mesh.material = selectedNode.originalMaterial;
@@ -2213,8 +2213,8 @@
 
             selectedNode = node;
             
-            // Highlight the newly selected node with cyan glow
-            if (node && node.mesh && node.mesh.material) {
+            // Highlight the newly selected node with cyan glow (only if not already highlighted)
+            if (node && node.mesh && node.mesh.material && !node.originalMaterial) {
                 // Store original material
                 node.originalMaterial = node.mesh.material.clone();
                 
