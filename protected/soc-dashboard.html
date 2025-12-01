@@ -3535,7 +3535,7 @@
             enhanceDeviceData(device) {
                 return {
                     ...device,
-                    deviceType: this.getDeviceType(device.name),
+                    deviceType: device.deviceType || device.device_type || this.getDeviceType(device.name),
                     criticality: this.getCriticality(device.name),
                     sensorCount: device.sensors?.length || 0,
                     alertCount: device.sensors?.filter(s => s.status === 5 || s.status === 4).length || 0
