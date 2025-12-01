@@ -2213,10 +2213,12 @@
 
             selectedNode = node;
             
-            // Highlight the newly selected node with cyan glow (only if not already highlighted)
-            if (node && node.mesh && node.mesh.material && !node.originalMaterial) {
-                // Store original material
-                node.originalMaterial = node.mesh.material.clone();
+            // Highlight the newly selected node with cyan glow
+            if (node && node.mesh && node.mesh.material) {
+                // Store original material if not already stored
+                if (!node.originalMaterial) {
+                    node.originalMaterial = node.mesh.material.clone();
+                }
                 
                 // Create highlighted material based on node type
                 if (node.type === 'sensor') {
