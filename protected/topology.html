@@ -2597,6 +2597,11 @@
                 document.body.appendChild(popup);
             } else {
                 console.log('♻️ Reusing existing popup');
+                // Add flash animation to show popup is updating
+                popup.style.borderColor = '#00ffff';
+                setTimeout(() => {
+                    popup.style.borderColor = '#8b5cf6';
+                }, 200);
             }
             
             // Always make popup visible and ensure it's on top
