@@ -5132,37 +5132,60 @@
             const sensorId = urlParams.get('sensorId');
             if (openDeviceId) {
                 // Wait for dashboard to load, then open the device
-                setTimeout(() => {
+                setTimeout(async () => {
                     const deviceId = parseInt(openDeviceId);
                     // Find device name from loaded devices
                     const device = window.dashboard.allDevices.find(d => d.id === deviceId);
                     if (device) {
                         showDeviceDetail(deviceId, device.name);
-                        // If sensorId provided, highlight and scroll to that sensor
+                        // If sensorId provided, filter to show only that sensor
                         if (sensorId) {
-                            setTimeout(() => {
+                            setTimeout(async () => {
                                 const sensorIdInt = parseInt(sensorId);
-                                const sensorElement = document.querySelector(`[data-sensor-id="${sensorIdInt}"]`);
-                                if (sensorElement) {
-                                    // Scroll to sensor
-                                    sensorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    // Highlight sensor
-                                    sensorElement.style.background = 'rgba(59, 130, 246, 0.2)';
-                                    sensorElement.style.border = '2px solid #3b82f6';
-                                    // Flash effect
-                                    let flashCount = 0;
-                                    const flashInterval = setInterval(() => {
-                                        sensorElement.style.background = flashCount % 2 === 0 ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.1)';
-                                        flashCount++;
-                                        if (flashCount > 6) {
-                                            clearInterval(flashInterval);
-                                            sensorElement.style.background = 'rgba(59, 130, 246, 0.2)';
+                                // Fetch device with all sensors
+                                try {
+                                    const response = await window.dashboard.authManager.authenticatedFetch(`/api/devices/${deviceId}`);
+                                    if (response.ok) {
+                                        const deviceData = await response.json();
+                                        const allSensors = deviceData.sensors || [];
+                                        
+                                        // Filter to show only the specific sensor
+                                        const targetSensor = allSensors.find(s => s.id === sensorIdInt);
+                                        if (targetSensor) {
+                                            // Update sensor list title
+                                            const titleEl = document.getElementById('sensorListTitle');
+                                            if (titleEl) {
+                                                titleEl.textContent = `🎯 Filtered to Sensor ID ${sensorIdInt} (1 of ${allSensors.length})`;
+                                                titleEl.style.color = '#3b82f6';
+                                            }
+                                            
+                                            // Update sensor list to show only the target sensor
+                                            const listEl = document.getElementById('sensorList');
+                                            if (listEl) {
+                                                listEl.innerHTML = `
+                                                    <div class="sensor-item ${getStatusKey(targetSensor.status)}" data-sensor-id="${targetSensor.id}" onclick="showSensorDetail(${targetSensor.id}, '${targetSensor.name.replace(/'/g, '\\\'')}')">
+                                                        <div class="sensor-name">${targetSensor.name}</div>
+                                                        <div class="sensor-details">
+                                                            <span class="sensor-type">${targetSensor.sensorType || targetSensor.sensor_type || 'Unknown'}</span>
+                                                            <span class="sensor-value">${targetSensor.lastValue || targetSensor.last_value || 'N/A'}</span>
+                                                            <span class="sensor-status" style="color: ${getStatusColor(targetSensor.status)}">${getStatusText(targetSensor.status)}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div style="text-align: center; padding: 1rem;">
+                                                        <button onclick="filterSensorsByStatus(${deviceId}, 'all')" style="background: #3498db; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+                                                            Show All ${allSensors.length} Sensors
+                                                        </button>
+                                                    </div>
+                                                `;
+                                            }
+                                        } else {
+                                            console.warn('Sensor not found:', sensorIdInt);
                                         }
-                                    }, 200);
-                                } else {
-                                    console.warn('Sensor not found:', sensorIdInt);
+                                    }
+                                } catch (error) {
+                                    console.error('Error filtering to specific sensor:', error);
                                 }
-                            }, 500); // Wait for device detail modal to render sensors
+                            }, 500); // Wait for device detail modal to render
                         }
                     } else {
                         showDeviceDetail(deviceId, 'Device');
