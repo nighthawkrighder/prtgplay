@@ -968,10 +968,21 @@ app.get('/devices/enhanced', requireAuth, async (req, res, next) => {
     logger.info(`[${requestId}] Executing database query...`);
     const queryStartTime = Date.now();
     
+    // Get total count for pagination
+    const totalCount = await Device.count({
+      where: deviceWhere,
+      include: Object.keys(metadataWhere).length > 0 ? [{
+        model: DeviceMetadata,
+        as: 'metadata',
+        where: metadataWhere,
+        required: false
+      }] : []
+    });
+    
     const devices = await Device.findAll(queryOptions);
     
     const queryTime = Date.now() - queryStartTime;
-    logger.info(`[${requestId}] Database query completed in ${queryTime}ms, found ${devices.length} devices`);
+    logger.info(`[${requestId}] Database query completed in ${queryTime}ms, found ${devices.length} devices out of ${totalCount} total`);
     
     logger.info(`[${requestId}] Processing device data...`);
     const processStartTime = Date.now();
@@ -1027,14 +1038,35 @@ app.get('/devices/enhanced', requireAuth, async (req, res, next) => {
     // Clear keep-alive interval
     clearKeepAlive();
     
+    // Calculate pagination metadata
+    const currentLimit = parseInt(limit);
+    const currentOffset = parseInt(offset);
+    const currentPage = Math.floor(currentOffset / currentLimit) + 1;
+    const totalPages = Math.ceil(totalCount / currentLimit);
+    const hasMore = (currentOffset + enhancedDevices.length) < totalCount;
+    
+    // 🔍 DETAILED PAGINATION LOGGING
+    logger.info(`[${requestId}] 📊 PAGINATION DETAILS:`);
+    logger.info(`[${requestId}]    Total devices in DB: ${totalCount}`);
+    logger.info(`[${requestId}]    Devices in this response: ${enhancedDevices.length}`);
+    logger.info(`[${requestId}]    Page: ${currentPage}/${totalPages}`);
+    logger.info(`[${requestId}]    Offset: ${currentOffset}, Limit: ${currentLimit}`);
+    logger.info(`[${requestId}]    Has more pages: ${hasMore}`);
+    logger.info(`[${requestId}]    Devices returned so far: ${currentOffset + enhancedDevices.length}`);
+    
     // Headers already sent via writeHead, so use end() instead of json()
     if (!res.writableEnded) {
-      logger.info(`[${requestId}] Sending JSON response...`);
+      logger.info(`[${requestId}] Sending JSON response with pagination: page ${currentPage}/${totalPages}, hasMore: ${hasMore}`);
       const responseData = JSON.stringify({
         devices: enhancedDevices,
         pagination: {
-          total: enhancedDevices.length,
-          fetched: enhancedDevices.length
+          total: totalCount,
+          fetched: enhancedDevices.length,
+          limit: currentLimit,
+          offset: currentOffset,
+          page: currentPage,
+          totalPages: totalPages,
+          hasMore: hasMore
         }
       });
       res.end(responseData);
@@ -1064,14 +1096,17 @@ app.get('/devices/enhanced', requireAuth, async (req, res, next) => {
       logger.error(`[${requestId}] Database query error - check SQL syntax`);
     }
     
-    if (!res.headersSent) {
+    if (!res.writableEnded) {
       logger.info(`[${requestId}] Sending 500 error response`);
-      res.status(500).json({ 
+      // Headers already sent via writeHead, must use res.end() not res.json()
+      const errorResponse = JSON.stringify({
         error: 'Internal server error',
-        requestId: requestId
+        requestId: requestId,
+        message: error.message
       });
+      res.end(errorResponse);
     } else {
-      logger.error(`[${requestId}] Cannot send error response - headers already sent`);
+      logger.error(`[${requestId}] Cannot send error response - response already ended`);
     }
   }
 });
@@ -1087,6 +1122,12 @@ app.get('/api/test', requireAuth, (req, res) => {
 // Session status endpoint (unprotected: returns minimal info)
 app.get('/api/session/status', async (req, res) => {
   try {
+    // Check if response already sent
+    if (res.headersSent) {
+      logger.warn('[SESSION_STATUS] Headers already sent, aborting');
+      return;
+    }
+    
     const edrId = req.session?.edrSessionId || req.cookies?.['edr.sid'];
     const isSessionAuthenticated = isUserAuthenticated(req);
     const restoredFromCache = Boolean(req.session?.restoredFromCache);
@@ -1123,6 +1164,13 @@ app.get('/api/session/status', async (req, res) => {
         }
       }
     }
+    
+    // Final check before sending
+    if (res.headersSent) {
+      logger.warn('[SESSION_STATUS] Headers sent during processing, aborting response');
+      return;
+    }
+    
     res.json({
       authenticated: isSessionAuthenticated || valid,
       username: req.session?.username || validationResult?.session?.username || null,

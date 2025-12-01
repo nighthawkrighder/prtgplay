@@ -240,6 +240,29 @@
         .info-box strong {
             color: #ecf0f1;
         }
+        
+        .portal-link-box {
+            background: rgba(52, 152, 219, 0.08);
+            border: 1px solid rgba(52, 152, 219, 0.4);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            text-align: left;
+        }
+        
+        .portal-link-box a {
+            color: #3498db;
+            text-decoration: none;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        
+        .portal-link-box a:hover {
+            color: #5dade2;
+            transform: translateX(4px);
+        }
 
         @media (max-width: 480px) {
             .login-container {
@@ -258,6 +281,13 @@
         <div class="login-header">
             <h1>LANAIR Unified Portal</h1>
             <p>Secure access to monitoring and security services</p>
+        </div>
+
+        <div class="portal-link-box">
+            <div style="font-weight: bold; color: #3498db; margin-bottom: 0.5rem;">🔗 Quick Access</div>
+            <a href="/login">
+                → CVE Analyzer Dashboard
+            </a>
         </div>
 
         <form id="loginForm">
