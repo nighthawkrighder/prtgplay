@@ -1737,13 +1737,13 @@
             }
             
             // Tiny sphere for sensor (0.3x size)
-            // Use MeshStandardMaterial to support emissive properties for alarm sensors
+            // Use MeshStandardMaterial to support emissive properties for all sensors
             const sensorMaterial = new THREE.MeshStandardMaterial({ 
                 color: sensorColor,
                 transparent: true,
-                opacity: isDown || isWarning ? 1.0 : 0.8, // Full opacity for alarms
-                emissive: isDown || isWarning ? sensorColor : 0x000000,
-                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0),
+                opacity: isDown || isWarning ? 1.0 : 0.9, // Full opacity for alarms, high for normal
+                emissive: sensorColor, // ALL sensors glow with their color
+                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0.4), // Purple sensors also glow (0.4)
                 metalness: 0.3,
                 roughness: 0.7
             });
