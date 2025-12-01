@@ -2243,9 +2243,9 @@
             const infoPanel = document.getElementById('info-panel');
             infoPanel.classList.add('visible');
 
-                        <div class="info-row" style="margin-top: 1rem;">
-                            <a href="javascript:void(0);" onclick="window.open('/?openDevice=${parentDevice.data.id || parentDevice.data.objid}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
-                        </div>= document.getElementById('info-details');
+            const infoTitle = document.getElementById('info-title');
+            const infoSubtitle = document.getElementById('info-subtitle');
+            const infoDetails = document.getElementById('info-details');
 
             infoTitle.textContent = node.name;
             infoSubtitle.textContent = node.type.toUpperCase();
