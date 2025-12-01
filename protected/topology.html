@@ -3044,6 +3044,8 @@
                     node.mesh.visible = shouldShow;
                     node.visible = shouldShow;
                     if (node.label) node.label.visible = shouldShow;
+                    // Hide status circle (yellow/red indicator) when device is filtered out
+                    if (node.statusCircle) node.statusCircle.visible = shouldShow;
                     
                     // Show/hide sensors orbiting this device
                     nodes.forEach(sensorNode => {
