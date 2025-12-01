@@ -2031,6 +2031,7 @@
         function onCanvasClick(event) {
             // Set flag to prevent click-outside listener from interfering
             isProcessingCanvasClick = true;
+            console.log('🔒 Canvas click started - flag set');
             
             const mouse = new THREE.Vector2();
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -2073,10 +2074,11 @@
                 }
             }
             
-            // Reset flag after processing (use setTimeout to ensure it happens after event bubbling)
+            // Reset flag after processing (delay longer to ensure popup updates complete)
             setTimeout(() => {
                 isProcessingCanvasClick = false;
-            }, 0);
+                console.log('🔓 Canvas click processing complete - flag reset');
+            }, 50); // Increased from 0 to 50ms to ensure popup fully updates
         }
 
         // Canvas mouse move
@@ -2617,23 +2619,29 @@
                 document.body.appendChild(popup);
                 
                 // Add click-outside-to-close (close when clicking UI elements, NOT when clicking canvas/sensors)
+                // Use capture phase to check BEFORE other handlers, with setTimeout to check AFTER popup is updated
                 document.addEventListener('click', function(e) {
                     // Don't interfere if canvas click is being processed
                     if (isProcessingCanvasClick) {
+                        console.log('🚫 Click-outside listener blocked - canvas click in progress');
                         return;
                     }
                     
-                    const popup = document.getElementById('sensor-popup');
-                    if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
-                        // Close popup ONLY if clicking UI elements (NOT canvas where sensors are)
-                        const canvas = document.getElementById('canvas');
-                        if (e.target === canvas) {
-                            // Clicking on canvas - let sensor click handler manage popup
-                            return;
+                    // Use setTimeout to check popup state AFTER the click has been fully processed
+                    setTimeout(() => {
+                        const popup = document.getElementById('sensor-popup');
+                        if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
+                            // Close popup ONLY if clicking UI elements (NOT canvas where sensors are)
+                            const canvas = document.getElementById('canvas');
+                            if (e.target === canvas) {
+                                // Clicking on canvas - already handled by canvas click
+                                return;
+                            }
+                            // Clicking outside canvas and outside popup - close it
+                            console.log('🔽 Closing popup - clicked outside');
+                            closeSensorPopup();
                         }
-                        // Clicking outside canvas and outside popup - close it
-                        closeSensorPopup();
-                    }
+                    }, 10); // Small delay to ensure popup update completes first
                 });
             } else {
                 console.log('♻️ Reusing existing popup');
