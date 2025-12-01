@@ -418,7 +418,7 @@ class PRTGCollector {
           id: sensorId,
           prtgServerId: serverId,
           deviceId: deviceId,
-          name: sensor.sensor || 'Unknown Sensor',
+          name: sensor.name || sensor.sensor || 'Unknown Sensor',
           sensorType: sensor.type || null,
           status: status,
           statusText: this.getStatusText(status),
@@ -436,7 +436,7 @@ class PRTGCollector {
         if (status !== 3 && issueSamples.length < 5) {
           issueSamples.push({
             id: sensorId,
-            name: sensor.sensor || 'Unknown Sensor',
+            name: sensor.name || sensor.sensor || 'Unknown Sensor',
             status: statusText,
             message: sensor.message || null,
             deviceId: deviceId
