@@ -1103,8 +1103,17 @@
                 
                 // Group devices by company
                 const companies = {};
+                let unknownCount = 0;
                 devices.forEach((device, index) => {
-                    const company = device.companyName || device.metadata?.company_name || device.companyCode || 'Unknown';
+                    // Try multiple fields to find company name
+                    const company = device.companyName || 
+                                   device.metadata?.company_name || 
+                                   device.metadata?.company_code ||
+                                   device.companyCode || 
+                                   'Unknown';
+                    
+                    if (company === 'Unknown') unknownCount++;
+                    
                     if (!companies[company]) {
                         companies[company] = {
                             name: company,
@@ -1116,6 +1125,9 @@
                         console.log(`[GROUP 2] Device ${index}: ${device.name} -> Company: ${company}`);
                     }
                 });
+                
+                if (unknownCount > 0) {
+                    console.warn(`⚠️ ${unknownCount} devices have no company assignment (grouped as 'Unknown')`);
                 
                 const companyCount = Object.keys(companies).length;
                 console.log(`✅ [GROUP 3] Grouped into ${companyCount} companies:`, Object.keys(companies));
@@ -2530,7 +2542,7 @@
                     
                     return `
                         <div style="background: ${sensorConfig.bg}; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid ${sensorConfig.color};">
-                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
                                 <div style="flex: 1;">
                                     <div style="font-weight: bold; color: ${sensorConfig.color}; margin-bottom: 4px;">
                                         ${sensorConfig.icon} ${sensor.name || 'Not Set'}
@@ -2545,6 +2557,16 @@
                                     </div>
                                 ` : ''}
                             </div>
+                            ${sensor.lastMessage ? `
+                                <div style="font-size: 10px; color: #6b7280; padding: 4px 6px; background: rgba(0,0,0,0.2); border-radius: 4px; margin-top: 4px; white-space: pre-wrap;">
+                                    💬 ${sensor.lastMessage.trim()}
+                                </div>
+                            ` : ''}
+                            ${sensor.priority && sensor.priority > 3 ? `
+                                <div style="font-size: 10px; color: #fbbf24; margin-top: 4px;">
+                                    ⚡ Priority: ${sensor.priority}
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }).join('');
