@@ -613,6 +613,9 @@
             // Sensor escort: Tiny sphere
             geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
             
+            console.log('🔹 Mothership geometry type:', geometryCache.mothership.type, 'parameters:', geometryCache.mothership.parameters);
+            console.log('🔹 Spaceship geometry type:', geometryCache.spaceship.type, 'parameters:', geometryCache.spaceship.parameters);
+            
             // Status indicator circle
             geometryCache.circle = new THREE.CircleGeometry(deviceSize * 0.3, 32);
             
@@ -1489,6 +1492,7 @@
             
             const mothership = new THREE.Mesh(mothershipGeom, material);
             mothership.position.set(x, y, z);
+            console.log('  ✅ Mothership mesh created:', mothership.geometry.type, 'position:', mothership.position);
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1503,35 +1507,6 @@
             
             scene.add(mothership);
             console.log('  ✅ Mothership added to scene. Scene children count:', scene.children.length);
-            
-            // Add engine glow (point light behind ship)
-            const engineLight = new THREE.PointLight(shipColor, 1.5, 50);
-            engineLight.position.set(x, y, z);
-            scene.add(engineLight);
-            
-            // Add subtle engine particles
-            const particleGeometry = new THREE.BufferGeometry();
-            const particleCount = 20;
-            const positions = new Float32Array(particleCount * 3);
-            
-            for (let i = 0; i < particleCount; i++) {
-                positions[i * 3] = 0;
-                positions[i * 3 + 1] = 0;
-                positions[i * 3 + 2] = 0;
-            }
-            
-            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const particleMaterial = new THREE.PointsMaterial({
-                color: shipColor,
-                size: 0.5,
-                transparent: true,
-                opacity: 0.6
-            });
-            
-            const particles = new THREE.Points(particleGeometry, particleMaterial);
-            particles.position.set(x, y, z);
-            scene.add(particles);
             
             // Add company name label as floating text sprite
             const nameLabel = createCompanyNameLabel(name);
@@ -1548,10 +1523,7 @@
                 expanded: false,
                 targetQuaternion: targetQuaternion,
                 rotationComplete: false,
-                rotationProgress: 0,
-                engineLight: engineLight,
-                particles: particles,
-                particleTime: 0
+                rotationProgress: 0
             };
         }
         
@@ -1660,35 +1632,6 @@
             
             scene.add(ship);
             
-            // Add subtle engine glow (smaller for device ships)
-            const engineLight = new THREE.PointLight(deviceColor, 0.8, 25);
-            engineLight.position.set(x, y, z);
-            scene.add(engineLight);
-            
-            // Add micro particles for device engines
-            const particleGeometry = new THREE.BufferGeometry();
-            const particleCount = 10;
-            const positions = new Float32Array(particleCount * 3);
-            
-            for (let i = 0; i < particleCount; i++) {
-                positions[i * 3] = 0;
-                positions[i * 3 + 1] = 0;
-                positions[i * 3 + 2] = 0;
-            }
-            
-            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const particleMaterial = new THREE.PointsMaterial({
-                color: deviceColor,
-                size: 0.3,
-                transparent: true,
-                opacity: 0.5
-            });
-            
-            const particles = new THREE.Points(particleGeometry, particleMaterial);
-            particles.position.set(x, y, z);
-            scene.add(particles);
-            
             // Add status indicator circle (yellow/red) behind ship engines
             let statusCircle = null;
             if (color === COLORS.deviceWarning || color === COLORS.deviceDown) {
@@ -1718,10 +1661,7 @@
                 expanded: false,
                 targetQuaternion: targetQuaternion,
                 rotationComplete: false,
-                rotationProgress: 0,
-                engineLight: engineLight,
-                particles: particles,
-                particleTime: 0
+                rotationProgress: 0
             };
             
                 // Register node for real-time updates
@@ -1955,43 +1895,6 @@
             
             // Note: Ships rotate to orient toward center, then lock in place
             
-            // PASS 1.75: Animate engine particles and lights
-            nodes.forEach(node => {
-                if ((node.type === 'company' || node.type === 'device') && node.particles && node.engineLight) {
-                    node.particleTime = (node.particleTime || 0) + 0.016;
-                    
-                    const positions = node.particles.geometry.attributes.position.array;
-                    const particleCount = positions.length / 3;
-                    
-                    // Get ship's orientation to emit particles backward
-                    const shipPos = node.mesh.position;
-                    const direction = new THREE.Vector3(shipPos.x, shipPos.y, shipPos.z);
-                    direction.normalize();
-                    direction.negate(); // Opposite direction from center (exhaust away from target)
-                    
-                    // Animate each particle
-                    for (let i = 0; i < particleCount; i++) {
-                        const offset = i * 3;
-                        const phase = node.particleTime + i * 0.5;
-                        
-                        // Particles trail behind ship
-                        const trailDistance = (Math.sin(phase * 2) * 0.5 + 0.5) * 3;
-                        const spread = Math.sin(phase * 3) * 0.5;
-                        
-                        positions[offset] = shipPos.x + direction.x * trailDistance + spread;
-                        positions[offset + 1] = shipPos.y + direction.y * trailDistance + spread;
-                        positions[offset + 2] = shipPos.z + direction.z * trailDistance + spread;
-                    }
-                    
-                    node.particles.geometry.attributes.position.needsUpdate = true;
-                    
-                    // Pulse engine light
-                    const pulse = Math.sin(time * 4) * 0.2 + 1;
-                    node.engineLight.intensity = (node.type === 'company' ? 1.5 : 0.8) * pulse;
-                    node.engineLight.position.copy(shipPos);
-                }
-            });
-            
             // PASS 2: Update sensor positions (after devices have moved)
             // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
             nodes.forEach(node => {
@@ -2190,6 +2093,30 @@
 
             selectedNode = node;
             
+            // If clicking a sensor, zoom to its parent company
+            if (node.type === 'sensor') {
+                // Find parent device, then parent company
+                const parentDevice = node.parent;
+                const parentCompany = parentDevice?.parent;
+                
+                if (parentCompany) {
+                    console.log(`Sensor clicked: ${node.name}, zooming to company: ${parentCompany.name}`);
+                    zoomToNode(parentCompany);
+                    
+                    // Highlight the parent device
+                    if (parentDevice && parentDevice.mesh) {
+                        parentDevice.mesh.scale.set(1.8, 1.8, 1.8);
+                        setTimeout(() => {
+                            const currentStatus = parentDevice.data?.status;
+                            if (currentStatus !== 5 && currentStatus !== 'down' && currentStatus !== 4 && currentStatus !== 10 && currentStatus !== 'warning') {
+                                if (parentDevice.mesh) parentDevice.mesh.scale.set(1, 1, 1);
+                            }
+                        }, 800);
+                    }
+                }
+                return;
+            }
+            
             // If clicking a company node, zoom to it and show all devices
             if (node.type === 'company') {
                 zoomToNode(node);
@@ -2214,10 +2141,17 @@
                 return;
             }
             
-            // If clicking a device node, show sensor popup
+            // If clicking a device node (spaceship), zoom to parent company and show sensor popup
             if (node.type === 'device') {
+                // Zoom to parent company instead of just the device
+                const parentCompany = node.parent;
+                if (parentCompany) {
+                    console.log(`Device clicked: ${node.name}, zooming to company: ${parentCompany.name}`);
+                    zoomToNode(parentCompany);
+                } else {
+                    zoomToNode(node);
+                }
                 showSensorPopup(node);
-                zoomToNode(node);
                 return;
             }
 
