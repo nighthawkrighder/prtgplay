@@ -2196,8 +2196,14 @@
 
         // Select node
         function selectNode(node) {
-            // Deselect previous
+            // Deselect previous - restore original material
             if (selectedNode && selectedNode.mesh) {
+                // Restore original material/color
+                if (selectedNode.originalMaterial) {
+                    selectedNode.mesh.material = selectedNode.originalMaterial;
+                    selectedNode.originalMaterial = null;
+                }
+                
                 // Only reset scale for non-animated devices
                 const status = selectedNode.data?.status;
                 if (!status || (status !== 5 && status !== 'down' && status !== 4 && status !== 10 && status !== 'warning')) {
@@ -2206,6 +2212,51 @@
             }
 
             selectedNode = node;
+            
+            // Highlight the newly selected node with cyan glow
+            if (node && node.mesh && node.mesh.material) {
+                // Store original material
+                node.originalMaterial = node.mesh.material.clone();
+                
+                // Create highlighted material based on node type
+                if (node.type === 'sensor') {
+                    // Sensor: Bright cyan glow
+                    const highlightMaterial = new THREE.MeshStandardMaterial({
+                        color: 0x00ffff,
+                        emissive: 0x00ffff,
+                        emissiveIntensity: 1.2,
+                        metalness: 0.8,
+                        roughness: 0.2,
+                        transparent: true,
+                        opacity: 1.0
+                    });
+                    node.mesh.material = highlightMaterial;
+                } else if (node.type === 'device') {
+                    // Device: Bright cyan glow with metallic finish
+                    const highlightMaterial = new THREE.MeshPhongMaterial({
+                        color: 0x00ffff,
+                        emissive: 0x00ffff,
+                        emissiveIntensity: 0.8,
+                        specular: 0xffffff,
+                        shininess: 120,
+                        transparent: false,
+                        opacity: 1.0
+                    });
+                    node.mesh.material = highlightMaterial;
+                } else if (node.type === 'company') {
+                    // Company: Subtle cyan tint
+                    const highlightMaterial = new THREE.MeshPhongMaterial({
+                        color: 0x00ddff,
+                        emissive: 0x00ddff,
+                        emissiveIntensity: 0.6,
+                        specular: 0xffffff,
+                        shininess: 120
+                    });
+                    node.mesh.material = highlightMaterial;
+                }
+                
+                console.log(`✨ Selected ${node.type}: ${node.name} - highlighted with cyan`);
+            }
             
             // If clicking a sensor, show individual sensor details
             if (node.type === 'sensor') {
