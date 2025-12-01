@@ -2035,8 +2035,24 @@
             const intersects = raycaster.intersectObjects(meshes);
 
             if (intersects.length > 0) {
-                const clickedMesh = intersects[0].object;
-                const clickedNode = nodes.find(n => n.mesh === clickedMesh);
+                // Prioritize device/company clicks over sensor clicks
+                // If both are hit, prefer the device over its orbiting sensors
+                let clickedNode = null;
+                
+                // First, try to find a device or company in the intersections
+                for (const intersect of intersects) {
+                    const node = nodes.find(n => n.mesh === intersect.object);
+                    if (node && (node.type === 'device' || node.type === 'company')) {
+                        clickedNode = node;
+                        break;
+                    }
+                }
+                
+                // If no device/company found, fall back to first intersection (likely a sensor)
+                if (!clickedNode) {
+                    const clickedMesh = intersects[0].object;
+                    clickedNode = nodes.find(n => n.mesh === clickedMesh);
+                }
                 
                 if (clickedNode) {
                     selectNode(clickedNode);
