@@ -814,17 +814,21 @@
                     // Determine new box color based on status (metallic gray shades)
                     let deviceColor;
                     if (statusCode === 5 || statusCode === 'down') {
-                        deviceColor = 0x4A4A4A; // Dark gray for down devices
+                        deviceColor = 0x8A4A4A; // Red-tinted gray for down devices
                     } else if (statusCode === 4 || statusCode === 10 || statusCode === 1 || statusCode === 'warning') {
-                        deviceColor = 0x5A5A5A; // Medium gray for warning
+                        deviceColor = 0x8A8A4A; // Yellow-tinted gray for warning
                     } else if (statusCode === 3 || statusCode === 'up') {
-                        deviceColor = 0x6B6B6B; // Light gray for healthy devices
+                        deviceColor = 0x9AACB4; // Light blue-gray for healthy devices
                     } else {
-                        deviceColor = 0x6B6B6B; // Default light gray
+                        deviceColor = 0x9AACB4; // Default light blue-gray
                     }
                     
-                    // Update box material color
+                    // Update box material color and emissive
                     box.material.color.setHex(deviceColor);
+                    if (box.material.emissive) {
+                        box.material.emissive.setHex(deviceColor);
+                        box.material.emissiveIntensity = 0.5;
+                    }
                     box.material.needsUpdate = true;
                     
                     // Update or create status circle
@@ -1595,24 +1599,26 @@
                 icon = '\uf02f'; // print icon
             }
             
-            // Realistic rack equipment colors based on status
+            // Realistic rack equipment colors based on status (brighter for visibility)
             let deviceColor;
             if (status === 5 || status === 'down') {
-                deviceColor = 0x4A4A4A; // Dark gray for down devices
+                deviceColor = 0x8A4A4A; // Red-tinted gray for down devices
             } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
-                deviceColor = 0x5A5A5A; // Medium gray for warning
+                deviceColor = 0x8A8A4A; // Yellow-tinted gray for warning
             } else {
-                deviceColor = 0x6B6B6B; // Light gray for healthy devices
+                deviceColor = 0x9AACB4; // Light blue-gray for healthy devices
             }
             
-            // Enhanced metallic material for device ships
+            // Enhanced metallic material for device ships (increased emissive for visibility)
             const material = new THREE.MeshPhongMaterial({
                 color: deviceColor,
                 emissive: deviceColor,
-                emissiveIntensity: 0.3,
-                specular: 0xaaaaaa,
+                emissiveIntensity: 0.5, // Increased from 0.3 for better visibility
+                specular: 0xcccccc,
                 shininess: 90,
-                flatShading: false
+                flatShading: false,
+                transparent: false,
+                opacity: 1.0
             });
             
             // Clone spaceship geometry (each mesh needs its own geometry)
