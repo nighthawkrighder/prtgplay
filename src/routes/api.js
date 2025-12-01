@@ -189,7 +189,7 @@ router.get('/devices/enhanced', async (req, res) => {
           model: Sensor,
           as: 'sensors',
           required: false,
-          attributes: ['id', 'name', 'status', 'sensor_type', 'last_value', 'priority']
+          attributes: ['id', 'name', 'status', 'sensorType', 'lastValue', 'priority']
         }
       ]
     };
