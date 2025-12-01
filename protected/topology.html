@@ -2374,9 +2374,13 @@
                     box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
                     color: white;
                     font-family: system-ui, -apple-system, sans-serif;
+                    display: block;
                 `;
                 document.body.appendChild(popup);
             }
+            
+            // Always make popup visible when function is called
+            popup.style.display = 'block';
             
             // Get sensors array, default to empty if not available
             const sensors = device.sensors || [];
