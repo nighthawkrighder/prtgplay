@@ -2568,6 +2568,9 @@
                                     ⚡ Priority: ${sensor.priority}
                                 </div>
                             ` : ''}
+                            <div style="margin-top: 8px; text-align: right;">
+                                <a href="javascript:void(0);" onclick="window.open('/?openDevice=${device.id}&sensorId=${sensor.id}', '_blank');" style="display: inline-block; padding: 4px 12px; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 11px; cursor: pointer;">📊 View in Dashboard</a>
+                            </div>
                         </div>
                     `;
                 }).join('');

@@ -4192,7 +4192,7 @@
                     <div class="detail-section-title" id="sensorListTitle">All Sensors (Showing ${Math.min(20, sensors.length)} of ${sensors.length})</div>
                     <div class="sensor-list" id="sensorList">
                         ${sensors.slice(0, 20).map(sensor => `
-                            <div class="sensor-item ${getStatusKey(sensor.status)}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
+                            <div class="sensor-item ${getStatusKey(sensor.status)}" data-sensor-id="${sensor.id}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
                                 <div class="sensor-name">${sensor.name}</div>
                                 <div class="sensor-details">
                                     <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
@@ -4319,7 +4319,7 @@
                         listEl.innerHTML = '<div style="text-align: center; color: #95a5a6; padding: 2rem;">No sensors found with this status</div>';
                     } else {
                         listEl.innerHTML = filteredSensors.slice(0, 100).map(sensor => `
-                            <div class="sensor-item ${getStatusKey(sensor.status)}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
+                            <div class="sensor-item ${getStatusKey(sensor.status)}" data-sensor-id="${sensor.id}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
                                 <div class="sensor-name">${sensor.name}</div>
                                 <div class="sensor-details">
                                     <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
@@ -5129,6 +5129,7 @@
             // Check for openDevice URL parameter from topology
             const urlParams = new URLSearchParams(window.location.search);
             const openDeviceId = urlParams.get('openDevice');
+            const sensorId = urlParams.get('sensorId');
             if (openDeviceId) {
                 // Wait for dashboard to load, then open the device
                 setTimeout(() => {
@@ -5137,6 +5138,32 @@
                     const device = window.dashboard.allDevices.find(d => d.id === deviceId);
                     if (device) {
                         showDeviceDetail(deviceId, device.name);
+                        // If sensorId provided, highlight and scroll to that sensor
+                        if (sensorId) {
+                            setTimeout(() => {
+                                const sensorIdInt = parseInt(sensorId);
+                                const sensorElement = document.querySelector(`[data-sensor-id="${sensorIdInt}"]`);
+                                if (sensorElement) {
+                                    // Scroll to sensor
+                                    sensorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    // Highlight sensor
+                                    sensorElement.style.background = 'rgba(59, 130, 246, 0.2)';
+                                    sensorElement.style.border = '2px solid #3b82f6';
+                                    // Flash effect
+                                    let flashCount = 0;
+                                    const flashInterval = setInterval(() => {
+                                        sensorElement.style.background = flashCount % 2 === 0 ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.1)';
+                                        flashCount++;
+                                        if (flashCount > 6) {
+                                            clearInterval(flashInterval);
+                                            sensorElement.style.background = 'rgba(59, 130, 246, 0.2)';
+                                        }
+                                    }, 200);
+                                } else {
+                                    console.warn('Sensor not found:', sensorIdInt);
+                                }
+                            }, 500); // Wait for device detail modal to render sensors
+                        }
                     } else {
                         showDeviceDetail(deviceId, 'Device');
                     }
