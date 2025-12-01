@@ -1345,8 +1345,11 @@
                     // Create sensor nodes (collapsed by default)
                     if (device.sensorStats && device.sensorStats.total > 0) {
                         const sensorCount = Math.min(device.sensorStats.total, 10); // Limit for performance
+                        const sensors = device.sensors || [];
                         for (let i = 0; i < sensorCount; i++) {
-                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode, i, sensorCount);
+                            // Pass individual sensor data if available, otherwise use device as fallback
+                            const sensorData = sensors[i] || device;
+                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode, i, sensorCount, sensorData);
                             sensorNode.visible = false; // Hidden by default
                             nodes.push(sensorNode);
                         }
@@ -1721,12 +1724,12 @@
         }
 
         // Create sensor node
-        function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors) {
-            // Sensor uses device status as proxy since we don't have individual sensor status in this data
-            // This matches dashboard display logic
-            const isDown = device.status === 5;
-            const isWarning = device.status === 4;
-            const isNormal = device.status === 3;
+        function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors, sensorData) {
+            // Use individual sensor status if available, otherwise fall back to device status
+            const sensorStatus = sensorData?.status || device.status;
+            const isDown = sensorStatus === 5;
+            const isWarning = sensorStatus === 4;
+            const isNormal = sensorStatus === 3;
             let sensorColor = COLORS.sensor; // Default purple for unusual/paused
             
             if (isDown) {
@@ -1764,10 +1767,12 @@
 
             const node = {
                 type: 'sensor',
-                name: device.name || 'Sensor',  // Use device name for sensor identification
+                name: sensorData?.name || device.name || 'Sensor',  // Use sensor name if available
                 mesh: sphere,
                 label: null,
-                data: device,
+                data: device,  // Keep device reference
+                sensorData: sensorData,  // Store individual sensor data
+                sensorIndex: sensorIndex,  // Store sensor index
                 parent: parent,
                 connections: [],
                 visible: false,
@@ -2202,18 +2207,11 @@
 
             selectedNode = node;
             
-            // If clicking a sensor, show sensor popup instead
+            // If clicking a sensor, show individual sensor details
             if (node.type === 'sensor') {
-                // Find parent device
-                const parentDevice = node.parent;
-                
-                if (parentDevice) {
-                    console.log(`Sensor clicked for device: ${parentDevice.name}`);
-                    // Show device sensor popup (which lists all sensors)
-                    showSensorPopup(parentDevice);
-                } else {
-                    console.warn('Sensor has no parent device');
-                }
+                console.log(`Sensor clicked: ${node.name}`);
+                // Show individual sensor popup
+                showIndividualSensorPopup(node);
                 return;
             }
             
@@ -2504,6 +2502,160 @@
                     });
                 }
             });
+            
+            // Close on outside click
+            setTimeout(() => {
+                const closeHandler = (e) => {
+                    if (!popup.contains(e.target)) {
+                        popup.style.display = 'none';
+                        document.removeEventListener('click', closeHandler);
+                    }
+                };
+                document.addEventListener('click', closeHandler);
+            }, 100);
+        }
+        
+        // Show individual sensor popup
+        function showIndividualSensorPopup(sensorNode) {
+            const sensor = sensorNode.sensorData || {};
+            const device = sensorNode.data;
+            const parentDevice = sensorNode.parent;
+            
+            // Create or update popup
+            let popup = document.getElementById('sensor-popup');
+            if (!popup) {
+                popup = document.createElement('div');
+                popup.id = 'sensor-popup';
+                popup.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(10, 10, 10, 0.95);
+                    border: 2px solid #8b5cf6;
+                    border-radius: 12px;
+                    padding: 20px;
+                    min-width: 400px;
+                    max-width: 600px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    z-index: 10000;
+                    box-shadow: 0 0 30px rgba(139, 92, 246, 0.5);
+                    color: white;
+                    font-family: system-ui, -apple-system, sans-serif;
+                    display: block;
+                `;
+                document.body.appendChild(popup);
+            }
+            
+            // Always make popup visible
+            popup.style.display = 'block';
+            
+            // Status display configurations
+            const statusConfigs = {
+                3: { name: '🟢 Up', color: '#22c55e', text: 'UP', bg: 'rgba(34, 197, 94, 0.1)' },
+                4: { name: '🟡 Warning', color: '#fbbf24', text: 'WARNING', bg: 'rgba(251, 191, 36, 0.1)' },
+                5: { name: '🔴 Down', color: '#ef4444', text: 'DOWN', bg: 'rgba(239, 68, 68, 0.1)' },
+                7: { name: '⏸️ Paused', color: '#95a5a6', text: 'PAUSED', bg: 'rgba(149, 165, 166, 0.1)' },
+                10: { name: '🟣 Unusual', color: '#9b59b6', text: 'UNUSUAL', bg: 'rgba(155, 89, 182, 0.1)' }
+            };
+            
+            const sensorStatus = sensor.status || 3;
+            const config = statusConfigs[sensorStatus] || statusConfigs[3];
+            
+            popup.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0; color: #8b5cf6; font-size: 20px;">📡 Sensor Details</h2>
+                    <button onclick="document.getElementById('sensor-popup').style.display='none'" 
+                            style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
+                        ✕
+                    </button>
+                </div>
+                
+                <!-- Sensor Status Badge -->
+                <div style="background: ${config.bg}; border: 2px solid ${config.color}; border-radius: 8px; padding: 12px; margin-bottom: 15px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: ${config.color}; margin-bottom: 5px;">
+                        ${config.name}
+                    </div>
+                    <div style="font-size: 14px; color: #e5e7eb;">
+                        ${sensor.name || 'Sensor #' + (sensorNode.sensorIndex + 1)}
+                    </div>
+                </div>
+                
+                <!-- Sensor Details -->
+                <div style="background: rgba(139, 92, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13px;">
+                        <div style="color: #9ca3af; font-weight: 500;">Sensor ID:</div>
+                        <div style="color: #e5e7eb;">${sensor.id || sensor.objid || 'N/A'}</div>
+                        
+                        <div style="color: #9ca3af; font-weight: 500;">Type:</div>
+                        <div style="color: #e5e7eb;">${sensor.sensorType || sensor.sensor_type || 'Not Set'}</div>
+                        
+                        <div style="color: #9ca3af; font-weight: 500;">Status:</div>
+                        <div style="color: ${config.color}; font-weight: bold;">${config.text}</div>
+                        
+                        ${sensor.lastValue || sensor.last_value ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Current Value:</div>
+                            <div style="color: #e5e7eb; font-family: monospace;">${sensor.lastValue || sensor.last_value}</div>
+                        ` : ''}
+                        
+                        ${sensor.priority ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Priority:</div>
+                            <div style="color: ${sensor.priority > 3 ? '#fbbf24' : '#e5e7eb'};">${sensor.priority} ${sensor.priority > 3 ? '⚡' : ''}</div>
+                        ` : ''}
+                        
+                        ${sensor.lastUp || sensor.last_up ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Up:</div>
+                            <div style="color: #e5e7eb;">${new Date(sensor.lastUp || sensor.last_up).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${sensor.lastDown || sensor.last_down ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Down:</div>
+                            <div style="color: #e5e7eb;">${new Date(sensor.lastDown || sensor.last_down).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${sensor.lastCheck || sensor.last_check ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Check:</div>
+                            <div style="color: #e5e7eb;">${new Date(sensor.lastCheck || sensor.last_check).toLocaleString()}</div>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                ${sensor.lastMessage && sensor.lastMessage.trim() ? `
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                        <div style="color: #9ca3af; font-size: 11px; margin-bottom: 5px; font-weight: 500;">💬 Last Message:</div>
+                        <div style="color: #e5e7eb; font-size: 13px; white-space: pre-wrap; font-family: monospace;">
+                            ${sensor.lastMessage.trim()}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
+                
+                <!-- Parent Device Info -->
+                <div style="font-size: 12px; color: #9ca3af; margin-bottom: 10px;">
+                    <strong style="color: #8b5cf6;">Parent Device:</strong> ${device.name || 'Unknown'}
+                </div>
+                
+                <!-- Actions -->
+                <div style="display: flex; gap: 8px; margin-top: 15px;">
+                    <button onclick="showSensorPopup({data: ${JSON.stringify(device).replace(/"/g, '&quot;')}})" 
+                            style="flex: 1; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 13px;">
+                        👁️ View All Sensors
+                    </button>
+                    <a href="/?openDevice=${device.id || device.objid}&sensorId=${sensor.id || sensor.objid}" 
+                       target="_blank"
+                       style="flex: 1; padding: 8px 16px; background: #10b981; color: white; text-align: center; text-decoration: none; border-radius: 5px; cursor: pointer; font-size: 13px;">
+                        📊 Open Dashboard
+                    </a>
+                </div>
+                
+                <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
+                    💡 Click "View All Sensors" to see all sensors for this device
+                </div>
+            `;
+            
+            popup.style.display = 'block';
             
             // Close on outside click
             setTimeout(() => {
