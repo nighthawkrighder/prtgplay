@@ -5131,74 +5131,21 @@
             const openDeviceId = urlParams.get('openDevice');
             const sensorId = urlParams.get('sensorId');
             if (openDeviceId) {
-                // Wait for dashboard to load, then apply filters and open device
-                setTimeout(async () => {
+                // Wait for dashboard to load, then set the search box (just like manual search)
+                setTimeout(() => {
                     const deviceId = parseInt(openDeviceId);
                     // Find device name from loaded devices
                     const device = window.dashboard.allDevices.find(d => d.id === deviceId);
                     if (device) {
-                        // First, filter the dashboard to show only this device (like the search box does)
+                        // Simply populate the search box - let the user see filtered results and click to open
                         const searchBox = document.getElementById('searchBox');
                         if (searchBox) {
                             searchBox.value = device.name;
-                            window.dashboard.filters.search = device.name.toLowerCase();
-                            window.dashboard.applyFilters();
+                            // Trigger input event to apply filter (same as typing in search box)
+                            const event = new Event('input', { bubbles: true });
+                            searchBox.dispatchEvent(event);
+                            console.log(`🔍 Filtered dashboard to device: ${device.name}`);
                         }
-                        
-                        // Then open the device detail modal
-                        showDeviceDetail(deviceId, device.name);
-                        
-                        // If sensorId provided, filter to show only that sensor in the modal
-                        if (sensorId) {
-                            setTimeout(async () => {
-                                const sensorIdInt = parseInt(sensorId);
-                                // Fetch device with all sensors
-                                try {
-                                    const response = await window.dashboard.authManager.authenticatedFetch(`/api/devices/${deviceId}`);
-                                    if (response.ok) {
-                                        const deviceData = await response.json();
-                                        const allSensors = deviceData.sensors || [];
-                                        
-                                        // Filter to show only the specific sensor
-                                        const targetSensor = allSensors.find(s => s.id === sensorIdInt);
-                                        if (targetSensor) {
-                                            // Update sensor list title
-                                            const titleEl = document.getElementById('sensorListTitle');
-                                            if (titleEl) {
-                                                titleEl.textContent = `🎯 Filtered to Sensor ID ${sensorIdInt} (1 of ${allSensors.length})`;
-                                                titleEl.style.color = '#3b82f6';
-                                            }
-                                            
-                                            // Update sensor list to show only the target sensor
-                                            const listEl = document.getElementById('sensorList');
-                                            if (listEl) {
-                                                listEl.innerHTML = `
-                                                    <div class="sensor-item ${getStatusKey(targetSensor.status)}" data-sensor-id="${targetSensor.id}" onclick="showSensorDetail(${targetSensor.id}, '${targetSensor.name.replace(/'/g, '\\\'')}')">
-                                                        <div class="sensor-name">${targetSensor.name}</div>
-                                                        <div class="sensor-details">
-                                                            <span class="sensor-type">${targetSensor.sensorType || targetSensor.sensor_type || 'Unknown'}</span>
-                                                            <span class="sensor-value">${targetSensor.lastValue || targetSensor.last_value || 'N/A'}</span>
-                                                            <span class="sensor-status" style="color: ${getStatusColor(targetSensor.status)}">${getStatusText(targetSensor.status)}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div style="text-align: center; padding: 1rem;">
-                                                        <button onclick="document.getElementById('searchBox').value=''; window.dashboard.filters.search=''; window.dashboard.applyFilters(); filterSensorsByStatus(${deviceId}, 'all')" style="background: #3498db; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
-                                                            Clear Filters & Show All
-                                                        </button>
-                                                    </div>
-                                                `;
-                                            }
-                                        } else {
-                                            console.warn('Sensor not found:', sensorIdInt);
-                                        }
-                                    }
-                                } catch (error) {
-                                    console.error('Error filtering to specific sensor:', error);
-                                }
-                            }, 500); // Wait for device detail modal to render
-                        }
-                    } else {
-                        showDeviceDetail(deviceId, 'Device');
                     }
                 }, 2000); // Wait 2 seconds for dashboard to load
             }
