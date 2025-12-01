@@ -514,9 +514,10 @@
                 <label class="control-label">Filter</label>
                 <select class="control-input" id="filter-status" onchange="filterByStatus(this.value)">
                     <option value="all">All Devices</option>
-                    <option value="up">Online Only</option>
-                    <option value="warning">Warning Only</option>
-                    <option value="down">Offline Only</option>
+                    <option value="alarms">⚠️ With Alarms Only</option>
+                    <option value="critical">🔴 Critical Only</option>
+                    <option value="warning">🟡 Warning Only</option>
+                    <option value="up">🟢 Healthy Only</option>
                 </select>
             </div>
 
@@ -1692,11 +1693,24 @@
 
         // Create sensor node
         function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors) {
+            // Determine sensor color based on status
+            const isDown = device.status === 5;
+            const isWarning = device.status === 4;
+            let sensorColor = COLORS.sensor; // Default purple
+            
+            if (isDown) {
+                sensorColor = 0xff4444; // Bright red for down sensors
+            } else if (isWarning) {
+                sensorColor = 0xffaa44; // Bright orange for warning sensors
+            }
+            
             // Tiny sphere for sensor (0.3x size)
             const sensorMaterial = new THREE.MeshBasicMaterial({ 
-                color: COLORS.sensor,
+                color: sensorColor,
                 transparent: true,
-                opacity: 0.8
+                opacity: isDown || isWarning ? 1.0 : 0.8, // Full opacity for alarms
+                emissive: isDown || isWarning ? sensorColor : 0x000000,
+                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0)
             });
             const sphere = new THREE.Mesh(geometryCache.sensorSphere.clone(), sensorMaterial);
             
@@ -1915,11 +1929,30 @@
                     const x = Math.cos(node.orbit.currentAngle) * node.orbit.radius;
                     const z = Math.sin(node.orbit.currentAngle) * node.orbit.radius;
                     
+                    // Check if sensor is in alarm state (down=5, warning=4)
+                    const isAlarm = node.data.status === 5 || node.data.status === 4;
+                    
+                    // Add bouncing animation for alarm sensors
+                    let yOffset = 0;
+                    if (isAlarm) {
+                        // Bounce up and down with sin wave
+                        const bounceSpeed = node.data.status === 5 ? 3.0 : 2.0; // Faster bounce for critical
+                        const bounceHeight = node.data.status === 5 ? 2.5 : 1.5; // Higher bounce for critical
+                        yOffset = Math.sin(time * bounceSpeed) * bounceHeight;
+                        
+                        // Pulse the sensor size for more visibility
+                        const pulseScale = 1.0 + Math.sin(time * bounceSpeed * 2) * 0.3;
+                        node.mesh.scale.set(pulseScale, pulseScale, pulseScale);
+                    } else {
+                        // Reset scale for non-alarm sensors
+                        node.mesh.scale.set(1, 1, 1);
+                    }
+                    
                     // Set final position relative to parent device's CURRENT position
-                    // Keep Y constant for flat horizontal orbit
+                    // Keep Y constant for flat horizontal orbit, add bounce for alarms
                     node.mesh.position.set(
                         parentPos.x + x,
-                        parentPos.y,
+                        parentPos.y + yOffset,
                         parentPos.z + z
                     );
                 }
@@ -2664,17 +2697,46 @@
         }
 
         function filterByStatus(status) {
+            let visibleCount = 0;
+            
             nodes.forEach(node => {
                 if (node.type === 'device') {
-                    const deviceStatus = node.data.effectiveStatus || 'up';
+                    const deviceStatus = node.data.status;
+                    const hasAlarms = node.data.sensorStats?.down > 0 || node.data.sensorStats?.warning > 0;
+                    const isCritical = node.data.status === 5 || node.data.sensorStats?.down > 0;
+                    const isWarning = node.data.status === 4 || (node.data.sensorStats?.warning > 0 && !isCritical);
+                    
+                    let shouldShow = false;
                     
                     if (status === 'all') {
-                        node.mesh.visible = true;
-                    } else {
-                        node.mesh.visible = deviceStatus === status;
+                        shouldShow = true;
+                    } else if (status === 'alarms') {
+                        shouldShow = hasAlarms || deviceStatus === 5 || deviceStatus === 4;
+                    } else if (status === 'critical') {
+                        shouldShow = isCritical;
+                    } else if (status === 'warning') {
+                        shouldShow = isWarning;
+                    } else if (status === 'up') {
+                        shouldShow = deviceStatus === 3 && !hasAlarms;
                     }
+                    
+                    node.mesh.visible = shouldShow;
+                    if (node.label) node.label.visible = shouldShow;
+                    
+                    // Show/hide sensors orbiting this device
+                    nodes.forEach(sensorNode => {
+                        if (sensorNode.type === 'sensor' && sensorNode.data.deviceId === node.data.id) {
+                            sensorNode.mesh.visible = shouldShow;
+                            if (sensorNode.label) sensorNode.label.visible = shouldShow;
+                        }
+                    });
+                    
+                    if (shouldShow) visibleCount++;
                 }
             });
+            
+            // Update info panel with filter results
+            console.log(`🔍 Filter: ${status} - ${visibleCount} devices visible`);
         }
 
         function clearTopology() {
