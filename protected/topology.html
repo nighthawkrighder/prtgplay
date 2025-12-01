@@ -2093,7 +2093,7 @@
 
             selectedNode = node;
             
-            // If clicking a sensor, zoom to its parent company
+            // If clicking a sensor, zoom to its parent company and show info
             if (node.type === 'sensor') {
                 // Find parent device, then parent company
                 const parentDevice = node.parent;
@@ -2113,6 +2113,54 @@
                             }
                         }, 800);
                     }
+                    
+                    // Show sensor info panel
+                    const infoPanel = document.getElementById('info-panel');
+                    infoPanel.classList.add('visible');
+
+                    const infoTitle = document.getElementById('info-title');
+                    const infoSubtitle = document.getElementById('info-subtitle');
+                    const infoDetails = document.getElementById('info-details');
+
+                    infoTitle.textContent = node.name;
+                    infoSubtitle.textContent = `SENSOR - ${parentCompany.name}`;
+
+                    const sensorData = node.data;
+                    const statusText = sensorData.status === 3 ? 'UP' : 
+                                     sensorData.status === 5 ? 'DOWN' : 
+                                     sensorData.status === 4 ? 'WARNING' : 
+                                     sensorData.status === 7 ? 'PAUSED' : 'UNKNOWN';
+                    const statusClass = sensorData.status === 3 ? 'status-up' : 
+                                       sensorData.status === 5 ? 'status-down' : 
+                                       sensorData.status === 4 ? 'status-warning' : '';
+
+                    let detailsHTML = `
+                        <div class="info-row">
+                            <span class="info-label">Status</span>
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Parent Device</span>
+                            <span class="info-value">${parentDevice.name}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Company</span>
+                            <span class="info-value">${parentCompany.name}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Sensor Type</span>
+                            <span class="info-value">${sensorData.sensor_type || 'N/A'}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Last Value</span>
+                            <span class="info-value">${sensorData.last_value || 'N/A'}</span>
+                        </div>
+                        <div class="info-row" style="margin-top: 1rem;">
+                            <a href="/?device=${parentDevice.data.id}" target="_blank" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem;">📊 View in Dashboard</a>
+                        </div>
+                    `;
+
+                    infoDetails.innerHTML = detailsHTML;
                 }
                 return;
             }
@@ -2170,10 +2218,29 @@
 
             if (node.type === 'company') {
                 const devices = nodes.filter(n => n.type === 'device' && n.parent === node);
+                const upDevices = devices.filter(d => d.data?.status === 3 || d.data?.effectiveStatus === 'up').length;
+                const downDevices = devices.filter(d => d.data?.status === 5 || d.data?.effectiveStatus === 'down').length;
+                const warningDevices = devices.filter(d => d.data?.status === 4 || d.data?.effectiveStatus === 'warning').length;
+                
                 detailsHTML = `
                     <div class="info-row">
-                        <span class="info-label">Devices</span>
+                        <span class="info-label">Total Devices</span>
                         <span class="info-value">${devices.length}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Online</span>
+                        <span class="info-value" style="color: #22c55e;">${upDevices}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Warning</span>
+                        <span class="info-value" style="color: #fbbf24;">${warningDevices}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Down</span>
+                        <span class="info-value" style="color: #ef4444;">${downDevices}</span>
+                    </div>
+                    <div class="info-row" style="margin-top: 1rem;">
+                        <a href="/?company=${encodeURIComponent(node.name)}" target="_blank" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem;">📊 View in Dashboard</a>
                     </div>
                 `;
             } else if (node.type === 'device') {
@@ -2215,6 +2282,12 @@
                         </div>
                     `;
                 }
+                
+                detailsHTML += `
+                    <div class="info-row" style="margin-top: 1rem;">
+                        <a href="/?device=${node.data.id}" target="_blank" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem;">📊 View in Dashboard</a>
+                    </div>
+                `;
             }
 
             infoDetails.innerHTML = detailsHTML;
@@ -2253,6 +2326,9 @@
                 document.body.appendChild(popup);
             }
             
+            // Get sensors array, default to empty if not available
+            const sensors = device.sensors || [];
+            
             popup.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="margin: 0; color: #3b82f6; font-size: 20px;">${device.name || 'Device'}</h2>
@@ -2269,16 +2345,16 @@
                 </div>
                 <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
                 <h3 style="color: #60a5fa; margin: 10px 0; font-size: 16px;">📊 Sensor Statistics</h3>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px;">
-                    <div style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                <div id="sensor-stats-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div class="sensor-stat-card" data-status="3" style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${device.sensorStats?.up > 0 ? 'pointer' : 'default'}; transition: all 0.2s;">
                         <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${device.sensorStats?.up || 0}</div>
                         <div style="font-size: 12px; color: #9ca3af;">Up</div>
                     </div>
-                    <div style="background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                    <div class="sensor-stat-card" data-status="4" style="background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${device.sensorStats?.warning > 0 ? 'pointer' : 'default'}; transition: all 0.2s;">
                         <div style="font-size: 24px; font-weight: bold; color: #fbbf24;">${device.sensorStats?.warning || 0}</div>
                         <div style="font-size: 12px; color: #9ca3af;">Warning</div>
                     </div>
-                    <div style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                    <div class="sensor-stat-card" data-status="5" style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${device.sensorStats?.down > 0 ? 'pointer' : 'default'}; transition: all 0.2s;">
                         <div style="font-size: 24px; font-weight: bold; color: #ef4444;">${device.sensorStats?.down || 0}</div>
                         <div style="font-size: 12px; color: #9ca3af;">Down</div>
                     </div>
@@ -2287,12 +2363,49 @@
                     <div style="font-size: 12px; color: #9ca3af;">Total Sensors</div>
                     <div style="font-size: 18px; font-weight: bold; color: #3b82f6;">${device.sensorStats?.total || 0}</div>
                 </div>
+                <div id="sensor-list-container" style="margin-top: 15px; display: none;">
+                    <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4 id="sensor-list-title" style="margin: 0; color: #60a5fa; font-size: 14px;"></h4>
+                        <button onclick="document.getElementById('sensor-list-container').style.display='none'" 
+                                style="background: #6b7280; border: none; color: white; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            Hide
+                        </button>
+                    </div>
+                    <div id="sensor-list" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
                 <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
-                    🔄 Real-time data • Click outside to close
+                    💡 Click on a sensor count to see details • Click outside to close
                 </div>
             `;
             
             popup.style.display = 'block';
+            
+            // Add click handlers to sensor stat cards
+            const statCards = popup.querySelectorAll('.sensor-stat-card');
+            statCards.forEach(card => {
+                const status = parseInt(card.dataset.status);
+                const count = status === 3 ? device.sensorStats?.up : 
+                             status === 4 ? device.sensorStats?.warning : 
+                             device.sensorStats?.down;
+                
+                if (count > 0) {
+                    // Add hover effect
+                    card.addEventListener('mouseenter', () => {
+                        card.style.transform = 'scale(1.05)';
+                        card.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.3)';
+                    });
+                    card.addEventListener('mouseleave', () => {
+                        card.style.transform = 'scale(1)';
+                        card.style.boxShadow = 'none';
+                    });
+                    
+                    // Add click handler
+                    card.addEventListener('click', () => {
+                        showFilteredSensors(sensors, status, device);
+                    });
+                }
+            });
             
             // Close on outside click
             setTimeout(() => {
@@ -2306,17 +2419,91 @@
             }, 100);
         }
         
+        // Show filtered list of sensors by status
+        function showFilteredSensors(sensors, status, device) {
+            const listContainer = document.getElementById('sensor-list-container');
+            const listTitle = document.getElementById('sensor-list-title');
+            const list = document.getElementById('sensor-list');
+            
+            // Filter sensors by status
+            const filteredSensors = sensors.filter(s => s.status === status);
+            
+            // Set title based on status
+            const statusName = status === 3 ? '🟢 Up' : status === 4 ? '🟡 Warning' : '🔴 Down';
+            const statusColor = status === 3 ? '#22c55e' : status === 4 ? '#fbbf24' : '#ef4444';
+            listTitle.innerHTML = `<span style="color: ${statusColor}">${statusName} Sensors (${filteredSensors.length})</span>`;
+            
+            // Build sensor list HTML
+            if (filteredSensors.length === 0) {
+                list.innerHTML = '<div style="padding: 10px; color: #6b7280; text-align: center;">No sensors in this state</div>';
+            } else {
+                list.innerHTML = filteredSensors.map(sensor => {
+                    const statusIcon = sensor.status === 3 ? '✓' : sensor.status === 4 ? '⚠' : '✗';
+                    const statusBg = sensor.status === 3 ? 'rgba(34, 197, 94, 0.1)' : 
+                                    sensor.status === 4 ? 'rgba(251, 191, 36, 0.1)' : 
+                                    'rgba(239, 68, 68, 0.1)';
+                    const statusColor = sensor.status === 3 ? '#22c55e' : 
+                                       sensor.status === 4 ? '#fbbf24' : 
+                                       '#ef4444';
+                    
+                    return `
+                        <div style="background: ${statusBg}; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid ${statusColor};">
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: bold; color: ${statusColor}; margin-bottom: 4px;">
+                                        ${statusIcon} ${sensor.name || 'Unknown Sensor'}
+                                    </div>
+                                    <div style="font-size: 11px; color: #9ca3af;">
+                                        ${sensor.type || 'Unknown Type'}
+                                    </div>
+                                </div>
+                                ${sensor.lastvalue ? `
+                                    <div style="text-align: right; font-size: 11px; color: #9ca3af;">
+                                        ${sensor.lastvalue}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+            
+            // Show the list container
+            listContainer.style.display = 'block';
+            
+            // Scroll to the sensor list
+            listContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
         // Zoom to node
         function zoomToNode(node) {
             const targetPosition = node.mesh.position.clone();
-            // Increased distance to show all sensors orbiting around devices
-            // Company: 80 units, Device: 50 units (enough to see sensor orbits)
-            const distance = node.type === 'company' ? 80 : 50;
+            // Keep comfortable distance to see context
+            // Company: 150 units (see entire company + surrounding space)
+            // Device: 100 units (see device + all sensors orbiting)
+            // Sensor: 120 units (see sensor, parent device, and company context)
+            let distance = 150;
+            if (node.type === 'device') distance = 100;
+            if (node.type === 'sensor') distance = 120;
+            
             const cameraTarget = new THREE.Vector3(
                 targetPosition.x,
-                targetPosition.y + 30,  // Higher elevation for better view
+                targetPosition.y + 40,  // Higher elevation for better overview
                 targetPosition.z + distance
             );
+
+            // Pause auto-rotate for 60 seconds when user clicks something
+            if (autoRotate) {
+                autoRotate = false;
+                console.log('Auto-rotate paused for 60 seconds');
+                
+                // Resume after 1 minute
+                if (window.autoRotateTimeout) clearTimeout(window.autoRotateTimeout);
+                window.autoRotateTimeout = setTimeout(() => {
+                    autoRotate = true;
+                    console.log('Auto-rotate resumed');
+                }, 60000);
+            }
 
             // Smooth camera transition
             const duration = 1000;
