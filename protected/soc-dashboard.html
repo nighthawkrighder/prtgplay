@@ -4170,25 +4170,27 @@
                 
                 <!-- Sensor Statistics -->
                 <div class="detail-section">
-                    <div class="detail-section-title">Sensor Statistics (${sensorStats.total} Total)</div>
-                    <div class="detail-grid">
-                        <div class="detail-label">🟢 Up/OK</div>
-                        <div class="detail-value" style="color: #27ae60">${sensorStats.up}</div>
-                        <div class="detail-label">🔴 Down/Error</div>
-                        <div class="detail-value" style="color: #e74c3c">${sensorStats.down}</div>
-                        <div class="detail-label">🟡 Warning</div>
-                        <div class="detail-value" style="color: #f39c12">${sensorStats.warning}</div>
-                        <div class="detail-label">⏸️ Paused</div>
-                        <div class="detail-value" style="color: #95a5a6">${sensorStats.paused}</div>
-                        <div class="detail-label">🟣 Unusual</div>
-                        <div class="detail-value" style="color: #9b59b6">${sensorStats.unusual}</div>
+                    <div class="detail-section-title">Sensor Statistics (${sensorStats.total} Total) - Click to filter</div>
+                    <div class="detail-grid" style="gap: 0.5rem;">
+                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(46, 204, 113, 0.1);" onclick="filterSensorsByStatus(${device.id}, 'all')" title="Click to show all sensors">🔵 All Sensors</div>
+                        <div class="detail-value" style="color: #2ecc71; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 'all')">${sensorStats.total}</div>
+                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(39, 174, 96, 0.1);" onclick="filterSensorsByStatus(${device.id}, 3)" title="Click to show only UP sensors">🟢 Up/OK</div>
+                        <div class="detail-value" style="color: #27ae60; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 3)">${sensorStats.up}</div>
+                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(231, 76, 60, 0.1);" onclick="filterSensorsByStatus(${device.id}, 5)" title="Click to show only DOWN/ERROR sensors">🔴 Down/Error</div>
+                        <div class="detail-value" style="color: #e74c3c; cursor: pointer; font-weight: bold;" onclick="filterSensorsByStatus(${device.id}, 5)">${sensorStats.down}</div>
+                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(243, 156, 18, 0.1);" onclick="filterSensorsByStatus(${device.id}, 4)" title="Click to show only WARNING sensors">🟡 Warning</div>
+                        <div class="detail-value" style="color: #f39c12; cursor: pointer; font-weight: bold;" onclick="filterSensorsByStatus(${device.id}, 4)">${sensorStats.warning}</div>
+                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(149, 165, 166, 0.1);" onclick="filterSensorsByStatus(${device.id}, 7)" title="Click to show only PAUSED sensors">⏸️ Paused</div>
+                        <div class="detail-value" style="color: #95a5a6; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 7)">${sensorStats.paused}</div>
+                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(155, 89, 182, 0.1);" onclick="filterSensorsByStatus(${device.id}, 10)" title="Click to show only UNUSUAL sensors">🟣 Unusual</div>
+                        <div class="detail-value" style="color: #9b59b6; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 10)">${sensorStats.unusual}</div>
                     </div>
                 </div>
                 
                 <!-- Sensors List -->
                 <div class="detail-section">
-                    <div class="detail-section-title">Sensors</div>
-                    <div class="sensor-list">
+                    <div class="detail-section-title" id="sensorListTitle">All Sensors (Showing ${Math.min(20, sensors.length)} of ${sensors.length})</div>
+                    <div class="sensor-list" id="sensorList">
                         ${sensors.slice(0, 20).map(sensor => `
                             <div class="sensor-item ${getStatusKey(sensor.status)}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
                                 <div class="sensor-name">${sensor.name}</div>
@@ -4270,6 +4272,69 @@
             }
             html += '</div>';
             return html;
+        }
+        
+        // Filter sensors by status within device detail view
+        async function filterSensorsByStatus(deviceId, statusFilter) {
+            const authManager = window.dashboard.authManager;
+            
+            try {
+                // Fetch full device with all sensors
+                const response = await authManager.authenticatedFetch(`/api/devices/${deviceId}`);
+                if (!response.ok) {
+                    console.error('Failed to fetch device sensors');
+                    return;
+                }
+                
+                const device = await response.json();
+                const allSensors = device.sensors || [];
+                
+                // Filter sensors based on status
+                let filteredSensors = allSensors;
+                let filterLabel = 'All Sensors';
+                
+                if (statusFilter !== 'all') {
+                    filteredSensors = allSensors.filter(s => s.status === parseInt(statusFilter));
+                    const statusMap = {
+                        3: '🟢 UP/OK',
+                        4: '🟡 WARNING',
+                        5: '🔴 DOWN/ERROR',
+                        7: '⏸️ PAUSED',
+                        10: '🟣 UNUSUAL'
+                    };
+                    filterLabel = statusMap[statusFilter] || 'Filtered';
+                }
+                
+                // Update sensor list title
+                const titleEl = document.getElementById('sensorListTitle');
+                if (titleEl) {
+                    titleEl.textContent = `${filterLabel} Sensors (Showing ${Math.min(100, filteredSensors.length)} of ${filteredSensors.length})`;
+                    titleEl.style.color = statusFilter === 5 ? '#e74c3c' : statusFilter === 4 ? '#f39c12' : '';
+                }
+                
+                // Update sensor list content
+                const listEl = document.getElementById('sensorList');
+                if (listEl) {
+                    if (filteredSensors.length === 0) {
+                        listEl.innerHTML = '<div style="text-align: center; color: #95a5a6; padding: 2rem;">No sensors found with this status</div>';
+                    } else {
+                        listEl.innerHTML = filteredSensors.slice(0, 100).map(sensor => `
+                            <div class="sensor-item ${getStatusKey(sensor.status)}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
+                                <div class="sensor-name">${sensor.name}</div>
+                                <div class="sensor-details">
+                                    <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
+                                    <span class="sensor-value">${sensor.lastValue || sensor.last_value || 'N/A'}</span>
+                                    <span class="sensor-status" style="color: ${getStatusColor(sensor.status)}">${getStatusText(sensor.status)}</span>
+                                </div>
+                            </div>
+                        `).join('') + (filteredSensors.length > 100 ? 
+                            `<div style="text-align: center; color: #95a5a6; padding: 1rem;">... and ${filteredSensors.length - 100} more sensors</div>` : '');
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error filtering sensors:', error);
+            }
         }
         
         function closeDeviceDetail() {
