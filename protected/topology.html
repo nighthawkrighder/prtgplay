@@ -964,12 +964,18 @@
             controls.keyPanSpeed = 10;
 
             // Lighting system
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            // Increased lighting for MeshStandardMaterial sensors
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
             directionalLight.position.set(50, 100, 50);
             scene.add(directionalLight);
+            
+            // Add secondary light for better sensor visibility
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight2.position.set(-50, 80, -50);
+            scene.add(directionalLight2);
 
             const pointLight = new THREE.PointLight(0x667eea, 0.5, 200);
             pointLight.position.set(0, 50, 0);
@@ -1170,6 +1176,15 @@
                 setTimeout(() => {
                     document.getElementById('loading').style.display = 'none';
                     console.log('✅ Loading screen hidden');
+                    
+                    // Auto-expand all sensors after load (unless openDevice param exists)
+                    const urlParams = new URLSearchParams(window.location.search);
+                    if (!urlParams.get('openDevice')) {
+                        console.log('🔄 Auto-expanding all sensors...');
+                        setTimeout(() => {
+                            expandAll();
+                        }, 500);
+                    }
                 }, 300);
 
             } catch (error) {
@@ -2856,7 +2871,56 @@
             }
         }
         
+        // Check for openDevice URL parameter and handle navigation
+        function handleOpenDeviceParam() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const openDeviceId = urlParams.get('openDevice');
+            
+            if (openDeviceId) {
+                console.log(`🎯 OpenDevice parameter detected: ${openDeviceId}`);
+                
+                // Wait for topology to be fully loaded
+                const checkLoaded = setInterval(() => {
+                    if (nodes.length > 0) {
+                        clearInterval(checkLoaded);
+                        
+                        // Find the device node
+                        const deviceNode = nodes.find(n => 
+                            n.type === 'device' && 
+                            (n.data.id == openDeviceId || n.name.includes(openDeviceId))
+                        );
+                        
+                        if (deviceNode && deviceNode.mesh) {
+                            console.log(`✅ Found device: ${deviceNode.name}`);
+                            
+                            // Expand sensors for this device
+                            nodes.forEach(node => {
+                                if (node.type === 'sensor' && node.parent === deviceNode) {
+                                    node.visible = true;
+                                    node.mesh.visible = true;
+                                }
+                            });
+                            
+                            // Move camera to focus on device
+                            setTimeout(() => {
+                                selectNode(deviceNode);
+                                console.log('📷 Camera focused on device');
+                            }, 1000);
+                        } else {
+                            console.warn(`⚠️ Device not found with ID: ${openDeviceId}`);
+                        }
+                    }
+                }, 100);
+                
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkLoaded);
+                }, 10000);
+            }
+        }
+        
         initWithRetry();
+        handleOpenDeviceParam();
         
         // Connect WebSocket for live updates
         setTimeout(() => {
