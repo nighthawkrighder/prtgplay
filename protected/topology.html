@@ -1722,12 +1722,15 @@
             }
             
             // Tiny sphere for sensor (0.3x size)
-            const sensorMaterial = new THREE.MeshBasicMaterial({ 
+            // Use MeshStandardMaterial to support emissive properties for alarm sensors
+            const sensorMaterial = new THREE.MeshStandardMaterial({ 
                 color: sensorColor,
                 transparent: true,
                 opacity: isDown || isWarning ? 1.0 : 0.8, // Full opacity for alarms
                 emissive: isDown || isWarning ? sensorColor : 0x000000,
-                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0)
+                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0),
+                metalness: 0.3,
+                roughness: 0.7
             });
             const sphere = new THREE.Mesh(geometryCache.sensorSphere.clone(), sensorMaterial);
             
