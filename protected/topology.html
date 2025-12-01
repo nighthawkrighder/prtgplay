@@ -2454,12 +2454,12 @@
                                         ${statusIcon} ${sensor.name || 'Unknown Sensor'}
                                     </div>
                                     <div style="font-size: 11px; color: #9ca3af;">
-                                        ${sensor.type || 'Unknown Type'}
+                                        ${sensor.sensor_type || 'Unknown Type'}
                                     </div>
                                 </div>
-                                ${sensor.lastvalue ? `
+                                ${sensor.last_value ? `
                                     <div style="text-align: right; font-size: 11px; color: #9ca3af;">
-                                        ${sensor.lastvalue}
+                                        ${sensor.last_value}
                                     </div>
                                 ` : ''}
                             </div>
