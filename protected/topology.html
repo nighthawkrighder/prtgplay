@@ -1706,15 +1706,19 @@
 
         // Create sensor node
         function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors) {
-            // Determine sensor color based on status
+            // Sensor uses device status as proxy since we don't have individual sensor status in this data
+            // This matches dashboard display logic
             const isDown = device.status === 5;
             const isWarning = device.status === 4;
-            let sensorColor = COLORS.sensor; // Default purple
+            const isNormal = device.status === 3;
+            let sensorColor = COLORS.sensor; // Default purple for unusual/paused
             
             if (isDown) {
                 sensorColor = 0xff4444; // Bright red for down sensors
             } else if (isWarning) {
                 sensorColor = 0xffaa44; // Bright orange for warning sensors
+            } else if (isNormal) {
+                sensorColor = COLORS.sensor; // Purple for normal/unusual/paused
             }
             
             // Tiny sphere for sensor (0.3x size)
@@ -1729,7 +1733,9 @@
             
             // Evenly space sensors around device like beads on a necklace
             const angle = (sensorIndex / totalSensors) * Math.PI * 2;
-            const distance = 6 * spreadFactor;  // Orbit distance from device
+            // Alarm sensors (red/yellow) positioned closer to front (smaller orbit)
+            // Normal sensors (purple) positioned at normal distance
+            const distance = (isDown || isWarning) ? 4 * spreadFactor : 6 * spreadFactor;
             sphere.position.set(
                 x + Math.cos(angle) * distance,
                 y,
@@ -1737,6 +1743,9 @@
             );
             scene.add(sphere);
 
+            const isDown = device.status === 5;
+            const isWarning = device.status === 4;
+            
             const node = {
                 type: 'sensor',
                 name: device.name || 'Sensor',  // Use device name for sensor identification
@@ -1746,6 +1755,7 @@
                 parent: parent,
                 connections: [],
                 visible: false,
+                isAlarmSensor: isDown || isWarning,  // Track if this is an alarm sensor
                 orbit: {
                     center: { x: x, y: y, z: z },  // Device position (will be updated)
                     radius: distance,
@@ -2690,13 +2700,13 @@
             nodes.forEach(node => {
                 if (node.type === 'sensor') {
                     // Only show sensor if its parent device is visible
-                    const parentDevice = nodes.find(n => n.type === 'device' && n.data.id === node.data.deviceId);
-                    if (parentDevice && parentDevice.mesh.visible) {
+                    if (node.parent && node.parent.mesh && node.parent.mesh.visible && node.parent.visible) {
                         node.mesh.visible = true;
                         node.visible = true;
                     }
                 }
             });
+            console.log('✨ Expanded all sensors for visible devices');
         }
 
         function collapseAll() {
@@ -2706,6 +2716,7 @@
                     node.visible = false;
                 }
             });
+            console.log('📦 Collapsed all sensors');
         }
 
         function searchNetwork(query) {
@@ -2751,10 +2762,10 @@
                     const hasWarningSensors = node.data.sensorStats?.warning > 0;
                     const hasAlarms = hasDownSensors || hasWarningSensors;
                     
-                    // Critical: device is DOWN (5) OR has down sensors
+                    // Critical: ONLY device is DOWN (5) OR has down sensors (STRICTLY)
                     const isCritical = deviceStatus === 5 || hasDownSensors;
-                    // Warning: device is WARNING (4) OR has warning sensors (but NOT critical)
-                    const isWarning = (deviceStatus === 4 || hasWarningSensors) && !isCritical;
+                    // Warning: ONLY device is WARNING (4) OR has warning sensors (EXCLUDE if critical)
+                    const isWarning = !isCritical && (deviceStatus === 4 || hasWarningSensors);
                     // Up/Healthy: status 3 with no alarms
                     const isHealthy = deviceStatus === 3 && !hasAlarms;
                     

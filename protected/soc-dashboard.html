@@ -5131,7 +5131,7 @@
             const openDeviceId = urlParams.get('openDevice');
             const sensorId = urlParams.get('sensorId');
             if (openDeviceId) {
-                // Wait for dashboard to ACTUALLY load data (check multiple times)
+                // Wait for dashboard to ACTUALLY load data AND render (check multiple times)
                 const deviceId = parseInt(openDeviceId);
                 let attempts = 0;
                 const maxAttempts = 20; // Try for up to 10 seconds
@@ -5139,25 +5139,43 @@
                 const checkAndFilter = setInterval(() => {
                     attempts++;
                     
-                    // Check if devices are loaded
+                    // Check if devices are loaded AND rendered in DOM
                     if (window.dashboard && window.dashboard.allDevices && window.dashboard.allDevices.length > 0) {
                         const device = window.dashboard.allDevices.find(d => d.id === deviceId);
-                        if (device) {
+                        // Also check if companies are rendered
+                        const companySections = document.querySelectorAll('.company-section');
+                        
+                        if (device && companySections.length > 0) {
                             clearInterval(checkAndFilter);
+                            
+                            console.log(`🎯 Found device: ${device.name} (ID: ${deviceId})`);
+                            console.log(`📊 Total devices loaded: ${window.dashboard.allDevices.length}`);
+                            console.log(`🏢 Company sections rendered: ${companySections.length}`);
                             
                             // Populate the search box
                             const searchBox = document.getElementById('searchBox');
                             if (searchBox) {
                                 searchBox.value = device.name;
+                                console.log(`✏️ Set search box to: "${device.name}"`);
                             }
                             
                             // Directly set filter and apply (match dashboard's internal logic)
                             window.dashboard.filters.search = device.name.toLowerCase();
+                            console.log(`🔍 Set filter to: "${device.name.toLowerCase()}"`);
+                            
                             window.dashboard.applyFilters();
-                            console.log(`🔍 Filtered dashboard to device: ${device.name}`);
+                            console.log(`✅ Applied filters - should now show only devices matching "${device.name}"`);
+                            
+                            // Verify filter was applied
+                            setTimeout(() => {
+                                const visibleSections = document.querySelectorAll('.company-section[style*="display: block"], .company-section:not([style*="display: none"])');
+                                console.log(`👀 Visible company sections after filter: ${visibleSections.length}`);
+                            }, 100);
                         } else if (attempts >= maxAttempts) {
                             clearInterval(checkAndFilter);
-                            console.warn('⚠️ Device not found after multiple attempts:', deviceId);
+                            console.warn('⚠️ Device not found or DOM not ready after multiple attempts:', deviceId);
+                            console.warn('   Device found:', !!device);
+                            console.warn('   Company sections:', companySections.length);
                         }
                     } else if (attempts >= maxAttempts) {
                         clearInterval(checkAndFilter);
