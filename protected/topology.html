@@ -2562,6 +2562,15 @@
             }, 100);
         }
         
+        // Close sensor popup
+        function closeSensorPopup() {
+            const popup = document.getElementById('sensor-popup');
+            if (popup) {
+                popup.style.display = 'none';
+                console.log('✅ Sensor popup closed');
+            }
+        }
+        
         // Show individual sensor popup
         function showIndividualSensorPopup(sensorNode) {
             console.log('🔍 showIndividualSensorPopup called for:', sensorNode.name);
@@ -2595,6 +2604,18 @@
                     display: block;
                 `;
                 document.body.appendChild(popup);
+                
+                // Add click-outside-to-close
+                document.addEventListener('click', function(e) {
+                    const popup = document.getElementById('sensor-popup');
+                    if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
+                        // Check if click was on a sensor mesh (allow sensor clicks to work)
+                        const canvas = document.getElementById('canvas');
+                        if (e.target !== canvas) {
+                            closeSensorPopup();
+                        }
+                    }
+                });
             } else {
                 console.log('♻️ Reusing existing popup');
                 // Add flash animation to show popup is updating
@@ -2623,7 +2644,7 @@
             popup.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="margin: 0; color: #8b5cf6; font-size: 20px;">📡 Sensor Details</h2>
-                    <button onclick="document.getElementById('sensor-popup').style.display='none'" 
+                    <button onclick="closeSensorPopup()" 
                             style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
                         ✕
                     </button>
