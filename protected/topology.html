@@ -2407,6 +2407,10 @@
         function showSensorPopup(deviceNode) {
             const device = deviceNode.data;
             
+            // Reset popup tracking when showing device sensor list
+            lastPopupNode = null;
+            console.log('🔄 Device clicked - popup state reset');
+            
             // Create or update popup
             let popup = document.getElementById('sensor-popup');
             if (!popup) {
