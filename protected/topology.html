@@ -2603,15 +2603,18 @@
         // Show individual sensor popup
         function showIndividualSensorPopup(sensorNode) {
             console.log('🔍 showIndividualSensorPopup called for:', sensorNode.name);
+            console.log('📍 Current lastPopupNode:', lastPopupNode ? lastPopupNode.name : 'null');
             
             // Check if switching from one sensor/device to another
             const isSwitchingNodes = lastPopupNode && lastPopupNode !== sensorNode;
+            console.log('🔀 isSwitchingNodes:', isSwitchingNodes);
             if (isSwitchingNodes) {
                 console.log('🔄 Switching from', lastPopupNode.name, 'to', sensorNode.name);
             }
             
             // Update last popup node
             lastPopupNode = sensorNode;
+            console.log('✅ lastPopupNode set to:', lastPopupNode.name);
             
             const sensor = sensorNode.sensorData || {};
             const device = sensorNode.data;
