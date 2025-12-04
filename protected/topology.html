@@ -2911,6 +2911,10 @@
 
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
+                } else {
+                    // Zoom complete - reset popup state so next sensor click works immediately
+                    lastPopupNode = null;
+                    console.log('🎯 Zoom complete - popup state reset, ready for sensor clicks');
                 }
             }
 
