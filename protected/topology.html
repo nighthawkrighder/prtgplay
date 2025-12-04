@@ -2209,8 +2209,12 @@
 
         // Select node
         function selectNode(node) {
+            console.log('🎯 selectNode called for:', node.name, '(type:', node.type + ')');
+            console.log('📌 Current selectedNode:', selectedNode ? selectedNode.name : 'null');
+            
             // Deselect previous - restore original material (only if different node)
             if (selectedNode && selectedNode !== node && selectedNode.mesh) {
+                console.log('❌ Deselecting previous node:', selectedNode.name);
                 // Restore original material/color
                 if (selectedNode.originalMaterial) {
                     selectedNode.mesh.material = selectedNode.originalMaterial;
@@ -2225,6 +2229,7 @@
             }
 
             selectedNode = node;
+            console.log('✨ selectedNode set to:', selectedNode.name, '(type:', selectedNode.type + ')');
             
             // Highlight the newly selected node with cyan glow
             if (node && node.mesh && node.mesh.material) {
@@ -2414,9 +2419,12 @@
         function showSensorPopup(deviceNode) {
             const device = deviceNode.data;
             
+            console.log('🔍 showSensorPopup called for device:', deviceNode.name);
+            console.log('📍 Current lastPopupNode:', lastPopupNode ? lastPopupNode.name : 'null');
+            
             // Reset popup tracking when showing device sensor list
             lastPopupNode = null;
-            console.log('🔄 Device clicked - popup state reset');
+            console.log('🔄 Device clicked - popup state reset, lastPopupNode cleared');
             
             // Create or update popup
             let popup = document.getElementById('sensor-popup');
@@ -2571,16 +2579,9 @@
                 }
             });
             
-            // Close on outside click
-            setTimeout(() => {
-                const closeHandler = (e) => {
-                    if (!popup.contains(e.target)) {
-                        popup.style.display = 'none';
-                        document.removeEventListener('click', closeHandler);
-                    }
-                };
-                document.addEventListener('click', closeHandler);
-            }, 100);
+            // Note: Click-outside handling is managed by the global listener that checks isProcessingCanvasClick
+            // Removed duplicate listener that was causing popup to close immediately on device clicks
+            console.log('✅ Device popup displayed, relying on global click-outside handler');
         }
         
         // Track if we're currently processing a canvas click (to prevent close listener interference)
