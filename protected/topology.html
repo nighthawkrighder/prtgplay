@@ -2263,6 +2263,7 @@
                         opacity: 1.0
                     });
                     node.mesh.material = highlightMaterial;
+                    console.log('💎 Device cyan material applied to:', node.name);
                 } else if (node.type === 'company') {
                     // Company: Subtle cyan tint
                     const highlightMaterial = new THREE.MeshPhongMaterial({
@@ -2798,17 +2799,10 @@
             `;
             
             popup.style.display = 'block';
+            console.log('🎯 Individual sensor popup content updated for:', sensorNode.name);
             
-            // Close on outside click
-            setTimeout(() => {
-                const closeHandler = (e) => {
-                    if (!popup.contains(e.target)) {
-                        popup.style.display = 'none';
-                        document.removeEventListener('click', closeHandler);
-                    }
-                };
-                document.addEventListener('click', closeHandler);
-            }, 100);
+            // Note: Click-outside handling is managed by the global listener added during popup creation
+            // Removed duplicate listener that was causing popups to close immediately after sensor-to-sensor clicks
         }
         
         // Show filtered list of sensors by status
