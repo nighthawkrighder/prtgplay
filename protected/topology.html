@@ -2283,6 +2283,10 @@
             
             // If clicking a company node, zoom to it and show all devices
             if (node.type === 'company') {
+                // Close any open sensor popup and reset state
+                closeSensorPopup();
+                console.log('🏢 Company clicked - popup closed, state reset');
+                
                 zoomToNode(node);
                 
                 // Highlight devices of this company
