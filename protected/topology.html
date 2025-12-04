@@ -2476,7 +2476,7 @@
             popup.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="margin: 0; color: #3b82f6; font-size: 20px;">${device.name || 'Device'}</h2>
-                    <button onclick="document.getElementById('sensor-popup').style.display='none'" 
+                    <button onclick="closeSensorPopup()" 
                             style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
                         ✕
                     </button>
