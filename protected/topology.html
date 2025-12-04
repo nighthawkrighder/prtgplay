@@ -2916,9 +2916,14 @@
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
                 } else {
-                    // Zoom complete - reset popup state so next sensor click works immediately
-                    lastPopupNode = null;
-                    console.log('🎯 Zoom complete - popup state reset, ready for sensor clicks');
+                    // Zoom complete - only reset popup state if no popup is currently visible
+                    const popup = document.getElementById('sensor-popup');
+                    if (!popup || popup.style.display !== 'block') {
+                        lastPopupNode = null;
+                        console.log('🎯 Zoom complete - popup state reset, ready for sensor clicks');
+                    } else {
+                        console.log('🎯 Zoom complete - popup still visible, keeping state');
+                    }
                 }
             }
 
