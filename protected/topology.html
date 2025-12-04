@@ -2067,11 +2067,14 @@
                     selectNode(clickedNode);
                 }
             } else {
-                // Clicked on empty space - reset any rotated company
+                // Clicked on empty space - reset any rotated company and close popup
                 if (lastHoveredCompany) {
                     resetCompanyRotation(lastHoveredCompany);
                     lastHoveredCompany = null;
                 }
+                // Close sensor popup when clicking empty space
+                closeSensorPopup();
+                console.log('🌌 Clicked empty space - popup closed, state reset');
             }
             
             // Reset flag after processing (delay longer to ensure popup updates complete)
@@ -2915,16 +2918,9 @@
 
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
-                } else {
-                    // Zoom complete - only reset popup state if no popup is currently visible
-                    const popup = document.getElementById('sensor-popup');
-                    if (!popup || popup.style.display !== 'block') {
-                        lastPopupNode = null;
-                        console.log('🎯 Zoom complete - popup state reset, ready for sensor clicks');
-                    } else {
-                        console.log('🎯 Zoom complete - popup still visible, keeping state');
-                    }
                 }
+                // Note: Don't clear lastPopupNode here - let the popup close handler manage that
+                // This allows sensor-to-sensor and device-to-sensor transitions to work properly
             }
 
             updateCamera();
