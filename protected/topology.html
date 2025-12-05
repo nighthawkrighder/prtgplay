@@ -2721,7 +2721,7 @@
                         ${config.name}
                     </div>
                     <div style="font-size: 14px; color: #e5e7eb;">
-                        ${sensor.name || 'Sensor #' + (sensorNode.sensorIndex + 1)}
+                        ${sensor.sensorType || sensor.sensor_type || sensor.name || 'Sensor #' + (sensorNode.sensorIndex + 1)}
                     </div>
                 </div>
                 
@@ -2730,9 +2730,6 @@
                     <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13px;">
                         <div style="color: #9ca3af; font-weight: 500;">Sensor ID:</div>
                         <div style="color: #e5e7eb;">${sensor.id || sensor.objid || 'N/A'}</div>
-                        
-                        <div style="color: #9ca3af; font-weight: 500;">Type:</div>
-                        <div style="color: #e5e7eb;">${sensor.sensorType || sensor.sensor_type || 'Not Set'}</div>
                         
                         <div style="color: #9ca3af; font-weight: 500;">Status:</div>
                         <div style="color: ${config.color}; font-weight: bold;">${config.text}</div>
@@ -2838,10 +2835,10 @@
                             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
                                 <div style="flex: 1;">
                                     <div style="font-weight: bold; color: ${sensorConfig.color}; margin-bottom: 4px;">
-                                        ${sensorConfig.icon} ${sensor.name || 'Not Set'}
+                                        ${sensorConfig.icon} ${sensor.sensorType || sensor.sensor_type || sensor.name || 'Sensor'}
                                     </div>
                                     <div style="font-size: 11px; color: #9ca3af;">
-                                        ${sensor.sensorType || sensor.sensor_type || 'Not Set'}
+                                        ID: ${sensor.id || sensor.objid || 'N/A'}
                                     </div>
                                 </div>
                                 ${sensor.last_value || sensor.lastValue ? `
