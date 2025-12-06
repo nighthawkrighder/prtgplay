@@ -579,6 +579,38 @@
             panelTexture: null,
             hexTexture: null
         };
+        
+        // Object pooling for telemetry beams to reduce GC pressure
+        const beamPool = {
+            available: [],
+            active: [],
+            maxSize: 50,
+            
+            acquire: function() {
+                if (this.available.length > 0) {
+                    const beam = this.available.pop();
+                    this.active.push(beam);
+                    return beam;
+                }
+                return null; // Create new if pool empty
+            },
+            
+            release: function(beam) {
+                const index = this.active.indexOf(beam);
+                if (index > -1) {
+                    this.active.splice(index, 1);
+                    if (this.available.length < this.maxSize) {
+                        beam.visible = false;
+                        this.available.push(beam);
+                    } else {
+                        // Pool full, dispose
+                        if (beam.geometry) beam.geometry.dispose();
+                        if (beam.material) beam.material.dispose();
+                        scene.remove(beam);
+                    }
+                }
+            }
+        };
 
         // Shared geometry and material cache for performance
         const geometryCache = {
@@ -613,12 +645,22 @@
             // Companies (motherships), Devices (small ships), Sensors (tiny escorts)
             const deviceSize = nodeSizeMultiplier * 2;
             
-            // Mothership: Large elongated diamond shape (company flagship)
+            // Mothership: Large elongated shape with irregular flattened hex cross-section
             const mothershipSize = 12 * nodeSizeMultiplier;
             geometryCache.mothership = new THREE.ConeGeometry(mothershipSize * 0.6, mothershipSize * 2, 6);
+            // Rotate 90 degrees to point forward (Z-axis) instead of up (Y-axis)
+            geometryCache.mothership.rotateX(Math.PI / 2);
+            // Irregular hex: flatten cross-section differently on X vs Y to break symmetry
+            // Keep length (Z), make wider (X) but much flatter (Y) for irregular hex
+            geometryCache.mothership.scale(0.6, 0.25, 1);
             
-            // Small spaceship: Smaller cone/diamond for devices
+            // Small spaceship: Smaller cone with irregular flattened hex cross-section
             geometryCache.spaceship = new THREE.ConeGeometry(deviceSize * 0.8, deviceSize * 2, 6);
+            // Rotate 90 degrees to point forward (Z-axis) instead of up (Y-axis)
+            geometryCache.spaceship.rotateX(Math.PI / 2);
+            // Irregular hex: flatten cross-section differently on X vs Y to break symmetry
+            // Keep length (Z), make wider (X) but much flatter (Y) for irregular hex
+            geometryCache.spaceship.scale(0.6, 0.25, 1);
             
             // Sensor escort: Tiny sphere
             geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
@@ -900,28 +942,44 @@
             animate();
         }
 
-        // Telemetry beam system - global functions
+        // Telemetry beam system - global functions with object pooling
         function createTelemetryBeam(startPos, endPos) {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array([
-                startPos.x, startPos.y, startPos.z,
-                endPos.x, endPos.y, endPos.z
-            ]);
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            // Try to get beam from pool first
+            let beam = beamPool.acquire();
             
-            const beamMaterial = new THREE.LineBasicMaterial({
-                color: 0x00ffff,
-                transparent: true,
-                opacity: 0.6,
-                linewidth: 2
-            });
+            if (beam) {
+                // Reuse existing beam
+                const positions = beam.geometry.attributes.position.array;
+                positions[0] = startPos.x; positions[1] = startPos.y; positions[2] = startPos.z;
+                positions[3] = endPos.x; positions[4] = endPos.y; positions[5] = endPos.z;
+                beam.geometry.attributes.position.needsUpdate = true;
+                beam.material.opacity = 0.6;
+                beam.visible = true;
+            } else {
+                // Create new beam if pool empty
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array([
+                    startPos.x, startPos.y, startPos.z,
+                    endPos.x, endPos.y, endPos.z
+                ]);
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                const beamMaterial = new THREE.LineBasicMaterial({
+                    color: 0x00ffff,
+                    transparent: true,
+                    opacity: 0.6,
+                    linewidth: 2
+                });
+                
+                beam = new THREE.Line(geometry, beamMaterial);
+                scene.add(beam);
+                beamPool.active.push(beam);
+            }
             
-            const beam = new THREE.Line(geometry, beamMaterial);
             beam.userData.startTime = Date.now();
             beam.userData.duration = 800; // 800ms beam lifetime
             beam.userData.startPos = startPos.clone();
             beam.userData.endPos = endPos.clone();
-            scene.add(beam);
             telemetryBeams.push(beam);
             return beam;
         }
@@ -934,9 +992,8 @@
                 const progress = elapsed / beam.userData.duration;
                 
                 if (progress >= 1) {
-                    // Remove expired beam
-                    scene.remove(beam);
-                    beam.geometry.dispose();
+                    // Return beam to pool instead of disposing
+                    beamPool.release(beam);
                     telemetryBeams.splice(i, 1);
                 } else {
                     // Fade out beam
@@ -1000,15 +1057,25 @@
             // Angled view: back, up, and to the side for dramatic perspective
             camera.position.set(800, 500, 600);
 
-            // Setup renderer
+            // Setup renderer with performance optimizations
             const canvas = document.getElementById('canvas');
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas,
                 antialias: true,
-                alpha: true
+                alpha: true,
+                powerPreference: 'high-performance', // Use dedicated GPU if available
+                precision: 'highp', // High precision for better quality
+                logarithmicDepthBuffer: false, // Disable if not needed (performance gain)
+                stencil: false // Disable stencil buffer (not used, saves memory)
             });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            // Limit pixel ratio to 2 for performance (no visible difference beyond 2x)
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            
+            // Enable render optimizations
+            renderer.sortObjects = true; // Sort objects for optimal rendering
+            renderer.shadowMap.enabled = false; // Shadows disabled (not used)
+            renderer.physicallyCorrectLights = false; // Faster lighting calculations
 
             // Setup controls
             controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -1753,6 +1820,21 @@
             return sprite;
         }
         
+        // Geometry disposal for memory management
+        function disposeNode(node) {
+            if (node.mesh) {
+                if (node.mesh.geometry) node.mesh.geometry.dispose();
+                if (node.mesh.material) {
+                    if (Array.isArray(node.mesh.material)) {
+                        node.mesh.material.forEach(mat => mat.dispose());
+                    } else {
+                        node.mesh.material.dispose();
+                    }
+                }
+                scene.remove(node.mesh);
+            }
+        }
+        
         // Shared function to create realistic particle-based afterburner engines
         function createAfterburnerEngine(engineX, engineY, engineZ, particleCount, particleSize, sphereSize) {
             // Create particle system for realistic afterburner plume
@@ -1973,13 +2055,13 @@
             mothershipGroup.position.set(x, y, z);
             console.log('  ✅ Mothership with details created at:', mothershipGroup.position);
             
-            // Calculate target orientation toward galaxy center
-            const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
-            direction.normalize();
+            // Orient ship to point toward center while staying flat on XZ plane
+            // Project target direction onto XZ plane (ignore Y) to keep ships level
+            const targetPos = new THREE.Vector3(0, y, 0); // Keep at same Y height
+            mothershipGroup.lookAt(targetPos);
             
-            const upVector = new THREE.Vector3(0, 1, 0);
-            const targetQuaternion = new THREE.Quaternion();
-            targetQuaternion.setFromUnitVectors(upVector, direction);
+            // Store target quaternion for smooth rotation animation
+            const targetQuaternion = mothershipGroup.quaternion.clone();
             
             // Start with random rotation for animation effect
             mothershipGroup.rotation.y = Math.random() * Math.PI * 2;
@@ -2181,13 +2263,13 @@
             // Store engines for animation
             shipGroup.userData.engines = engines;
             
-            // Calculate target orientation toward galaxy center
-            const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
-            direction.normalize();
+            // Orient ship to point toward center while staying flat on XZ plane
+            // Project target direction onto XZ plane (ignore Y) to keep ships level
+            const targetPos = new THREE.Vector3(0, y, 0); // Keep at same Y height
+            shipGroup.lookAt(targetPos);
             
-            const upVector = new THREE.Vector3(0, 1, 0);
-            const targetQuaternion = new THREE.Quaternion();
-            targetQuaternion.setFromUnitVectors(upVector, direction);
+            // Store target quaternion for smooth rotation animation
+            const targetQuaternion = shipGroup.quaternion.clone();
             
             // Start with random rotation for animation effect
             shipGroup.rotation.y = Math.random() * Math.PI * 2;
@@ -2420,7 +2502,10 @@
                 }
             }
             
-            // PASS 0.5: Animate realistic particle-based afterburner jets
+            // PASS 0.5: Animate realistic particle-based afterburner jets (optimized)
+            // Batch all geometry updates together for better performance
+            const particleUpdates = [];
+            
             nodes.forEach(node => {
                 if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
                     // Frustum culling - skip if not visible
@@ -2430,50 +2515,60 @@
                     
                     engines.forEach(engine => {
                         if (engine.particleSystem && engine.particles) {
-                            const positions = engine.particles.attributes.position.array;
-                            const sizes = engine.particles.attributes.size.array;
-                            
-                            // Update each particle in the plume
-                            for (let p = 0; p < engine.lifetimes.length; p++) {
-                                engine.lifetimes[p]--;
-                                
-                                // Reset particle if lifetime expired
-                                if (engine.lifetimes[p] <= 0) {
-                                    positions[p * 3] = engine.position.x;
-                                    positions[p * 3 + 1] = engine.position.y;
-                                    positions[p * 3 + 2] = engine.position.z;
-                                    engine.lifetimes[p] = 60 + Math.random() * 40; // New lifetime
-                                    sizes[p] = Math.random() * 2.5 + 1;
-                                } else {
-                                    // Move particle with velocity and turbulence
-                                    positions[p * 3] += engine.velocities[p].x + (Math.random() - 0.5) * 0.1;
-                                    positions[p * 3 + 1] += engine.velocities[p].y;
-                                    positions[p * 3 + 2] += engine.velocities[p].z + (Math.random() - 0.5) * 0.1;
-                                    
-                                    // Expand and fade as particle ages
-                                    const age = 1 - (engine.lifetimes[p] / 100);
-                                    sizes[p] *= 1.015; // Gradual expansion
-                                    
-                                    // Add drag (slow down over time)
-                                    engine.velocities[p].y *= 0.98;
-                                    engine.velocities[p].x *= 0.98;
-                                    engine.velocities[p].z *= 0.98;
-                                }
-                            }
-                            
-                            engine.particles.attributes.position.needsUpdate = true;
-                            engine.particles.attributes.size.needsUpdate = true;
-                            
-                            // Animate core glow pulsing
-                            if (engine.coreLight) {
-                                engine.phase += 0.1;
-                                const pulse = Math.sin(engine.phase) * 0.2 + 0.8;
-                                engine.coreLight.material.opacity = pulse * 0.7;
-                                const scale = 1.0 + Math.sin(engine.phase * 2) * 0.15;
-                                engine.coreLight.scale.set(scale, scale, scale);
-                            }
+                            particleUpdates.push(engine);
                         }
                     });
+                }
+            });
+            
+            // Process all particle updates in one batch
+            particleUpdates.forEach(engine => {
+                const positions = engine.particles.attributes.position.array;
+                const sizes = engine.particles.attributes.size.array;
+                let needsUpdate = false;
+                
+                // Update each particle in the plume
+                for (let p = 0; p < engine.lifetimes.length; p++) {
+                    engine.lifetimes[p]--;
+                    
+                    // Reset particle if lifetime expired
+                    if (engine.lifetimes[p] <= 0) {
+                        positions[p * 3] = engine.position.x;
+                        positions[p * 3 + 1] = engine.position.y;
+                        positions[p * 3 + 2] = engine.position.z;
+                        engine.lifetimes[p] = 60 + Math.random() * 40; // New lifetime
+                        sizes[p] = Math.random() * 2.5 + 1;
+                        needsUpdate = true;
+                    } else {
+                        // Move particle with velocity and turbulence
+                        positions[p * 3] += engine.velocities[p].x + (Math.random() - 0.5) * 0.1;
+                        positions[p * 3 + 1] += engine.velocities[p].y;
+                        positions[p * 3 + 2] += engine.velocities[p].z + (Math.random() - 0.5) * 0.1;
+                        
+                        // Expand as particle ages
+                        sizes[p] *= 1.015; // Gradual expansion
+                        
+                        // Add drag (slow down over time)
+                        engine.velocities[p].y *= 0.98;
+                        engine.velocities[p].x *= 0.98;
+                        engine.velocities[p].z *= 0.98;
+                        needsUpdate = true;
+                    }
+                }
+                
+                // Only update if particles changed
+                if (needsUpdate) {
+                    engine.particles.attributes.position.needsUpdate = true;
+                    engine.particles.attributes.size.needsUpdate = true;
+                }
+                
+                // Animate core glow pulsing
+                if (engine.coreLight) {
+                    engine.phase += 0.1;
+                    const pulse = Math.sin(engine.phase) * 0.2 + 0.8;
+                    engine.coreLight.material.opacity = pulse * 0.7;
+                    const scale = 1.0 + Math.sin(engine.phase * 2) * 0.15;
+                    engine.coreLight.scale.set(scale, scale, scale);
                 }
             });
             
@@ -2612,14 +2707,23 @@
                 }
             });
 
+            // Only render if something changed (optimized rendering)
+            // Always render for now since we have continuous animations
             renderer.render(scene, camera);
         }
 
-        // Window resize
+        // Optimized window resize with debouncing
+        let resizeTimeout;
         function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            // Debounce resize events to avoid excessive recalculations
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                // Limit pixel ratio on resize too
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            }, 100);
         }
 
         // Canvas click
