@@ -571,6 +571,14 @@
         let reconnectInterval = null;
         let deviceNodeMap = new Map(); // Map device objects to their 3D nodes
         let telemetryBeams = []; // Global array for telemetry beam management
+        let gridHelper = null; // Reference to the grid helper for toggle
+        let particleSystems = []; // Array to hold all particle systems
+        
+        // Texture cache to avoid recreating textures
+        const cachedTextures = {
+            panelTexture: null,
+            hexTexture: null
+        };
 
         // Shared geometry and material cache for performance
         const geometryCache = {
@@ -1046,8 +1054,8 @@
             pointLight.position.set(0, 50, 0);
             scene.add(pointLight);
 
-            // Add grid
-            const gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
+            // Add grid (stored globally for toggle)
+            gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
             scene.add(gridHelper);
             
             // Initialize shared geometries and materials
@@ -1745,6 +1753,83 @@
             return sprite;
         }
         
+        // Shared function to create realistic particle-based afterburner engines
+        function createAfterburnerEngine(engineX, engineY, engineZ, particleCount, particleSize, sphereSize) {
+            // Create particle system for realistic afterburner plume
+            const particles = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const sizes = new Float32Array(particleCount);
+            const velocities = [];
+            const lifetimes = [];
+            
+            for (let p = 0; p < particleCount; p++) {
+                positions[p * 3] = engineX;
+                positions[p * 3 + 1] = engineY;
+                positions[p * 3 + 2] = engineZ;
+                
+                // Color gradient for realistic flame
+                const heat = Math.random();
+                if (heat > 0.8) {
+                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 1.0; colors[p * 3 + 2] = 0.95; // White hot
+                } else if (heat > 0.6) {
+                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 0.85; colors[p * 3 + 2] = 0.3; // Yellow
+                } else if (heat > 0.3) {
+                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 0.5; colors[p * 3 + 2] = 0.0; // Orange
+                } else {
+                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 0.2; colors[p * 3 + 2] = 0.0; // Red
+                }
+                
+                sizes[p] = Math.random() * particleSize + 1;
+                
+                velocities.push({
+                    x: (Math.random() - 0.5) * 0.25,
+                    y: -(Math.random() * 0.45 + 0.45),
+                    z: (Math.random() - 0.5) * 0.25
+                });
+                
+                lifetimes.push(Math.random() * 80);
+            }
+            
+            particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            particles.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            
+            const particleMaterial = new THREE.PointsMaterial({
+                size: particleSize,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.88,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                sizeAttenuation: true
+            });
+            
+            const particleSystem = new THREE.Points(particles, particleMaterial);
+            
+            // Core glow sphere
+            const coreLight = new THREE.Mesh(
+                new THREE.SphereGeometry(sphereSize, 16, 16),
+                new THREE.MeshBasicMaterial({
+                    color: 0xffffaa,
+                    transparent: true,
+                    opacity: 0.75,
+                    blending: THREE.AdditiveBlending
+                })
+            );
+            coreLight.position.set(engineX, engineY, engineZ);
+            
+            return {
+                particleSystem: particleSystem,
+                particles: particles,
+                velocities: velocities,
+                lifetimes: lifetimes,
+                coreLight: coreLight,
+                position: { x: engineX, y: engineY, z: engineZ },
+                phase: Math.random() * Math.PI * 2
+            };
+        }
+        
         function createCompanyNode(name, x, y, z) {
             // Special handling for LANAIR - create Earth at center (case-insensitive)
             if (name.toLowerCase().includes('lanair')) {
@@ -1752,38 +1837,141 @@
                 return createEarthNode(name, 0, 0, 0);
             }
             
-            // Mothership colors - metallic fleet colors
-            const shipColors = [
-                0x4A90E2, // Blue fleet
-                0x50C878, // Emerald green
-                0xE74C3C, // Red fleet
-                0xF39C12, // Gold fleet
-                0x9B59B6, // Purple fleet
-                0x1ABC9C, // Teal fleet
-                0xE67E22, // Orange fleet
-                0x34495E  // Dark gray fleet
-            ];
-            const shipColor = shipColors[Math.floor(Math.random() * shipColors.length)];
+            // Dark Millennium Falcon-style gunmetal
+            const shipColor = 0x3A3A3A; // Dark gray base
             
             console.log(`🚀 Creating mothership for ${name} at (${x}, ${y}, ${z})`);
             
-            // Create mothership geometry (large cone pointing up)
-            const mothershipGeom = geometryCache.mothership.clone();
-            console.log('  ✅ Geometry cloned:', mothershipGeom);
+            // Create mothership group (main hull + details)
+            const mothershipGroup = new THREE.Group();
             
-            // Enhanced metallic material with realistic reflections
-            const material = new THREE.MeshPhongMaterial({
+            // Main hull - dark gunmetal gray like Millennium Falcon
+            const hullGeom = geometryCache.mothership.clone();
+            const hullMaterial = new THREE.MeshPhongMaterial({
+                color: 0x4A4A4A, // Dark gunmetal gray
+                emissive: 0x1A1A1A, // Very dark emission
+                emissiveIntensity: 0.15,
+                specular: 0x888888, // Muted specular for weathered look
+                shininess: 30, // Lower shine for worn metal
+                flatShading: false,
+                metalness: 0.7 // Less reflective, more weathered
+            });
+            const hull = new THREE.Mesh(hullGeom, hullMaterial);
+            mothershipGroup.add(hull);
+            
+            // Use cached panel texture or create once
+            if (!cachedTextures.panelTexture) {
+                const panelCanvas = document.createElement('canvas');
+                panelCanvas.width = 256;
+                panelCanvas.height = 256;
+                const panelCtx = panelCanvas.getContext('2d');
+                
+                // Panel pattern - metallic plates (neutral gray, colored by material)
+                panelCtx.fillStyle = '#888888';
+                panelCtx.fillRect(0, 0, 256, 256);
+                
+                // Draw panel lines
+                panelCtx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                panelCtx.lineWidth = 2;
+                for (let i = 0; i < 256; i += 32) {
+                    panelCtx.beginPath();
+                    panelCtx.moveTo(i, 0);
+                    panelCtx.lineTo(i, 256);
+                    panelCtx.stroke();
+                    panelCtx.beginPath();
+                    panelCtx.moveTo(0, i);
+                    panelCtx.lineTo(256, i);
+                    panelCtx.stroke();
+                }
+                
+                // Add rivets
+                panelCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                for (let i = 16; i < 256; i += 32) {
+                    for (let j = 16; j < 256; j += 32) {
+                        panelCtx.beginPath();
+                        panelCtx.arc(i, j, 2, 0, Math.PI * 2);
+                        panelCtx.fill();
+                    }
+                }
+                
+                cachedTextures.panelTexture = new THREE.CanvasTexture(panelCanvas);
+            }
+            hull.material.map = cachedTextures.panelTexture;
+            hull.material.needsUpdate = true;
+            
+            // Add command bridge windows (glowing)
+            const windowGeom = new THREE.BoxGeometry(6, 3, 2);
+            const windowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x66ddff,
+                transparent: true,
+                opacity: 0.8
+            });
+            const bridgeWindow = new THREE.Mesh(windowGeom, windowMaterial);
+            bridgeWindow.position.set(0, 8, 6);
+            mothershipGroup.add(bridgeWindow);
+            
+            // Add side windows
+            const sideWindow1 = bridgeWindow.clone();
+            sideWindow1.position.set(5, 5, 4);
+            sideWindow1.rotation.y = Math.PI / 4;
+            mothershipGroup.add(sideWindow1);
+            
+            const sideWindow2 = bridgeWindow.clone();
+            sideWindow2.position.set(-5, 5, 4);
+            sideWindow2.rotation.y = -Math.PI / 4;
+            mothershipGroup.add(sideWindow2);
+            
+            // Add engine glow rings at base
+            const ringGeom = new THREE.TorusGeometry(8, 0.5, 8, 32);
+            const ringMaterial = new THREE.MeshBasicMaterial({
                 color: shipColor,
                 emissive: shipColor,
-                emissiveIntensity: 0.4,
-                specular: 0xffffff,
-                shininess: 120,
-                flatShading: false
+                emissiveIntensity: 1.0
             });
+            const engineRing = new THREE.Mesh(ringGeom, ringMaterial);
+            engineRing.position.set(0, -18, 0);
+            engineRing.rotation.x = Math.PI / 2;
+            mothershipGroup.add(engineRing);
             
-            const mothership = new THREE.Mesh(mothershipGeom, material);
-            mothership.position.set(x, y, z);
-            console.log('  ✅ Mothership mesh created:', mothership.geometry.type, 'position:', mothership.position);
+            // Add antenna array
+            const antennaGeom = new THREE.CylinderGeometry(0.3, 0.3, 8);
+            const antennaMaterial = new THREE.MeshPhongMaterial({
+                color: 0xcccccc,
+                emissive: 0x3366ff,
+                emissiveIntensity: 0.5
+            });
+            const antenna = new THREE.Mesh(antennaGeom, antennaMaterial);
+            antenna.position.set(0, 18, 0);
+            mothershipGroup.add(antenna);
+            
+            // Add radar dish
+            const dishGeom = new THREE.CylinderGeometry(3, 3, 0.5, 32);
+            const dish = new THREE.Mesh(dishGeom, antennaMaterial);
+            dish.position.set(0, 22, 0);
+            mothershipGroup.add(dish);
+            
+            // Create powerful mothership afterburner array using shared function
+            const mothershipEngineCount = Math.floor(Math.random() * 3) + 4; // 4-6 engines
+            const mothershipEngines = [];
+            
+            for (let i = 0; i < mothershipEngineCount; i++) {
+                const angle = (i / mothershipEngineCount) * Math.PI * 2;
+                const radius = 8; // Larger radius for mothership
+                const engineX = Math.cos(angle) * radius;
+                const engineZ = Math.sin(angle) * radius;
+                
+                // Use shared afterburner creation function (200 particles, size 5, sphere 3)
+                const engine = createAfterburnerEngine(engineX, -20, engineZ, 200, 5, 3);
+                
+                mothershipGroup.add(engine.particleSystem);
+                mothershipGroup.add(engine.coreLight);
+                mothershipEngines.push(engine);
+            }
+            
+            mothershipGroup.userData.engines = mothershipEngines;
+            
+            mothershipGroup.position.set(x, y, z);
+            console.log('  ✅ Mothership with details created at:', mothershipGroup.position);
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1794,9 +1982,9 @@
             targetQuaternion.setFromUnitVectors(upVector, direction);
             
             // Start with random rotation for animation effect
-            mothership.rotation.y = Math.random() * Math.PI * 2;
+            mothershipGroup.rotation.y = Math.random() * Math.PI * 2;
             
-            scene.add(mothership);
+            scene.add(mothershipGroup);
             console.log('  ✅ Mothership added to scene. Scene children count:', scene.children.length);
             
             // Add company name label as floating text sprite
@@ -1807,7 +1995,7 @@
             return {
                 type: 'company',
                 name: name,
-                mesh: mothership,
+                mesh: mothershipGroup,
                 label: nameLabel,
                 data: { name: name },
                 connections: [],
@@ -1886,31 +2074,112 @@
                 icon = '\uf02f'; // print icon
             }
             
-            // Realistic rack equipment colors based on status (brighter for visibility)
-            let deviceColor;
-            if (status === 5 || status === 'down') {
-                deviceColor = 0x8A4A4A; // Red-tinted gray for down devices
-            } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
-                deviceColor = 0x8A8A4A; // Yellow-tinted gray for warning
-            } else {
-                deviceColor = 0x9AACB4; // Light blue-gray for healthy devices
+            // Dark Millennium Falcon-style gunmetal for all device ships
+            const deviceColor = 0x3A3A3A; // Dark gunmetal gray
+            
+            // Create detailed device ship group
+            const shipGroup = new THREE.Group();
+            
+            // Use cached hex texture or create once
+            if (!cachedTextures.hexTexture) {
+                const hullCanvas = document.createElement('canvas');
+                hullCanvas.width = 128;
+                hullCanvas.height = 128;
+                const hullCtx = hullCanvas.getContext('2d');
+                
+                // Base color (neutral gray, will be colored by material)
+                hullCtx.fillStyle = '#888888';
+                hullCtx.fillRect(0, 0, 128, 128);
+                
+                // Add hexagonal panel pattern
+                hullCtx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+                hullCtx.lineWidth = 1;
+                const hexSize = 12;
+                for (let row = 0; row < 12; row++) {
+                    for (let col = 0; col < 12; col++) {
+                        const hexX = col * hexSize + (row % 2) * (hexSize / 2);
+                        const hexY = row * hexSize * 0.866;
+                        hullCtx.beginPath();
+                        for (let i = 0; i < 6; i++) {
+                            const angle = (Math.PI / 3) * i;
+                            const x = hexX + hexSize * 0.5 * Math.cos(angle);
+                            const y = hexY + hexSize * 0.5 * Math.sin(angle);
+                            if (i === 0) hullCtx.moveTo(x, y);
+                            else hullCtx.lineTo(x, y);
+                        }
+                        hullCtx.closePath();
+                        hullCtx.stroke();
+                    }
+                }
+                
+                cachedTextures.hexTexture = new THREE.CanvasTexture(hullCanvas);
             }
             
-            // Enhanced metallic material for device ships (increased emissive for visibility)
             const material = new THREE.MeshPhongMaterial({
-                color: deviceColor,
-                emissive: deviceColor,
-                emissiveIntensity: 0.5, // Increased from 0.3 for better visibility
-                specular: 0xcccccc,
-                shininess: 90,
+                color: 0x3A3A3A, // Dark gunmetal gray
+                map: cachedTextures.hexTexture,
+                emissive: 0x1A1A1A, // Very dark emission
+                emissiveIntensity: 0.12,
+                specular: 0x666666, // Muted specular for weathered look
+                shininess: 25, // Lower shine for worn metal
                 flatShading: false,
                 transparent: false,
-                opacity: 1.0
+                opacity: 1.0,
+                metalness: 0.6 // Less reflective, more battle-worn
             });
             
-            // Clone spaceship geometry (each mesh needs its own geometry)
+            // Main ship body
             const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
-            ship.position.set(x, y, z);
+            shipGroup.add(ship);
+            
+            // Add cockpit window
+            const cockpitGeom = new THREE.SphereGeometry(1, 8, 8);
+            const cockpitMaterial = new THREE.MeshBasicMaterial({
+                color: 0x4488ff,
+                transparent: true,
+                opacity: 0.7
+            });
+            const cockpit = new THREE.Mesh(cockpitGeom, cockpitMaterial);
+            cockpit.position.set(0, 3, 1);
+            shipGroup.add(cockpit);
+            
+            // Add wing stripes/markings
+            const stripeGeom = new THREE.BoxGeometry(0.5, 0.1, 4);
+            const stripeMaterial = new THREE.MeshBasicMaterial({
+                color: status === 5 || status === 'down' ? 0xff0000 : 
+                       status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x00ff00
+            });
+            const stripe1 = new THREE.Mesh(stripeGeom, stripeMaterial);
+            stripe1.position.set(2, 0, 0);
+            shipGroup.add(stripe1);
+            
+            const stripe2 = new THREE.Mesh(stripeGeom, stripeMaterial);
+            stripe2.position.set(-2, 0, 0);
+            shipGroup.add(stripe2);
+            
+            // Create realistic particle-based afterburner jets using shared function
+            const engineCount = Math.floor(Math.random() * 4) + 3; // 3-6 engines per ship
+            const engines = [];
+            
+            for (let i = 0; i < engineCount; i++) {
+                // Distribute engines around the back of the ship in a circle pattern
+                const angle = (i / engineCount) * Math.PI * 2;
+                const radius = 2.5;
+                const engineX = Math.cos(angle) * radius;
+                const engineZ = Math.sin(angle) * radius;
+                
+                // Use shared afterburner creation function (120 particles, size 3, sphere 1.5)
+                const engine = createAfterburnerEngine(engineX, -5, engineZ, 120, 3, 1.5);
+                
+                shipGroup.add(engine.particleSystem);
+                shipGroup.add(engine.coreLight);
+                engines.push(engine);
+            }
+            
+            shipGroup.position.set(x, y, z);
+            
+            // Store engines for animation
+            shipGroup.userData.engines = engines;
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1921,9 +2190,9 @@
             targetQuaternion.setFromUnitVectors(upVector, direction);
             
             // Start with random rotation for animation effect
-            ship.rotation.y = Math.random() * Math.PI * 2;
+            shipGroup.rotation.y = Math.random() * Math.PI * 2;
             
-            scene.add(ship);
+            scene.add(shipGroup);
             
             // Add status indicator circle (yellow/red) behind ship engines
             let statusCircle = null;
@@ -1945,7 +2214,7 @@
             const node = {
                 type: 'device',
                 name: device.name,
-                mesh: ship,
+                mesh: shipGroup,
                 label: null,  // No label
                 statusCircle: statusCircle,  // Track status circle for updates
                 data: device,
@@ -1959,7 +2228,7 @@
             };
             
                 // Register node for real-time updates
-                deviceNodeMap.set(device, ship);
+                deviceNodeMap.set(device, shipGroup);
                 
                 return node;
             } catch (error) {
@@ -2151,6 +2420,63 @@
                 }
             }
             
+            // PASS 0.5: Animate realistic particle-based afterburner jets
+            nodes.forEach(node => {
+                if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
+                    // Frustum culling - skip if not visible
+                    if (!node.mesh.visible) return;
+                    
+                    const engines = node.mesh.userData.engines;
+                    
+                    engines.forEach(engine => {
+                        if (engine.particleSystem && engine.particles) {
+                            const positions = engine.particles.attributes.position.array;
+                            const sizes = engine.particles.attributes.size.array;
+                            
+                            // Update each particle in the plume
+                            for (let p = 0; p < engine.lifetimes.length; p++) {
+                                engine.lifetimes[p]--;
+                                
+                                // Reset particle if lifetime expired
+                                if (engine.lifetimes[p] <= 0) {
+                                    positions[p * 3] = engine.position.x;
+                                    positions[p * 3 + 1] = engine.position.y;
+                                    positions[p * 3 + 2] = engine.position.z;
+                                    engine.lifetimes[p] = 60 + Math.random() * 40; // New lifetime
+                                    sizes[p] = Math.random() * 2.5 + 1;
+                                } else {
+                                    // Move particle with velocity and turbulence
+                                    positions[p * 3] += engine.velocities[p].x + (Math.random() - 0.5) * 0.1;
+                                    positions[p * 3 + 1] += engine.velocities[p].y;
+                                    positions[p * 3 + 2] += engine.velocities[p].z + (Math.random() - 0.5) * 0.1;
+                                    
+                                    // Expand and fade as particle ages
+                                    const age = 1 - (engine.lifetimes[p] / 100);
+                                    sizes[p] *= 1.015; // Gradual expansion
+                                    
+                                    // Add drag (slow down over time)
+                                    engine.velocities[p].y *= 0.98;
+                                    engine.velocities[p].x *= 0.98;
+                                    engine.velocities[p].z *= 0.98;
+                                }
+                            }
+                            
+                            engine.particles.attributes.position.needsUpdate = true;
+                            engine.particles.attributes.size.needsUpdate = true;
+                            
+                            // Animate core glow pulsing
+                            if (engine.coreLight) {
+                                engine.phase += 0.1;
+                                const pulse = Math.sin(engine.phase) * 0.2 + 0.8;
+                                engine.coreLight.material.opacity = pulse * 0.7;
+                                const scale = 1.0 + Math.sin(engine.phase * 2) * 0.15;
+                                engine.coreLight.scale.set(scale, scale, scale);
+                            }
+                        }
+                    });
+                }
+            });
+            
             // PASS 1: Update device positions (static on spokes with status effects)
             nodes.forEach(node => {
                 if (node.type === 'device' && node.mesh && node.spoke) {
@@ -2310,7 +2636,7 @@
             raycaster.setFromCamera(mouse, camera);
 
             const meshes = nodes.map(n => n.mesh);
-            const intersects = raycaster.intersectObjects(meshes);
+            const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for Groups
 
             if (intersects.length > 0) {
                 // Prioritize device/company clicks over sensor clicks
@@ -2319,7 +2645,7 @@
                 
                 // First, try to find a device or company in the intersections
                 for (const intersect of intersects) {
-                    const node = nodes.find(n => n.mesh === intersect.object);
+                    const node = nodes.find(n => n.mesh === intersect.object || n.mesh === intersect.object.parent);
                     if (node && (node.type === 'device' || node.type === 'company')) {
                         clickedNode = node;
                         break;
@@ -2329,7 +2655,7 @@
                 // If no device/company found, fall back to first intersection (likely a sensor)
                 if (!clickedNode) {
                     const clickedMesh = intersects[0].object;
-                    clickedNode = nodes.find(n => n.mesh === clickedMesh);
+                    clickedNode = nodes.find(n => n.mesh === clickedMesh || n.mesh === clickedMesh.parent);
                 }
                 
                 if (clickedNode) {
@@ -2366,12 +2692,12 @@
             raycaster.setFromCamera(mouse, camera);
 
             const meshes = nodes.map(n => n.mesh).filter(m => m);
-            const intersects = raycaster.intersectObjects(meshes);
+            const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for groups
 
             // Update cursor and show tooltip for sensors/devices, rotate companies
             if (intersects.length > 0) {
                 const hoveredMesh = intersects[0].object;
-                const hoveredNode = nodes.find(n => n.mesh === hoveredMesh);
+                const hoveredNode = nodes.find(n => n.mesh === hoveredMesh || n.mesh === hoveredMesh.parent);
                 
                 if (hoveredNode && hoveredNode.type === 'sensor') {
                     document.body.style.cursor = 'pointer';
@@ -2572,6 +2898,13 @@
             
             // If clicking a company node, zoom to it and show all devices
             if (node.type === 'company') {
+                // Special handling for Earth - toggle grid
+                if (node.isEarth && gridHelper) {
+                    gridHelper.visible = !gridHelper.visible;
+                    console.log('🌍 Earth clicked - grid ' + (gridHelper.visible ? 'shown' : 'hidden'));
+                    return;
+                }
+                
                 // Close any open sensor popup and reset state
                 closeSensorPopup();
                 console.log('🏢 Company clicked - popup closed, state reset');
