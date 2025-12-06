@@ -574,6 +574,10 @@
         let gridHelper = null; // Reference to the grid helper for toggle
         let particleSystems = []; // Array to hold all particle systems
         
+        // Afterburner control
+        let afterburnersEnabled = true;
+        let afterburnerTimer = null;
+        
         // Texture cache to avoid recreating textures
         const cachedTextures = {
             panelTexture: null,
@@ -1136,7 +1140,42 @@
 
             // Keyboard movement setup
             const keys = {};
-            window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+            window.addEventListener('keydown', (e) => { 
+                keys[e.key.toLowerCase()] = true; 
+                
+                // B key toggles afterburners
+                if (e.key.toLowerCase() === 'b') {
+                    afterburnersEnabled = !afterburnersEnabled;
+                    console.log(`🔥 Afterburners ${afterburnersEnabled ? 'ENABLED' : 'DISABLED'}`);
+                    
+                    // Show/hide all afterburner particle systems and core lights
+                    nodes.forEach(node => {
+                        if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
+                            node.mesh.userData.engines.forEach(engine => {
+                                if (engine.particleSystem) engine.particleSystem.visible = afterburnersEnabled;
+                                if (engine.coreLight) engine.coreLight.visible = afterburnersEnabled;
+                            });
+                        }
+                    });
+                    
+                    // Reset 10-second timer if enabled
+                    if (afterburnersEnabled) {
+                        if (afterburnerTimer) clearTimeout(afterburnerTimer);
+                        afterburnerTimer = setTimeout(() => {
+                            afterburnersEnabled = false;
+                            console.log('🔥 Afterburners AUTO-DISABLED after 10 seconds');
+                            nodes.forEach(node => {
+                                if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
+                                    node.mesh.userData.engines.forEach(engine => {
+                                        if (engine.particleSystem) engine.particleSystem.visible = false;
+                                        if (engine.coreLight) engine.coreLight.visible = false;
+                                    });
+                                }
+                            });
+                        }, 10000);
+                    }
+                }
+            });
             window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
             // Event listeners
@@ -1423,6 +1462,20 @@
             
             console.log(`✅ Created ${nodes.length} total nodes`);
             
+            // Start 10-second timer to auto-disable afterburners
+            afterburnerTimer = setTimeout(() => {
+                afterburnersEnabled = false;
+                console.log('🔥 Afterburners AUTO-DISABLED after 10 seconds');
+                nodes.forEach(node => {
+                    if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
+                        node.mesh.userData.engines.forEach(engine => {
+                            if (engine.particleSystem) engine.particleSystem.visible = false;
+                            if (engine.coreLight) engine.coreLight.visible = false;
+                        });
+                    }
+                });
+            }, 10000);
+            
             // Calculate actual center of mass to verify positioning
             let sumX = 0, sumZ = 0, numCompanies = 0;
             nodes.forEach(node => {
@@ -1447,6 +1500,36 @@
         }
         
         // Helper function to create devices for a company
+        // Helper function to check if device position intersects mothership
+        function checkMothershipCollision(deviceX, deviceY, deviceZ, mothershipX, mothershipY, mothershipZ) {
+            // Mothership dimensions (after scaling): width ~14, height ~6, length ~24
+            const mothershipSize = 12 * nodeSizeMultiplier;
+            const mothershipWidth = mothershipSize * 0.6 * 0.6; // ~7.2 radius
+            const mothershipHeight = mothershipSize * 0.6 * 0.25; // ~1.8 radius
+            const mothershipLength = mothershipSize * 2; // ~24 length
+            
+            // Device dimensions (after scaling): width ~4.8, height ~1.5, length ~8
+            const deviceSize = nodeSizeMultiplier * 2;
+            const deviceWidth = deviceSize * 0.8 * 0.6; // ~2.4 radius
+            const deviceHeight = deviceSize * 0.8 * 0.25; // ~0.75 radius
+            const deviceLength = deviceSize * 2; // ~8 length
+            
+            // Calculate distance between ship centers
+            const dx = Math.abs(deviceX - mothershipX);
+            const dy = Math.abs(deviceY - mothershipY);
+            const dz = Math.abs(deviceZ - mothershipZ);
+            
+            // Add safety margin (50% larger collision box)
+            const safetyMargin = 1.5;
+            
+            // Check if bounding boxes intersect (ellipsoid collision)
+            const xOverlap = dx < (mothershipWidth + deviceWidth) * safetyMargin;
+            const yOverlap = dy < (mothershipHeight + deviceHeight) * safetyMargin;
+            const zOverlap = dz < (mothershipLength/2 + deviceLength/2) * safetyMargin;
+            
+            return xOverlap && yOverlap && zOverlap;
+        }
+        
         function createDevicesForCompany(companyNode, devices, x, y, z) {
                 // COLLISION AVOIDANCE: Device orbit radius ensures spacing
                 // Device width ~4 + sensor orbit 6*2 = ~16 units needed per device
@@ -1497,6 +1580,12 @@
                     const dx = baseX + rotatedOffsetX;
                     const dz = baseZ + rotatedOffsetZ;
                     const dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
+
+                    // Check for mothership collision - skip this device if it would intersect
+                    if (checkMothershipCollision(dx, dy, dz, x, y, z)) {
+                        console.log(`⚠️ Skipping device ${device.name} - would intersect mothership`);
+                        return; // Skip this device
+                    }
 
                     const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
                     
@@ -1981,27 +2070,33 @@
             hull.material.map = cachedTextures.panelTexture;
             hull.material.needsUpdate = true;
             
-            // Add command bridge windows (glowing)
-            const windowGeom = new THREE.BoxGeometry(6, 3, 2);
-            const windowMaterial = new THREE.MeshBasicMaterial({
-                color: 0x66ddff,
+            // Add integrated bridge viewport (flush with hull)
+            const viewportGeom = new THREE.PlaneGeometry(8, 1.5);
+            const viewportMaterial = new THREE.MeshBasicMaterial({
+                color: 0x4488ff,
                 transparent: true,
-                opacity: 0.8
+                opacity: 0.6,
+                emissive: 0x3366ff,
+                emissiveIntensity: 0.3
             });
-            const bridgeWindow = new THREE.Mesh(windowGeom, windowMaterial);
-            bridgeWindow.position.set(0, 8, 6);
-            mothershipGroup.add(bridgeWindow);
+            const bridgeViewport = new THREE.Mesh(viewportGeom, viewportMaterial);
+            bridgeViewport.position.set(0, 0, 12); // Positioned at front tip, flush
+            mothershipGroup.add(bridgeViewport);
             
-            // Add side windows
-            const sideWindow1 = bridgeWindow.clone();
-            sideWindow1.position.set(5, 5, 4);
-            sideWindow1.rotation.y = Math.PI / 4;
-            mothershipGroup.add(sideWindow1);
+            // Add navigation lights at wing edges (small, integrated)
+            const navLightGeom = new THREE.SphereGeometry(0.3, 8, 8);
+            const navLightMaterial = new THREE.MeshBasicMaterial({
+                color: 0x4488ff,
+                emissive: 0x3366ff,
+                emissiveIntensity: 1.0
+            });
+            const navLight1 = new THREE.Mesh(navLightGeom, navLightMaterial);
+            navLight1.position.set(7, 0, 8);
+            mothershipGroup.add(navLight1);
             
-            const sideWindow2 = bridgeWindow.clone();
-            sideWindow2.position.set(-5, 5, 4);
-            sideWindow2.rotation.y = -Math.PI / 4;
-            mothershipGroup.add(sideWindow2);
+            const navLight2 = navLight1.clone();
+            navLight2.position.set(-7, 0, 8);
+            mothershipGroup.add(navLight2);
             
             // Add engine glow rings at base
             const ringGeom = new THREE.TorusGeometry(8, 0.5, 8, 32);
@@ -2033,7 +2128,7 @@
             mothershipGroup.add(dish);
             
             // Create powerful mothership afterburner array using shared function
-            const mothershipEngineCount = Math.floor(Math.random() * 3) + 4; // 4-6 engines
+            const mothershipEngineCount = Math.floor(Math.random() * 3) + 1; // 1-3 engines
             const mothershipEngines = [];
             
             for (let i = 0; i < mothershipEngineCount; i++) {
@@ -2214,30 +2309,36 @@
             const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
             shipGroup.add(ship);
             
-            // Add cockpit window
-            const cockpitGeom = new THREE.SphereGeometry(1, 8, 8);
-            const cockpitMaterial = new THREE.MeshBasicMaterial({
-                color: 0x4488ff,
+            // Add integrated cockpit canopy (flush with hull)
+            const canopyGeom = new THREE.PlaneGeometry(2, 0.8);
+            const canopyMaterial = new THREE.MeshBasicMaterial({
+                color: 0x3366ff,
                 transparent: true,
-                opacity: 0.7
+                opacity: 0.5,
+                emissive: 0x2255dd,
+                emissiveIntensity: 0.2
             });
-            const cockpit = new THREE.Mesh(cockpitGeom, cockpitMaterial);
-            cockpit.position.set(0, 3, 1);
-            shipGroup.add(cockpit);
+            const canopy = new THREE.Mesh(canopyGeom, canopyMaterial);
+            canopy.position.set(0, 0, 4); // Flush at front of ship
+            shipGroup.add(canopy);
             
-            // Add wing stripes/markings
-            const stripeGeom = new THREE.BoxGeometry(0.5, 0.1, 4);
-            const stripeMaterial = new THREE.MeshBasicMaterial({
+            // Add integrated hull panel accents (status indicators)
+            const panelGeom = new THREE.PlaneGeometry(0.3, 3);
+            const panelMaterial = new THREE.MeshBasicMaterial({
                 color: status === 5 || status === 'down' ? 0xff0000 : 
-                       status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x00ff00
+                       status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x00ff00,
+                emissive: status === 5 || status === 'down' ? 0xff0000 : 
+                       status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x00ff00,
+                emissiveIntensity: 0.5
             });
-            const stripe1 = new THREE.Mesh(stripeGeom, stripeMaterial);
-            stripe1.position.set(2, 0, 0);
-            shipGroup.add(stripe1);
+            const panel1 = new THREE.Mesh(panelGeom, panelMaterial);
+            panel1.position.set(3, 0, 1); // Flush on side hull
+            panel1.rotation.y = Math.PI / 2;
+            shipGroup.add(panel1);
             
-            const stripe2 = new THREE.Mesh(stripeGeom, stripeMaterial);
-            stripe2.position.set(-2, 0, 0);
-            shipGroup.add(stripe2);
+            const panel2 = panel1.clone();
+            panel2.position.set(-3, 0, 1);
+            shipGroup.add(panel2);
             
             // Create realistic particle-based afterburner jets using shared function
             const engineCount = Math.floor(Math.random() * 4) + 3; // 3-6 engines per ship
