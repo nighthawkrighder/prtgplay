@@ -672,7 +672,8 @@ router.get('/devices/:id/metadata', async (req, res) => {
     });
 
   } catch (error) {
-    logger.error(`Error fetching device metadata for ${req.params.id}:`, error);
+    const deviceId = req?.params?.id || 'unknown';
+    logger.error(`Error fetching device metadata for ${deviceId}:`, error);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to fetch device metadata' });
     }

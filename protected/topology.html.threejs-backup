@@ -514,10 +514,9 @@
                 <label class="control-label">Filter</label>
                 <select class="control-input" id="filter-status" onchange="filterByStatus(this.value)">
                     <option value="all">All Devices</option>
-                    <option value="alarms">⚠️ With Alarms Only</option>
-                    <option value="critical">🔴 Critical Only</option>
-                    <option value="warning">🟡 Warning Only</option>
-                    <option value="up">🟢 Healthy Only</option>
+                    <option value="up">Online Only</option>
+                    <option value="warning">Warning Only</option>
+                    <option value="down">Offline Only</option>
                 </select>
             </div>
 
@@ -549,14 +548,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        // Debug: Check if Three.js loaded
-        console.log('🔍 THREE.js loaded?', typeof THREE !== 'undefined');
-        if (typeof THREE !== 'undefined') {
-            console.log('✅ THREE.js version:', THREE.REVISION);
-        } else {
-            console.error('❌ THREE.js failed to load!');
-        }
-        
         // Global variables
         let scene, camera, renderer, controls;
         let nodes = [];
@@ -570,7 +561,6 @@
         let ws = null;
         let reconnectInterval = null;
         let deviceNodeMap = new Map(); // Map device objects to their 3D nodes
-        let telemetryBeams = []; // Global array for telemetry beam management
 
         // Shared geometry and material cache for performance
         const geometryCache = {
@@ -614,9 +604,6 @@
             
             // Sensor escort: Tiny sphere
             geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
-            
-            console.log('🔹 Mothership geometry type:', geometryCache.mothership.type, 'parameters:', geometryCache.mothership.parameters);
-            console.log('🔹 Spaceship geometry type:', geometryCache.spaceship.type, 'parameters:', geometryCache.spaceship.parameters);
             
             // Status indicator circle
             geometryCache.circle = new THREE.CircleGeometry(deviceSize * 0.3, 32);
@@ -816,21 +803,17 @@
                     // Determine new box color based on status (metallic gray shades)
                     let deviceColor;
                     if (statusCode === 5 || statusCode === 'down') {
-                        deviceColor = 0x8A4A4A; // Red-tinted gray for down devices
+                        deviceColor = 0x4A4A4A; // Dark gray for down devices
                     } else if (statusCode === 4 || statusCode === 10 || statusCode === 1 || statusCode === 'warning') {
-                        deviceColor = 0x8A8A4A; // Yellow-tinted gray for warning
+                        deviceColor = 0x5A5A5A; // Medium gray for warning
                     } else if (statusCode === 3 || statusCode === 'up') {
-                        deviceColor = 0x9AACB4; // Light blue-gray for healthy devices
+                        deviceColor = 0x6B6B6B; // Light gray for healthy devices
                     } else {
-                        deviceColor = 0x9AACB4; // Default light blue-gray
+                        deviceColor = 0x6B6B6B; // Default light gray
                     }
                     
-                    // Update box material color and emissive
+                    // Update box material color
                     box.material.color.setHex(deviceColor);
-                    if (box.material.emissive) {
-                        box.material.emissive.setHex(deviceColor);
-                        box.material.emissiveIntensity = 0.5;
-                    }
                     box.material.needsUpdate = true;
                     
                     // Update or create status circle
@@ -847,7 +830,7 @@
                             } else {
                                 // Create new circle
                                 node.statusCircle = new THREE.Mesh(
-                                    geometryCache.circle.clone(),
+                                    geometryCache.circle,
                                     materialCache.statusCircles[statusType]
                                 );
                                 const pos = box.position;
@@ -892,62 +875,6 @@
             animate();
         }
 
-        // Telemetry beam system - global functions
-        function createTelemetryBeam(startPos, endPos) {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array([
-                startPos.x, startPos.y, startPos.z,
-                endPos.x, endPos.y, endPos.z
-            ]);
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const beamMaterial = new THREE.LineBasicMaterial({
-                color: 0x00ffff,
-                transparent: true,
-                opacity: 0.6,
-                linewidth: 2
-            });
-            
-            const beam = new THREE.Line(geometry, beamMaterial);
-            beam.userData.startTime = Date.now();
-            beam.userData.duration = 800; // 800ms beam lifetime
-            beam.userData.startPos = startPos.clone();
-            beam.userData.endPos = endPos.clone();
-            scene.add(beam);
-            telemetryBeams.push(beam);
-            return beam;
-        }
-        
-        function updateTelemetryBeams() {
-            const now = Date.now();
-            for (let i = telemetryBeams.length - 1; i >= 0; i--) {
-                const beam = telemetryBeams[i];
-                const elapsed = now - beam.userData.startTime;
-                const progress = elapsed / beam.userData.duration;
-                
-                if (progress >= 1) {
-                    // Remove expired beam
-                    scene.remove(beam);
-                    beam.geometry.dispose();
-                    telemetryBeams.splice(i, 1);
-                } else {
-                    // Fade out beam
-                    beam.material.opacity = 0.6 * (1 - progress);
-                }
-            }
-        }
-        
-        function fireTelemetryBeam() {
-            // Pick a random company mothership
-            const companies = nodes.filter(n => n.type === 'company' && !n.isEarth && n.mesh);
-            if (companies.length > 0) {
-                const randomCompany = companies[Math.floor(Math.random() * companies.length)];
-                const startPos = randomCompany.mesh.position.clone();
-                const endPos = new THREE.Vector3(0, 0, 0); // Earth center
-                createTelemetryBeam(startPos, endPos);
-            }
-        }
-
         // Initialize
         async function init() {
             const loadingText = document.querySelector('.loading-text');
@@ -988,16 +915,16 @@
                 0.1,
                 5000  // Increased from 1000 to render at much greater distances
             );
-            // Position camera at an angle to see motherships and Earth from side view
-            // Angled view: back, up, and to the side for dramatic perspective
-            camera.position.set(800, 500, 600);
+            // Position camera directly above galaxy center looking straight down
+            // Height increased to accommodate larger circles with many companies
+            camera.position.set(0, 600, 0);
 
             // Setup renderer
             const canvas = document.getElementById('canvas');
             renderer = new THREE.WebGLRenderer({ 
                 canvas: canvas,
                 antialias: true,
-                alpha: true
+                alpha: true 
             });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
@@ -1020,27 +947,13 @@
             controls.screenSpacePanning = false;  // Keep panning in world space
             controls.keyPanSpeed = 10;
 
-            // Lighting system
-            // Increased lighting for MeshStandardMaterial sensors
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
             directionalLight.position.set(50, 100, 50);
             scene.add(directionalLight);
-            
-            // Fire telemetry beams every 3 seconds from random motherships to Earth
-            setInterval(() => {
-                const beamCount = Math.floor(Math.random() * 3) + 1; // 1-3 beams at once
-                for (let i = 0; i < beamCount; i++) {
-                    setTimeout(() => fireTelemetryBeam(), i * 200); // Stagger slightly
-                }
-            }, 3000); // Every 3 seconds
-            
-            // Add secondary light for better sensor visibility
-            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight2.position.set(-50, 80, -50);
-            scene.add(directionalLight2);
 
             const pointLight = new THREE.PointLight(0x667eea, 0.5, 200);
             pointLight.position.set(0, 50, 0);
@@ -1174,17 +1087,8 @@
                 
                 // Group devices by company
                 const companies = {};
-                let unknownCount = 0;
                 devices.forEach((device, index) => {
-                    // Try multiple fields to find company name
-                    const company = device.companyName || 
-                                   device.metadata?.company_name || 
-                                   device.metadata?.company_code ||
-                                   device.companyCode || 
-                                   'Unknown';
-                    
-                    if (company === 'Unknown') unknownCount++;
-                    
+                    const company = device.companyName || device.metadata?.company_name || device.companyCode || 'Unknown';
                     if (!companies[company]) {
                         companies[company] = {
                             name: company,
@@ -1196,10 +1100,6 @@
                         console.log(`[GROUP 2] Device ${index}: ${device.name} -> Company: ${company}`);
                     }
                 });
-                
-                if (unknownCount > 0) {
-                    console.warn(`⚠️ ${unknownCount} devices have no company assignment (grouped as 'Unknown')`);
-                }
                 
                 const companyCount = Object.keys(companies).length;
                 console.log(`✅ [GROUP 3] Grouped into ${companyCount} companies:`, Object.keys(companies));
@@ -1241,15 +1141,6 @@
                 setTimeout(() => {
                     document.getElementById('loading').style.display = 'none';
                     console.log('✅ Loading screen hidden');
-                    
-                    // Auto-expand all sensors after load (unless openDevice param exists)
-                    const urlParams = new URLSearchParams(window.location.search);
-                    if (!urlParams.get('openDevice')) {
-                        console.log('🔄 Auto-expanding all sensors...');
-                        setTimeout(() => {
-                            expandAll();
-                        }, 500);
-                    }
                 }, 300);
 
             } catch (error) {
@@ -1322,15 +1213,16 @@
             // Store companies in networkData for WebSocket updates
             networkData.companies = companyNames.map(name => companies[name]);
 
-            // Position all companies in a circle around the Earth center
             companyNames.forEach((companyName, index) => {
-                const angle = (index / companyNames.length) * Math.PI * 2;
+                // Position companies in a circle at the edge (all at same radius)
+                const angle = (index / companyCount) * Math.PI * 2;
                 const x = Math.cos(angle) * radius;
                 const z = Math.sin(angle) * radius;
-                const y = 0;
+                const y = 0; // Keep all at same height
 
                 console.log(`  🏢 ${companyName} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) - radius: ${radius.toFixed(1)}`);
 
+                // Create company node at edge of galaxy
                 const companyNode = createCompanyNode(companyName, x, y, z);
                 nodes.push(companyNode);
 
@@ -1343,43 +1235,13 @@
                     return;
                 }
                 
-                createDevicesForCompany(companyNode, devices, x, y, z);
-            });
-            
-            console.log(`✅ Created ${nodes.length} total nodes`);
-            
-            // Calculate actual center of mass to verify positioning
-            let sumX = 0, sumZ = 0, numCompanies = 0;
-            nodes.forEach(node => {
-                if (node.type === 'company' && node.mesh) {
-                    sumX += node.mesh.position.x;
-                    sumZ += node.mesh.position.z;
-                    numCompanies++;
-                }
-            });
-            if (numCompanies > 0) {
-                const centerX = sumX / numCompanies;
-                const centerZ = sumZ / numCompanies;
-                console.log(`📍 Galaxy center of mass: (${centerX.toFixed(2)}, 0, ${centerZ.toFixed(2)})`);
-                console.log(`📍 Expected center: (0, 0, 0)`);
-            }
-            
-            // Create Earth at center as LANAIR SOC visual centerpiece (after all companies so it renders on top)
-            console.log('🌍 Creating Earth planet at center (0, 0, 0) as LANAIR SOC');
-            const earthNode = createEarthNode('LANAIR SOC', 0, 0, 0);
-            nodes.push(earthNode);
-            console.log(`✅ Earth node created and added. Total nodes now: ${nodes.length}`);
-        }
-        
-        // Helper function to create devices for a company
-        function createDevicesForCompany(companyNode, devices, x, y, z) {
                 // COLLISION AVOIDANCE: Device orbit radius ensures spacing
                 // Device width ~4 + sensor orbit 6*2 = ~16 units needed per device
                 // At radius 35, circumference = 220 units = 13.75 units per device (10 devices)
                 // Increased to 35 to ensure adequate spacing with sensors
                 const deviceRadius = 35 * spreadFactor;  // Increased from 25 to prevent overlap
                 
-                console.log(`    💻 ${devices.length} devices for ${companyNode.name}`);
+                console.log(`    💻 ${devices.length} devices for ${companyName}`);
                 
                 // Arrange devices serially along radial spokes
                 const devicesPerSpoke = Math.ceil(Math.sqrt(devices.length)); // Distribute evenly
@@ -1439,16 +1301,32 @@
                     // Create sensor nodes (collapsed by default)
                     if (device.sensorStats && device.sensorStats.total > 0) {
                         const sensorCount = Math.min(device.sensorStats.total, 10); // Limit for performance
-                        const sensors = device.sensors || [];
                         for (let i = 0; i < sensorCount; i++) {
-                            // Pass individual sensor data if available, otherwise use device as fallback
-                            const sensorData = sensors[i] || device;
-                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode, i, sensorCount, sensorData);
+                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode, i, sensorCount);
                             sensorNode.visible = false; // Hidden by default
                             nodes.push(sensorNode);
                         }
                     }
                 });
+            });
+            
+            console.log(`✅ Created ${nodes.length} total nodes`);
+            
+            // Calculate actual center of mass to verify positioning
+            let sumX = 0, sumZ = 0, numCompanies = 0;
+            nodes.forEach(node => {
+                if (node.type === 'company' && node.mesh) {
+                    sumX += node.mesh.position.x;
+                    sumZ += node.mesh.position.z;
+                    numCompanies++;
+                }
+            });
+            if (numCompanies > 0) {
+                const centerX = sumX / numCompanies;
+                const centerZ = sumZ / numCompanies;
+                console.log(`📍 Galaxy center of mass: (${centerX.toFixed(2)}, 0, ${centerZ.toFixed(2)})`);
+                console.log(`📍 Expected center: (0, 0, 0)`);
+            }
         }
 
         // Create icon sprite for nodes
@@ -1571,187 +1449,7 @@
         }
 
         // Create company node (mothership)
-        // Create Earth node for LANAIR Group at center with realistic continents and oceans
-        function createEarthNode(name, x, y, z) {
-            console.log(`🌍 Creating Earth planet for ${name} at (${x}, ${y}, ${z})`);
-            
-            // Create Earth sphere (much larger to be visible as central planet)
-            const earthRadius = 40;
-            const earthGeometry = new THREE.SphereGeometry(earthRadius, 64, 64);
-            console.log('  📐 Earth geometry created:', earthGeometry);
-            
-            // Create realistic Earth texture with continents and oceans
-            const canvas = document.createElement('canvas');
-            canvas.width = 2048;
-            canvas.height = 1024;
-            const ctx = canvas.getContext('2d');
-            
-            // Ocean base - deep blue
-            ctx.fillStyle = '#1a4d7a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Add subtle ocean depth variations
-            const oceanGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            oceanGradient.addColorStop(0, 'rgba(20, 60, 100, 0.3)');
-            oceanGradient.addColorStop(0.5, 'rgba(26, 77, 122, 0)');
-            oceanGradient.addColorStop(1, 'rgba(15, 50, 85, 0.4)');
-            ctx.fillStyle = oceanGradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw simplified continents (approximate shapes for visual effect)
-            ctx.fillStyle = '#2d5a2d'; // Land green
-            
-            // North America
-            ctx.beginPath();
-            ctx.ellipse(400, 350, 180, 200, -0.2, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // South America
-            ctx.beginPath();
-            ctx.ellipse(500, 650, 100, 180, 0.3, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Europe
-            ctx.beginPath();
-            ctx.ellipse(1100, 300, 120, 100, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Africa
-            ctx.beginPath();
-            ctx.ellipse(1150, 500, 150, 220, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Asia
-            ctx.beginPath();
-            ctx.ellipse(1500, 350, 300, 200, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Australia
-            ctx.beginPath();
-            ctx.ellipse(1700, 700, 120, 100, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Add mountain ranges (darker green)
-            ctx.fillStyle = '#1a3d1a';
-            ctx.globalAlpha = 0.5;
-            ctx.beginPath();
-            ctx.ellipse(1400, 380, 180, 40, 0.5, 0, Math.PI * 2); // Himalayas
-            ctx.fill();
-            ctx.beginPath();
-            ctx.ellipse(420, 380, 100, 30, -0.5, 0, Math.PI * 2); // Rockies
-            ctx.fill();
-            ctx.globalAlpha = 1.0;
-            
-            // Add polar ice caps
-            ctx.fillStyle = '#e8f4f8';
-            ctx.beginPath();
-            ctx.ellipse(1024, 50, 600, 80, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.ellipse(1024, 974, 600, 80, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Create texture from canvas
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.needsUpdate = true;
-            
-            // Create Earth material with realistic texture
-            const earthMaterial = new THREE.MeshPhongMaterial({
-                map: texture,
-                specular: 0x333333,   // Subtle ocean reflection
-                shininess: 15,
-                emissive: 0x112244,   // Slight blue glow
-                emissiveIntensity: 0.2
-            });
-            console.log('  🎨 Earth material with realistic continents and oceans created');
-            
-            const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
-            earthMesh.position.set(x, y, z);
-            console.log('  🌐 Earth mesh created at:', earthMesh.position);
-            
-            // Add atmospheric glow effect
-            const glowGeometry = new THREE.SphereGeometry(earthRadius * 1.15, 64, 64);
-            const glowMaterial = new THREE.MeshBasicMaterial({
-                color: 0x4499ff,
-                transparent: true,
-                opacity: 0.25,
-                side: THREE.BackSide
-            });
-            const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-            glowMesh.position.set(x, y, z);
-            scene.add(glowMesh);
-            console.log('  ✨ Glow mesh added to scene');
-            
-            scene.add(earthMesh);
-            console.log('  ✅ Earth planet added to scene. Total scene children:', scene.children.length);
-            
-            // Add "LANAIR SOC" label
-            const nameLabel = createEarthLabel('LANAIR SOC');
-            nameLabel.position.set(x, y + earthRadius + 15, z);
-            scene.add(nameLabel);
-            
-            return {
-                type: 'company',
-                name: name,
-                mesh: earthMesh,
-                glowMesh: glowMesh,
-                label: nameLabel,
-                data: { name: name },
-                connections: [],
-                expanded: false,
-                isEarth: true,
-                earthRadius: earthRadius
-            };
-        }
-        
-        // Create Earth label with distinctive styling
-        function createEarthLabel(text) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 128;
-            const ctx = canvas.getContext('2d');
-            
-            // Clear canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw text with glow effect
-            ctx.font = 'bold 48px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            
-            // Outer glow
-            ctx.shadowColor = '#4488ff';
-            ctx.shadowBlur = 20;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-            
-            // Inner text
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-            
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.needsUpdate = true;
-            
-            const material = new THREE.SpriteMaterial({
-                map: texture,
-                transparent: true,
-                opacity: 1.0
-            });
-            
-            const sprite = new THREE.Sprite(material);
-            sprite.scale.set(40, 10, 1);
-            
-            return sprite;
-        }
-        
         function createCompanyNode(name, x, y, z) {
-            // Special handling for LANAIR - create Earth at center (case-insensitive)
-            if (name.toLowerCase().includes('lanair')) {
-                console.log(`🌍 createCompanyNode detected LANAIR: "${name}" - creating Earth`);
-                return createEarthNode(name, 0, 0, 0);
-            }
-            
             // Mothership colors - metallic fleet colors
             const shipColors = [
                 0x4A90E2, // Blue fleet
@@ -1765,25 +1463,21 @@
             ];
             const shipColor = shipColors[Math.floor(Math.random() * shipColors.length)];
             
-            console.log(`🚀 Creating mothership for ${name} at (${x}, ${y}, ${z})`);
-            
             // Create mothership geometry (large cone pointing up)
             const mothershipGeom = geometryCache.mothership.clone();
-            console.log('  ✅ Geometry cloned:', mothershipGeom);
             
-            // Enhanced metallic material with realistic reflections
+            // Metallic material with emissive glow
             const material = new THREE.MeshPhongMaterial({
                 color: shipColor,
                 emissive: shipColor,
-                emissiveIntensity: 0.4,
+                emissiveIntensity: 0.3,
                 specular: 0xffffff,
-                shininess: 120,
-                flatShading: false
+                shininess: 100,
+                flatShading: true
             });
             
             const mothership = new THREE.Mesh(mothershipGeom, material);
             mothership.position.set(x, y, z);
-            console.log('  ✅ Mothership mesh created:', mothership.geometry.type, 'position:', mothership.position);
             
             // Calculate target orientation toward galaxy center
             const direction = new THREE.Vector3(0 - x, 0 - y, 0 - z);
@@ -1797,7 +1491,6 @@
             mothership.rotation.y = Math.random() * Math.PI * 2;
             
             scene.add(mothership);
-            console.log('  ✅ Mothership added to scene. Scene children count:', scene.children.length);
             
             // Add company name label as floating text sprite
             const nameLabel = createCompanyNameLabel(name);
@@ -1886,30 +1579,28 @@
                 icon = '\uf02f'; // print icon
             }
             
-            // Realistic rack equipment colors based on status (brighter for visibility)
+            // Realistic rack equipment colors based on status
             let deviceColor;
             if (status === 5 || status === 'down') {
-                deviceColor = 0x8A4A4A; // Red-tinted gray for down devices
+                deviceColor = 0x4A4A4A; // Dark gray for down devices
             } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
-                deviceColor = 0x8A8A4A; // Yellow-tinted gray for warning
+                deviceColor = 0x5A5A5A; // Medium gray for warning
             } else {
-                deviceColor = 0x9AACB4; // Light blue-gray for healthy devices
+                deviceColor = 0x6B6B6B; // Light gray for healthy devices
             }
             
-            // Enhanced metallic material for device ships (increased emissive for visibility)
+            // Create small spaceship material with metallic appearance
             const material = new THREE.MeshPhongMaterial({
                 color: deviceColor,
                 emissive: deviceColor,
-                emissiveIntensity: 0.5, // Increased from 0.3 for better visibility
-                specular: 0xcccccc,
-                shininess: 90,
-                flatShading: false,
-                transparent: false,
-                opacity: 1.0
+                emissiveIntensity: 0.2,
+                specular: 0x888888,
+                shininess: 80,
+                flatShading: true
             });
             
-            // Clone spaceship geometry (each mesh needs its own geometry)
-            const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
+            // Use shared spaceship geometry (small cone)
+            const ship = new THREE.Mesh(geometryCache.spaceship, material);
             ship.position.set(x, y, z);
             
             // Calculate target orientation toward galaxy center
@@ -1930,7 +1621,7 @@
             if (color === COLORS.deviceWarning || color === COLORS.deviceDown) {
                 const statusType = color === COLORS.deviceWarning ? 'warning' : 'down';
                 statusCircle = new THREE.Mesh(
-                    geometryCache.circle.clone(), 
+                    geometryCache.circle, 
                     materialCache.statusCircles[statusType]
                 );
                 const shipSize = nodeSizeMultiplier * 2;
@@ -1952,7 +1643,6 @@
                 parent: parent,
                 connections: [],
                 expanded: false,
-                visible: true,  // Device is visible in scene
                 targetQuaternion: targetQuaternion,
                 rotationComplete: false,
                 rotationProgress: 0
@@ -1979,40 +1669,18 @@
         }
 
         // Create sensor node
-        function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors, sensorData) {
-            // Use individual sensor status if available, otherwise fall back to device status
-            const sensorStatus = sensorData?.status || device.status;
-            const isDown = sensorStatus === 5;
-            const isWarning = sensorStatus === 4;
-            const isNormal = sensorStatus === 3;
-            let sensorColor = COLORS.sensor; // Default purple for unusual/paused
-            
-            if (isDown) {
-                sensorColor = 0xff4444; // Bright red for down sensors
-            } else if (isWarning) {
-                sensorColor = 0xffaa44; // Bright orange for warning sensors
-            } else if (isNormal) {
-                sensorColor = COLORS.sensor; // Purple for normal/unusual/paused
-            }
-            
+        function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors) {
             // Tiny sphere for sensor (0.3x size)
-            // Use MeshStandardMaterial to support emissive properties for all sensors
-            const sensorMaterial = new THREE.MeshStandardMaterial({ 
-                color: sensorColor,
+            const sensorMaterial = new THREE.MeshBasicMaterial({ 
+                color: COLORS.sensor,
                 transparent: true,
-                opacity: isDown || isWarning ? 1.0 : 0.9, // Full opacity for alarms, high for normal
-                emissive: sensorColor, // ALL sensors glow with their color
-                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0.4), // Purple sensors also glow (0.4)
-                metalness: 0.3,
-                roughness: 0.7
+                opacity: 0.8
             });
-            const sphere = new THREE.Mesh(geometryCache.sensorSphere.clone(), sensorMaterial);
+            const sphere = new THREE.Mesh(geometryCache.sensorSphere, sensorMaterial);
             
             // Evenly space sensors around device like beads on a necklace
             const angle = (sensorIndex / totalSensors) * Math.PI * 2;
-            // Alarm sensors (red/yellow) positioned closer to front (smaller orbit)
-            // Normal sensors (purple) positioned at normal distance
-            const distance = (isDown || isWarning) ? 4 * spreadFactor : 6 * spreadFactor;
+            const distance = 6 * spreadFactor;  // Orbit distance from device
             sphere.position.set(
                 x + Math.cos(angle) * distance,
                 y,
@@ -2022,16 +1690,13 @@
 
             const node = {
                 type: 'sensor',
-                name: sensorData?.name || device.name || 'Sensor',  // Use sensor name if available
+                name: device.name || 'Sensor',  // Use device name for sensor identification
                 mesh: sphere,
                 label: null,
-                data: device,  // Keep device reference
-                sensorData: sensorData,  // Store individual sensor data
-                sensorIndex: sensorIndex,  // Store sensor index
+                data: device,
                 parent: parent,
                 connections: [],
                 visible: false,
-                isAlarmSensor: isDown || isWarning,  // Track if this is an alarm sensor
                 orbit: {
                     center: { x: x, y: y, z: z },  // Device position (will be updated)
                     radius: distance,
@@ -2140,17 +1805,6 @@
 
             // Animate devices first, then sensors (so sensors follow updated device positions)
             
-            // PASS 0: Rotate Earth if present
-            const earthNode = nodes.find(node => node.type === 'company' && node.isEarth && node.mesh);
-            if (earthNode) {
-                // Rotate Earth slowly on its axis
-                earthNode.mesh.rotation.y += 0.005; // Increased from 0.001 for more visible rotation
-                // Also rotate the glow
-                if (earthNode.glowMesh) {
-                    earthNode.glowMesh.rotation.y += 0.005;
-                }
-            }
-            
             // PASS 1: Update device positions (static on spokes with status effects)
             nodes.forEach(node => {
                 if (node.type === 'device' && node.mesh && node.spoke) {
@@ -2225,28 +1879,10 @@
             
             // Note: Ships rotate to orient toward center, then lock in place
             
-            // Update telemetry beams
-            updateTelemetryBeams();
-            
             // PASS 2: Update sensor positions (after devices have moved)
             // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
             nodes.forEach(node => {
                 if (node.type === 'sensor' && node.mesh && node.orbit && node.parent && node.parent.mesh) {
-                    // Only animate sensors if parent device is visible
-                    if (!node.parent.mesh.visible || !node.parent.visible) {
-                        node.mesh.visible = false;
-                        return;
-                    }
-                    
-                    // Only show sensor if node.visible is true (controlled by expand/collapse)
-                    if (!node.visible) {
-                        node.mesh.visible = false;
-                        return;
-                    }
-                    
-                    // If we reach here, sensor should be visible
-                    node.mesh.visible = true;
-                    
                     // Use parent device's CURRENT position (sensors follow devices)
                     const parentPos = node.parent.mesh.position;
                     
@@ -2257,30 +1893,11 @@
                     const x = Math.cos(node.orbit.currentAngle) * node.orbit.radius;
                     const z = Math.sin(node.orbit.currentAngle) * node.orbit.radius;
                     
-                    // Check if sensor is in alarm state (down=5, warning=4)
-                    const isAlarm = node.data.status === 5 || node.data.status === 4;
-                    
-                    // Add bouncing animation for alarm sensors
-                    let yOffset = 0;
-                    if (isAlarm) {
-                        // Bounce up and down with sin wave
-                        const bounceSpeed = node.data.status === 5 ? 3.0 : 2.0; // Faster bounce for critical
-                        const bounceHeight = node.data.status === 5 ? 2.5 : 1.5; // Higher bounce for critical
-                        yOffset = Math.sin(time * bounceSpeed) * bounceHeight;
-                        
-                        // Pulse the sensor size for more visibility
-                        const pulseScale = 1.0 + Math.sin(time * bounceSpeed * 2) * 0.3;
-                        node.mesh.scale.set(pulseScale, pulseScale, pulseScale);
-                    } else {
-                        // Reset scale for non-alarm sensors
-                        node.mesh.scale.set(1, 1, 1);
-                    }
-                    
                     // Set final position relative to parent device's CURRENT position
-                    // Keep Y constant for flat horizontal orbit, add bounce for alarms
+                    // Keep Y constant for flat horizontal orbit
                     node.mesh.position.set(
                         parentPos.x + x,
-                        parentPos.y + yOffset,
+                        parentPos.y,
                         parentPos.z + z
                     );
                 }
@@ -2298,10 +1915,6 @@
 
         // Canvas click
         function onCanvasClick(event) {
-            // Set flag to prevent click-outside listener from interfering
-            isProcessingCanvasClick = true;
-            console.log('🔒 Canvas click started - flag set');
-            
             const mouse = new THREE.Vector2();
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -2313,44 +1926,19 @@
             const intersects = raycaster.intersectObjects(meshes);
 
             if (intersects.length > 0) {
-                // Prioritize device/company clicks over sensor clicks
-                // If both are hit, prefer the device over its orbiting sensors
-                let clickedNode = null;
-                
-                // First, try to find a device or company in the intersections
-                for (const intersect of intersects) {
-                    const node = nodes.find(n => n.mesh === intersect.object);
-                    if (node && (node.type === 'device' || node.type === 'company')) {
-                        clickedNode = node;
-                        break;
-                    }
-                }
-                
-                // If no device/company found, fall back to first intersection (likely a sensor)
-                if (!clickedNode) {
-                    const clickedMesh = intersects[0].object;
-                    clickedNode = nodes.find(n => n.mesh === clickedMesh);
-                }
+                const clickedMesh = intersects[0].object;
+                const clickedNode = nodes.find(n => n.mesh === clickedMesh);
                 
                 if (clickedNode) {
                     selectNode(clickedNode);
                 }
             } else {
-                // Clicked on empty space - reset any rotated company and close popup
+                // Clicked on empty space - reset any rotated company
                 if (lastHoveredCompany) {
                     resetCompanyRotation(lastHoveredCompany);
                     lastHoveredCompany = null;
                 }
-                // Close sensor popup when clicking empty space
-                closeSensorPopup();
-                console.log('🌌 Clicked empty space - popup closed, state reset');
             }
-            
-            // Reset flag after processing (delay longer to ensure popup updates complete)
-            setTimeout(() => {
-                isProcessingCanvasClick = false;
-                console.log('🔓 Canvas click processing complete - flag reset');
-            }, 50); // Increased from 0 to 50ms to ensure popup fully updates
         }
 
         // Canvas mouse move
@@ -2478,18 +2066,8 @@
 
         // Select node
         function selectNode(node) {
-            console.log('🎯 selectNode called for:', node.name, '(type:', node.type + ')');
-            console.log('📌 Current selectedNode:', selectedNode ? selectedNode.name : 'null');
-            
-            // Deselect previous - restore original material (only if different node)
-            if (selectedNode && selectedNode !== node && selectedNode.mesh) {
-                console.log('❌ Deselecting previous node:', selectedNode.name);
-                // Restore original material/color
-                if (selectedNode.originalMaterial) {
-                    selectedNode.mesh.material = selectedNode.originalMaterial;
-                    selectedNode.originalMaterial = null;
-                }
-                
+            // Deselect previous
+            if (selectedNode && selectedNode.mesh) {
                 // Only reset scale for non-animated devices
                 const status = selectedNode.data?.status;
                 if (!status || (status !== 5 && status !== 'down' && status !== 4 && status !== 10 && status !== 'warning')) {
@@ -2498,84 +2076,9 @@
             }
 
             selectedNode = node;
-            console.log('✨ selectedNode set to:', selectedNode.name, '(type:', selectedNode.type + ')');
-            
-            // Highlight the newly selected node with cyan glow
-            if (node && node.mesh && node.mesh.material) {
-                // Store original material if not already stored
-                if (!node.originalMaterial) {
-                    node.originalMaterial = node.mesh.material.clone();
-                }
-                
-                // Create highlighted material based on node type
-                if (node.type === 'sensor') {
-                    // Sensor: Bright cyan glow
-                    const highlightMaterial = new THREE.MeshStandardMaterial({
-                        color: 0x00ffff,
-                        emissive: 0x00ffff,
-                        emissiveIntensity: 1.2,
-                        metalness: 0.8,
-                        roughness: 0.2,
-                        transparent: true,
-                        opacity: 1.0
-                    });
-                    node.mesh.material = highlightMaterial;
-                } else if (node.type === 'device') {
-                    // Device: Bright cyan glow with metallic finish
-                    const highlightMaterial = new THREE.MeshPhongMaterial({
-                        color: 0x00ffff,
-                        emissive: 0x00ffff,
-                        emissiveIntensity: 0.8,
-                        specular: 0xffffff,
-                        shininess: 120,
-                        transparent: false,
-                        opacity: 1.0
-                    });
-                    node.mesh.material = highlightMaterial;
-                    console.log('💎 Device cyan material applied to:', node.name);
-                } else if (node.type === 'company') {
-                    // Company: Handle Earth specially to preserve texture
-                    if (node.isEarth && node.originalMaterial.map) {
-                        // For Earth, preserve texture and just increase emissive glow
-                        const highlightMaterial = new THREE.MeshPhongMaterial({
-                            map: node.originalMaterial.map,  // Preserve the Earth texture
-                            color: 0xffffff,  // Keep original color
-                            emissive: 0x00ddff,  // Add cyan glow
-                            emissiveIntensity: 0.5,  // Moderate glow
-                            specular: 0x333333,
-                            shininess: 15
-                        });
-                        node.mesh.material = highlightMaterial;
-                    } else {
-                        // Regular company: Subtle cyan tint
-                        const highlightMaterial = new THREE.MeshPhongMaterial({
-                            color: 0x00ddff,
-                            emissive: 0x00ddff,
-                            emissiveIntensity: 0.6,
-                            specular: 0xffffff,
-                            shininess: 120
-                        });
-                        node.mesh.material = highlightMaterial;
-                    }
-                }
-                
-                console.log(`✨ Selected ${node.type}: ${node.name} - highlighted with cyan`);
-            }
-            
-            // If clicking a sensor, zoom to it and show individual sensor details
-            if (node.type === 'sensor') {
-                console.log(`Sensor clicked: ${node.name}`);
-                zoomToNode(node);  // Zoom directly to the sensor
-                showIndividualSensorPopup(node);
-                return;
-            }
             
             // If clicking a company node, zoom to it and show all devices
             if (node.type === 'company') {
-                // Close any open sensor popup and reset state
-                closeSensorPopup();
-                console.log('🏢 Company clicked - popup closed, state reset');
-                
                 zoomToNode(node);
                 
                 // Highlight devices of this company
@@ -2598,11 +2101,10 @@
                 return;
             }
             
-            // If clicking a device node (spaceship), zoom directly to it and show sensor popup
+            // If clicking a device node, show sensor popup
             if (node.type === 'device') {
-                console.log(`Device clicked: ${node.name}`);
-                zoomToNode(node);  // Zoom directly to the device
                 showSensorPopup(node);
+                zoomToNode(node);
                 return;
             }
 
@@ -2621,29 +2123,10 @@
 
             if (node.type === 'company') {
                 const devices = nodes.filter(n => n.type === 'device' && n.parent === node);
-                const upDevices = devices.filter(d => d.data?.status === 3 || d.data?.effectiveStatus === 'up').length;
-                const downDevices = devices.filter(d => d.data?.status === 5 || d.data?.effectiveStatus === 'down').length;
-                const warningDevices = devices.filter(d => d.data?.status === 4 || d.data?.effectiveStatus === 'warning').length;
-                
                 detailsHTML = `
                     <div class="info-row">
-                        <span class="info-label">Total Devices</span>
+                        <span class="info-label">Devices</span>
                         <span class="info-value">${devices.length}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Online</span>
-                        <span class="info-value" style="color: #22c55e;">${upDevices}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Warning</span>
-                        <span class="info-value" style="color: #fbbf24;">${warningDevices}</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Down</span>
-                        <span class="info-value" style="color: #ef4444;">${downDevices}</span>
-                    </div>
-                    <div class="info-row" style="margin-top: 1rem;">
-                        <a href="/?company=${encodeURIComponent(node.name)}" target="_blank" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem;">📊 View in Dashboard</a>
                     </div>
                 `;
             } else if (node.type === 'device') {
@@ -2685,12 +2168,6 @@
                         </div>
                     `;
                 }
-                
-                detailsHTML += `
-                    <div class="info-row" style="margin-top: 1rem;">
-                        <a href="javascript:void(0);" onclick="window.open('/?openDevice=${node.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
-                    </div>
-                `;
             }
 
             infoDetails.innerHTML = detailsHTML;
@@ -2702,13 +2179,6 @@
         // Show sensor popup with real-time data
         function showSensorPopup(deviceNode) {
             const device = deviceNode.data;
-            
-            console.log('🔍 showSensorPopup called for device:', deviceNode.name);
-            console.log('📍 Current lastPopupNode:', lastPopupNode ? lastPopupNode.name : 'null');
-            
-            // Reset popup tracking when showing device sensor list
-            lastPopupNode = null;
-            console.log('🔄 Device clicked - popup state reset, lastPopupNode cleared');
             
             // Create or update popup
             let popup = document.getElementById('sensor-popup');
@@ -2732,447 +2202,74 @@
                     box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
                     color: white;
                     font-family: system-ui, -apple-system, sans-serif;
-                    display: block;
                 `;
                 document.body.appendChild(popup);
             }
-            
-            // Always make popup visible when function is called
-            popup.style.display = 'block';
-            
-            // Get sensors array, default to empty if not available
-            const sensors = device.sensors || [];
-            
-            // Calculate comprehensive sensor stats
-            const sensorStats = {
-                total: sensors.length,
-                up: sensors.filter(s => s.status === 3).length,
-                down: sensors.filter(s => s.status === 5).length,
-                warning: sensors.filter(s => s.status === 4).length,
-                paused: sensors.filter(s => s.status === 7).length,
-                unusual: sensors.filter(s => s.status === 10).length
-            };
-            
-            const statusColor = device.status === 3 ? '#22c55e' : device.status === 5 ? '#ef4444' : '#fbbf24';
-            const statusText = device.status === 3 ? 'UP' : device.status === 5 ? 'DOWN' : 'WARNING';
             
             popup.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="margin: 0; color: #3b82f6; font-size: 20px;">${device.name || 'Device'}</h2>
-                    <button onclick="closeSensorPopup()" 
+                    <button onclick="document.getElementById('sensor-popup').style.display='none'" 
                             style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
                         ✕
                     </button>
                 </div>
-                
-                <!-- Device Overview -->
-                <div style="background: rgba(59, 130, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
-                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13px;">
-                        <div style="color: #9ca3af; font-weight: 500;">Device ID:</div>
-                        <div style="color: #e5e7eb;">${device.id || 'N/A'}</div>
-                        
-                        <div style="color: #9ca3af; font-weight: 500;">Host:</div>
-                        <div style="color: #e5e7eb;">${device.host || 'Unknown'}</div>
-                        
-                        <div style="color: #9ca3af; font-weight: 500;">Type:</div>
-                        <div style="color: #e5e7eb;">${device.deviceType || device.device_type || 'Network Device'}</div>
-                        
-                        <div style="color: #9ca3af; font-weight: 500;">Status:</div>
-                        <div style="color: ${statusColor}; font-weight: bold;">${statusText}</div>
-                        
-                        <div style="color: #9ca3af; font-weight: 500;">Priority:</div>
-                        <div style="color: #e5e7eb;">${device.priority || 'Normal'}</div>
-                        
-                        ${device.lastSeen ? `
-                            <div style="color: #9ca3af; font-weight: 500;">Last Seen:</div>
-                            <div style="color: #e5e7eb;">${new Date(device.lastSeen).toLocaleString()}</div>
-                        ` : ''}
-                    </div>
+                <div style="margin-bottom: 10px; color: #9ca3af;">
+                    <strong>Host:</strong> ${device.host || 'Unknown'}<br>
+                    <strong>Status:</strong> <span style="color: ${device.status === 3 ? '#22c55e' : device.status === 5 ? '#ef4444' : '#fbbf24'}">
+                        ${device.status === 3 ? 'UP' : device.status === 5 ? 'DOWN' : 'WARNING'}
+                    </span>
                 </div>
-                
                 <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
-                
-                <!-- Sensor Statistics -->
-                <h3 style="color: #60a5fa; margin: 10px 0 12px 0; font-size: 16px;">📊 Sensor Statistics (${sensorStats.total} Total)</h3>
-                <div id="sensor-stats-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
-                    <div class="sensor-stat-card" data-status="3" style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${sensorStats.up > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(34, 197, 94, 0.2);">
-                        <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${sensorStats.up}</div>
-                        <div style="font-size: 11px; color: #9ca3af;">🟢 Up</div>
+                <h3 style="color: #60a5fa; margin: 10px 0; font-size: 16px;">📊 Sensor Statistics</h3>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px;">
+                    <div style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${device.sensorStats?.up || 0}</div>
+                        <div style="font-size: 12px; color: #9ca3af;">Up</div>
                     </div>
-                    <div class="sensor-stat-card" data-status="4" style="background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${sensorStats.warning > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(251, 191, 36, 0.2);">
-                        <div style="font-size: 24px; font-weight: bold; color: #fbbf24;">${sensorStats.warning}</div>
-                        <div style="font-size: 11px; color: #9ca3af;">🟡 Warning</div>
+                    <div style="background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #fbbf24;">${device.sensorStats?.warning || 0}</div>
+                        <div style="font-size: 12px; color: #9ca3af;">Warning</div>
                     </div>
-                    <div class="sensor-stat-card" data-status="5" style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${sensorStats.down > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(239, 68, 68, 0.2);">
-                        <div style="font-size: 24px; font-weight: bold; color: #ef4444;">${sensorStats.down}</div>
-                        <div style="font-size: 11px; color: #9ca3af;">🔴 Down</div>
-                    </div>
-                    <div class="sensor-stat-card" data-status="7" style="background: rgba(149, 165, 166, 0.1); padding: 8px; border-radius: 8px; text-align: center; cursor: ${sensorStats.paused > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(149, 165, 166, 0.2);">
-                        <div style="font-size: 18px; font-weight: bold; color: #95a5a6;">${sensorStats.paused}</div>
-                        <div style="font-size: 10px; color: #9ca3af;">⏸️ Paused</div>
-                    </div>
-                    <div class="sensor-stat-card" data-status="10" style="background: rgba(155, 89, 182, 0.1); padding: 8px; border-radius: 8px; text-align: center; cursor: ${sensorStats.unusual > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(155, 89, 182, 0.2);">
-                        <div style="font-size: 18px; font-weight: bold; color: #9b59b6;">${sensorStats.unusual}</div>
-                        <div style="font-size: 10px; color: #9ca3af;">🟣 Unusual</div>
-                    </div>
-                    <div style="background: rgba(59, 130, 246, 0.1); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(59, 130, 246, 0.2);">
-                        <div style="font-size: 18px; font-weight: bold; color: #3b82f6;">${sensorStats.total}</div>
-                        <div style="font-size: 10px; color: #9ca3af;">📊 Total</div>
+                    <div style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #ef4444;">${device.sensorStats?.down || 0}</div>
+                        <div style="font-size: 12px; color: #9ca3af;">Down</div>
                     </div>
                 </div>
-                <div id="sensor-list-container" style="margin-top: 15px; display: none;">
-                    <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <h4 id="sensor-list-title" style="margin: 0; color: #60a5fa; font-size: 14px;"></h4>
-                        <button onclick="document.getElementById('sensor-list-container').style.display='none'" 
-                                style="background: #6b7280; border: none; color: white; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                            Hide
-                        </button>
-                    </div>
-                    <div id="sensor-list" style="max-height: 300px; overflow-y: auto;"></div>
+                <div style="margin-top: 10px; padding: 10px; background: rgba(59, 130, 246, 0.1); border-radius: 8px;">
+                    <div style="font-size: 12px; color: #9ca3af;">Total Sensors</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #3b82f6;">${device.sensorStats?.total || 0}</div>
                 </div>
                 <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
-                    💡 Click on a sensor count to see details • Click outside to close
+                    🔄 Real-time data • Click outside to close
                 </div>
             `;
             
             popup.style.display = 'block';
             
-            // Add click handlers to sensor stat cards
-            const statCards = popup.querySelectorAll('.sensor-stat-card');
-            statCards.forEach(card => {
-                const status = parseInt(card.dataset.status);
-                const count = sensorStats.up || sensorStats.warning || sensorStats.down || 
-                             sensorStats.paused || sensorStats.unusual;
-                
-                if (count > 0) {
-                    // Add hover effect
-                    card.addEventListener('mouseenter', () => {
-                        card.style.transform = 'scale(1.05)';
-                        card.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.3)';
-                    });
-                    card.addEventListener('mouseleave', () => {
-                        card.style.transform = 'scale(1)';
-                        card.style.boxShadow = 'none';
-                    });
-                    
-                    // Add click handler
-                    card.addEventListener('click', () => {
-                        showFilteredSensors(sensors, status, device);
-                    });
-                }
-            });
-            
-            // Note: Click-outside handling is managed by the global listener that checks isProcessingCanvasClick
-            // Removed duplicate listener that was causing popup to close immediately on device clicks
-            console.log('✅ Device popup displayed, relying on global click-outside handler');
-        }
-        
-        // Track if we're currently processing a canvas click (to prevent close listener interference)
-        let isProcessingCanvasClick = false;
-        
-        // Track the last node that had a popup open (for sensor-to-sensor transitions)
-        let lastPopupNode = null;
-        
-        // Close sensor popup
-        function closeSensorPopup() {
-            const popup = document.getElementById('sensor-popup');
-            if (popup) {
-                popup.style.display = 'none';
-                lastPopupNode = null; // Clear tracking when popup closes
-                console.log('✅ Sensor popup closed');
-            }
-        }
-        
-        // Show individual sensor popup
-        function showIndividualSensorPopup(sensorNode) {
-            console.log('🔍 showIndividualSensorPopup called for:', sensorNode.name);
-            console.log('📍 Current lastPopupNode:', lastPopupNode ? lastPopupNode.name : 'null');
-            
-            // Check if switching from one sensor/device to another
-            const isSwitchingNodes = lastPopupNode && lastPopupNode !== sensorNode;
-            console.log('🔀 isSwitchingNodes:', isSwitchingNodes);
-            if (isSwitchingNodes) {
-                console.log('🔄 Switching from', lastPopupNode.name, 'to', sensorNode.name);
-            }
-            
-            // Update last popup node
-            lastPopupNode = sensorNode;
-            console.log('✅ lastPopupNode set to:', lastPopupNode.name);
-            
-            const sensor = sensorNode.sensorData || {};
-            const device = sensorNode.data;
-            const parentDevice = sensorNode.parent;
-            
-            // Create or update popup
-            let popup = document.getElementById('sensor-popup');
-            if (!popup) {
-                console.log('📦 Creating new popup');
-                popup = document.createElement('div');
-                popup.id = 'sensor-popup';
-                popup.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: rgba(10, 10, 10, 0.95);
-                    border: 2px solid #8b5cf6;
-                    border-radius: 12px;
-                    padding: 20px;
-                    min-width: 400px;
-                    max-width: 600px;
-                    max-height: 80vh;
-                    overflow-y: auto;
-                    z-index: 10000;
-                    box-shadow: 0 0 30px rgba(139, 92, 246, 0.5);
-                    color: white;
-                    font-family: system-ui, -apple-system, sans-serif;
-                    display: block;
-                `;
-                document.body.appendChild(popup);
-                
-                // Add click-outside-to-close (close when clicking UI elements, NOT when clicking canvas/sensors)
-                // Use capture phase to check BEFORE other handlers, with setTimeout to check AFTER popup is updated
-                document.addEventListener('click', function(e) {
-                    // Don't interfere if canvas click is being processed
-                    if (isProcessingCanvasClick) {
-                        console.log('🚫 Click-outside listener blocked - canvas click in progress');
-                        return;
+            // Close on outside click
+            setTimeout(() => {
+                const closeHandler = (e) => {
+                    if (!popup.contains(e.target)) {
+                        popup.style.display = 'none';
+                        document.removeEventListener('click', closeHandler);
                     }
-                    
-                    // Use setTimeout to check popup state AFTER the click has been fully processed
-                    setTimeout(() => {
-                        const popup = document.getElementById('sensor-popup');
-                        if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
-                            // Close popup ONLY if clicking UI elements (NOT canvas where sensors are)
-                            const canvas = document.getElementById('canvas');
-                            if (e.target === canvas) {
-                                // Clicking on canvas - already handled by canvas click
-                                return;
-                            }
-                            // Clicking outside canvas and outside popup - close it
-                            console.log('🔽 Closing popup - clicked outside');
-                            closeSensorPopup();
-                        }
-                    }, 10); // Small delay to ensure popup update completes first
-                });
-            } else {
-                console.log('♻️ Reusing existing popup for node:', sensorNode.name);
-                // If switching nodes, briefly hide and show to force update
-                if (isSwitchingNodes) {
-                    console.log('🔃 Forcing popup refresh for new node');
-                    popup.style.display = 'none'; // Briefly hide
-                    // Force reflow to ensure display change is registered
-                    void popup.offsetHeight;
-                }
-                // Add flash animation to show popup is updating
-                popup.style.borderColor = '#00ffff';
-                setTimeout(() => {
-                    popup.style.borderColor = '#8b5cf6';
-                }, 200);
-            }
-            
-            // Always make popup visible and ensure it's on top
-            popup.style.display = 'block';
-            popup.style.zIndex = '10000';
-            console.log('📋 Popup display set to: block');
-            
-            // Status display configurations
-            const statusConfigs = {
-                3: { name: '🟢 Up', color: '#22c55e', text: 'UP', bg: 'rgba(34, 197, 94, 0.1)' },
-                4: { name: '🟡 Warning', color: '#fbbf24', text: 'WARNING', bg: 'rgba(251, 191, 36, 0.1)' },
-                5: { name: '🔴 Down', color: '#ef4444', text: 'DOWN', bg: 'rgba(239, 68, 68, 0.1)' },
-                7: { name: '⏸️ Paused', color: '#95a5a6', text: 'PAUSED', bg: 'rgba(149, 165, 166, 0.1)' },
-                10: { name: '🟣 Unusual', color: '#9b59b6', text: 'UNUSUAL', bg: 'rgba(155, 89, 182, 0.1)' }
-            };
-            
-            const sensorStatus = sensor.status || 3;
-            const config = statusConfigs[sensorStatus] || statusConfigs[3];
-            
-            popup.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h2 style="margin: 0; color: #8b5cf6; font-size: 20px;">📡 Sensor Details</h2>
-                    <button onclick="closeSensorPopup()" 
-                            style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
-                        ✕
-                    </button>
-                </div>
-                
-                <!-- Sensor Title -->
-                <div style="margin-bottom: 15px;">
-                    <div style="font-size: 22px; font-weight: bold; color: #e5e7eb; margin-bottom: 5px;">
-                        ${sensor.name || sensor.sensorType || sensor.sensor_type || 'Sensor #' + (sensorNode.sensorIndex + 1)}
-                    </div>
-                    ${sensor.sensorType || sensor.sensor_type ? `
-                        <div style="font-size: 13px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px;">
-                            ${sensor.sensorType || sensor.sensor_type}
-                        </div>
-                    ` : ''}
-                </div>
-
-                <!-- Current Value (Prominent) -->
-                ${sensor.lastValue || sensor.last_value ? `
-                    <div style="background: rgba(139, 92, 246, 0.15); border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;">
-                        <div style="font-size: 32px; font-weight: bold; color: #8b5cf6; font-family: monospace;">
-                            ${sensor.lastValue || sensor.last_value}
-                        </div>
-                    </div>
-                ` : ''}
-                
-                <!-- Status Badge -->
-                <div style="background: ${config.bg}; border: 2px solid ${config.color}; border-radius: 8px; padding: 12px; margin-bottom: 15px; text-align: center;">
-                    <div style="font-size: 18px; font-weight: bold; color: ${config.color};">
-                        ${config.name}
-                    </div>
-                </div>
-                
-                <!-- Sensor Message/Status -->\n                ${sensor.lastMessage && sensor.lastMessage.trim() ? `\n                    <div style="background: rgba(139, 92, 246, 0.08); border-left: 3px solid #8b5cf6; border-radius: 6px; padding: 12px; margin-bottom: 15px;">\n                        <div style="color: #e5e7eb; font-size: 14px; line-height: 1.5;">\n                            ${sensor.lastMessage.trim()}\n                        </div>\n                    </div>\n                ` : ''}\n                \n                <!-- Additional Details -->\n                <div style="background: rgba(139, 92, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 15px;">\n                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13px;">\n                        ${sensor.priority ? `\n                            <div style="color: #9ca3af; font-weight: 500;">Priority:</div>\n                            <div style="color: ${sensor.priority > 3 ? '#fbbf24' : '#e5e7eb'};">${sensor.priority} ${sensor.priority > 3 ? '⚡' : ''}</div>\n                        ` : ''}
-                        
-                        ${sensor.lastUp || sensor.last_up ? `
-                            <div style="color: #9ca3af; font-weight: 500;">Last Up:</div>
-                            <div style="color: #e5e7eb;">${new Date(sensor.lastUp || sensor.last_up).toLocaleString()}</div>
-                        ` : ''}
-                        
-                        ${sensor.lastDown || sensor.last_down ? `
-                            <div style="color: #9ca3af; font-weight: 500;">Last Down:</div>
-                            <div style="color: #e5e7eb;">${new Date(sensor.lastDown || sensor.last_down).toLocaleString()}</div>
-                        ` : ''}
-                        
-                        ${sensor.lastCheck || sensor.last_check ? `
-                            <div style="color: #9ca3af; font-weight: 500;">Last Check:</div>
-                            <div style="color: #e5e7eb;">${new Date(sensor.lastCheck || sensor.last_check).toLocaleString()}</div>
-                        ` : ''}
-                    </div>
-                </div>
-                
-                <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
-                
-                <!-- Parent Device Info -->
-                <div style="font-size: 12px; color: #9ca3af; margin-bottom: 10px;">
-                    <strong style="color: #8b5cf6;">Parent Device:</strong> ${device.name || 'Unknown'}
-                </div>
-                
-                <!-- Actions -->
-                <div style="display: flex; gap: 8px; margin-top: 15px;">
-                    <button onclick="showSensorPopup({data: ${JSON.stringify(device).replace(/"/g, '&quot;')}})" 
-                            style="flex: 1; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 13px;">
-                        👁️ View All Sensors
-                    </button>
-                    <a href="/?openDevice=${device.id || device.objid}&sensorId=${sensor.id || sensor.objid}" 
-                       target="_blank"
-                       style="flex: 1; padding: 8px 16px; background: #10b981; color: white; text-align: center; text-decoration: none; border-radius: 5px; cursor: pointer; font-size: 13px;">
-                        📊 Open Dashboard
-                    </a>
-                </div>
-                
-                <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
-                    💡 Click "View All Sensors" to see all sensors for this device
-                </div>
-            `;
-            
-            popup.style.display = 'block';
-            console.log('🎯 Individual sensor popup content updated for:', sensorNode.name);
-            
-            // Note: Click-outside handling is managed by the global listener added during popup creation
-            // Removed duplicate listener that was causing popups to close immediately after sensor-to-sensor clicks
-        }
-        
-        // Show filtered list of sensors by status
-        function showFilteredSensors(sensors, status, device) {
-            const listContainer = document.getElementById('sensor-list-container');
-            const listTitle = document.getElementById('sensor-list-title');
-            const list = document.getElementById('sensor-list');
-            
-            // Filter sensors by status
-            const filteredSensors = sensors.filter(s => s.status === status);
-            
-            // Status display configurations
-            const statusConfigs = {
-                3: { name: '🟢 Up', color: '#22c55e', icon: '✓', bg: 'rgba(34, 197, 94, 0.1)' },
-                4: { name: '🟡 Warning', color: '#fbbf24', icon: '⚠', bg: 'rgba(251, 191, 36, 0.1)' },
-                5: { name: '🔴 Down', color: '#ef4444', icon: '✗', bg: 'rgba(239, 68, 68, 0.1)' },
-                7: { name: '⏸️ Paused', color: '#95a5a6', icon: '⏸', bg: 'rgba(149, 165, 166, 0.1)' },
-                10: { name: '🟣 Unusual', color: '#9b59b6', icon: '⚡', bg: 'rgba(155, 89, 182, 0.1)' }
-            };
-            
-            const config = statusConfigs[status] || statusConfigs[5];
-            listTitle.innerHTML = `<span style="color: ${config.color}">${config.name} Sensors (${filteredSensors.length})</span>`;
-            
-            // Build sensor list HTML
-            if (filteredSensors.length === 0) {
-                list.innerHTML = '<div style="padding: 10px; color: #6b7280; text-align: center;">No sensors in this state</div>';
-            } else {
-                list.innerHTML = filteredSensors.map(sensor => {
-                    const sensorConfig = statusConfigs[sensor.status] || statusConfigs[5];
-                    
-                    return `
-                        <div style="background: ${sensorConfig.bg}; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid ${sensorConfig.color};">
-                            <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
-                                <div style="flex: 1;">
-                                    <div style="font-weight: bold; color: ${sensorConfig.color}; margin-bottom: 2px; font-size: 13px;">
-                                        ${sensorConfig.icon} ${sensor.name || sensor.sensorType || sensor.sensor_type || 'Sensor'}
-                                    </div>
-                                    ${sensor.sensorType || sensor.sensor_type ? `
-                                        <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px;">
-                                            ${sensor.sensorType || sensor.sensor_type}
-                                        </div>
-                                    ` : ''}
-                                    ${sensor.lastMessage && sensor.lastMessage.trim() ? `
-                                        <div style="font-size: 11px; color: #d1d5db; margin-top: 4px;">
-                                            ${sensor.lastMessage.trim()}
-                                        </div>
-                                    ` : ''}
-                                </div>
-                                ${sensor.last_value || sensor.lastValue ? `
-                                    <div style="text-align: right; font-weight: bold; color: ${sensorConfig.color}; font-size: 16px; font-family: monospace; white-space: nowrap;">
-                                        ${sensor.last_value || sensor.lastValue}
-                                    </div>
-                                ` : ''}
-                            </div>
-                            <div style="margin-top: 8px; text-align: right;">
-                                <a href="javascript:void(0);" onclick="window.open('/?openDevice=${device.id}&sensorId=${sensor.id}', '_blank');" style="display: inline-block; padding: 4px 12px; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 11px; cursor: pointer;">📊 View in Dashboard</a>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-            
-            // Show the list container
-            listContainer.style.display = 'block';
-            
-            // Scroll to the sensor list
-            listContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                };
+                document.addEventListener('click', closeHandler);
+            }, 100);
         }
         
         // Zoom to node
         function zoomToNode(node) {
             const targetPosition = node.mesh.position.clone();
-            // Keep comfortable distance to see context
-            // Company: 150 units (see entire company + surrounding space)
-            // Device: 100 units (see device + all sensors orbiting)
-            // Sensor: 120 units (see sensor, parent device, and company context)
-            let distance = 150;
-            if (node.type === 'device') distance = 100;
-            if (node.type === 'sensor') distance = 120;
-            
+            // Increased distance to show all sensors orbiting around devices
+            // Company: 80 units, Device: 50 units (enough to see sensor orbits)
+            const distance = node.type === 'company' ? 80 : 50;
             const cameraTarget = new THREE.Vector3(
                 targetPosition.x,
-                targetPosition.y + 40,  // Higher elevation for better overview
+                targetPosition.y + 30,  // Higher elevation for better view
                 targetPosition.z + distance
             );
-
-            // Pause auto-rotate for 60 seconds when user clicks something
-            if (autoRotate) {
-                autoRotate = false;
-                console.log('Auto-rotate paused for 60 seconds');
-                
-                // Resume after 1 minute
-                if (window.autoRotateTimeout) clearTimeout(window.autoRotateTimeout);
-                window.autoRotateTimeout = setTimeout(() => {
-                    autoRotate = true;
-                    console.log('Auto-rotate resumed');
-                }, 60000);
-            }
 
             // Smooth camera transition
             const duration = 1000;
@@ -3190,8 +2287,6 @@
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
                 }
-                // Note: Don't clear lastPopupNode here - let the popup close handler manage that
-                // This allows sensor-to-sensor and device-to-sensor transitions to work properly
             }
 
             updateCamera();
@@ -3237,14 +2332,10 @@
         function expandAll() {
             nodes.forEach(node => {
                 if (node.type === 'sensor') {
-                    // Only show sensor if its parent device is visible
-                    if (node.parent && node.parent.mesh && node.parent.mesh.visible && node.parent.visible) {
-                        node.mesh.visible = true;
-                        node.visible = true;
-                    }
+                    node.mesh.visible = true;
+                    node.visible = true;
                 }
             });
-            console.log('✨ Expanded all sensors for visible devices');
         }
 
         function collapseAll() {
@@ -3254,7 +2345,6 @@
                     node.visible = false;
                 }
             });
-            console.log('📦 Collapsed all sensors');
         }
 
         function searchNetwork(query) {
@@ -3291,57 +2381,17 @@
         }
 
         function filterByStatus(status) {
-            let visibleCount = 0;
-            
             nodes.forEach(node => {
                 if (node.type === 'device') {
-                    const deviceStatus = node.data.status;
-                    const hasDownSensors = node.data.sensorStats?.down > 0;
-                    const hasWarningSensors = node.data.sensorStats?.warning > 0;
-                    const hasAlarms = hasDownSensors || hasWarningSensors;
-                    
-                    // Critical: ONLY device is DOWN (5) OR has down sensors (STRICTLY)
-                    const isCritical = deviceStatus === 5 || hasDownSensors;
-                    // Warning: ONLY device is WARNING (4) OR has warning sensors (EXCLUDE if critical)
-                    const isWarning = !isCritical && (deviceStatus === 4 || hasWarningSensors);
-                    // Up/Healthy: status 3 with no alarms
-                    const isHealthy = deviceStatus === 3 && !hasAlarms;
-                    
-                    let shouldShow = false;
+                    const deviceStatus = node.data.effectiveStatus || 'up';
                     
                     if (status === 'all') {
-                        shouldShow = true;  // Show ALL devices including unusual/paused (purple)
-                    } else if (status === 'alarms') {
-                        shouldShow = hasAlarms || deviceStatus === 5 || deviceStatus === 4;
-                    } else if (status === 'critical') {
-                        shouldShow = isCritical;
-                    } else if (status === 'warning') {
-                        shouldShow = isWarning;
-                    } else if (status === 'up') {
-                        shouldShow = isHealthy;
+                        node.mesh.visible = true;
+                    } else {
+                        node.mesh.visible = deviceStatus === status;
                     }
-                    
-                    node.mesh.visible = shouldShow;
-                    node.visible = shouldShow;
-                    if (node.label) node.label.visible = shouldShow;
-                    // Hide status circle (yellow/red indicator) when device is filtered out
-                    if (node.statusCircle) node.statusCircle.visible = shouldShow;
-                    
-                    // Show/hide sensors orbiting this device
-                    nodes.forEach(sensorNode => {
-                        if (sensorNode.type === 'sensor' && sensorNode.data.deviceId === node.data.id) {
-                            sensorNode.mesh.visible = shouldShow;
-                            sensorNode.visible = shouldShow;
-                            if (sensorNode.label) sensorNode.label.visible = shouldShow;
-                        }
-                    });
-                    
-                    if (shouldShow) visibleCount++;
                 }
             });
-            
-            // Update info panel with filter results
-            console.log(`🔍 Filter: ${status} - ${visibleCount} devices visible`);
         }
 
         function clearTopology() {
@@ -3396,75 +2446,7 @@
             }
         }
         
-        // Check for openDevice URL parameter and handle navigation
-        function handleOpenDeviceParam() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const openDeviceId = urlParams.get('openDevice');
-            
-            if (openDeviceId) {
-                console.log(`🎯 OpenDevice parameter detected: ${openDeviceId}`);
-                
-                // Wait for topology to be fully loaded
-                const checkLoaded = setInterval(() => {
-                    if (nodes.length > 0) {
-                        clearInterval(checkLoaded);
-                        
-                        // Find the device node - check multiple ID fields
-                        const deviceNode = nodes.find(n => 
-                            n.type === 'device' && 
-                            (String(n.data.id) === String(openDeviceId) || 
-                             String(n.data.objid) === String(openDeviceId) ||
-                             String(n.data.deviceId) === String(openDeviceId))
-                        );
-                        
-                        if (deviceNode && deviceNode.mesh) {
-                            console.log(`✅ Found device: ${deviceNode.name} (ID: ${openDeviceId})`);
-                            
-                            // Hide all other devices and their sensors
-                            nodes.forEach(node => {
-                                if (node.type === 'device' && node !== deviceNode) {
-                                    node.mesh.visible = false;
-                                    node.visible = false;
-                                } else if (node.type === 'sensor') {
-                                    if (node.parent === deviceNode) {
-                                        // Show sensors for target device
-                                        node.visible = true;
-                                        node.mesh.visible = true;
-                                    } else {
-                                        // Hide sensors for other devices
-                                        node.mesh.visible = false;
-                                        node.visible = false;
-                                    }
-                                } else if (node.type === 'company' && node !== deviceNode.parent) {
-                                    // Dim other companies
-                                    if (node.mesh && node.mesh.material) {
-                                        node.mesh.material.opacity = 0.2;
-                                        node.mesh.material.transparent = true;
-                                    }
-                                }
-                            });
-                            
-                            // Move camera to focus on device
-                            setTimeout(() => {
-                                selectNode(deviceNode);
-                                console.log('📷 Camera focused on device');
-                            }, 1000);
-                        } else {
-                            console.warn(`⚠️ Device not found with ID: ${openDeviceId}`);
-                            console.log('Available device IDs:', nodes.filter(n => n.type === 'device').map(n => `${n.name}: ${n.data.id || n.data.objid}`).slice(0, 5));
-                        }
-                    }
-                }, 100);
-                
-                // Timeout after 10 seconds
-                setTimeout(() => {
-                    clearInterval(checkLoaded);
-                }, 10000);
-            }
-        }
-        
         initWithRetry();
-        handleOpenDeviceParam();
         
         // Connect WebSocket for live updates
         setTimeout(() => {

@@ -1998,10 +1998,7 @@
         async function syncSessionContext() {
             try {
                 const res = await fetch('/api/session/status', { credentials: 'include' });
-                if (!res.ok) {
-                    console.debug('Session status endpoint not available (404)');
-                    return null;
-                }
+                if (!res.ok) return null;
                 const data = await res.json();
                 applySessionContext({ username: data.username, role: data.role });
                 if (window.securityManager && data.authenticated && typeof window.securityManager.applyServerSession === 'function') {
@@ -2114,8 +2111,7 @@
                 }
 
                 this.clearSession();
-                // Don't call requireAuthentication here - SOCDashboard will handle it
-                console.debug('SecurityManager: No valid session found, dashboard will handle authentication');
+                this.requireAuthentication();
             }
 
             ensureActivityTracking() {
@@ -2128,18 +2124,13 @@
             async syncWithServer() {
                 try {
                     const response = await fetch('/api/session/status', { credentials: 'include' });
-                    if (!response.ok) {
-                        // Endpoint doesn't exist yet, fail silently
-                        console.debug('Session status endpoint not available (404)');
-                        return null;
-                    }
+                    if (!response.ok) return null;
                     const data = await response.json();
                     if (data && data.authenticated) {
                         this.applyServerSession(data);
                         return data;
                     }
                 } catch (error) {
-                    console.debug('Session sync error (expected if endpoint not implemented):', error.message);
                     console.debug('Server session sync failed:', error);
                 }
                 return null;
@@ -2681,7 +2672,6 @@
             constructor() {
                 this.companies = new Map();
                 this.devices = [];
-                this.maxDeviceCountEverSeen = 0; // NEVER allow device count to regress below this
                 this.filters = {
                     search: '',
                     status: 'all',
@@ -2782,9 +2772,9 @@
 
                     if (storedValid) {
                         try {
-                            // Add 30-second timeout for validation (increased from 5s to handle slow queries)
+                            // Add 5-second timeout for validation to prevent hanging on first portal switch
                             const timeoutPromise = new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('Validation timeout')), 30000)
+                                setTimeout(() => reject(new Error('Validation timeout')), 5000)
                             );
                             const fetchPromise = this.authManager.authenticatedFetch('/api/devices/enhanced?limit=1');
                             const validationResponse = await Promise.race([fetchPromise, timeoutPromise]);
@@ -2824,27 +2814,8 @@
                 }
             }
 
-            /**
-             * Redirect user to login page with post-login return URL
-             * @param {string|null} targetUrl - Optional specific URL to redirect to after login
-             * @description Handles authentication redirects. Preserves current URL in 'next' parameter
-             *              so user returns to original page after successful login.
-             * @added v8.1 - Duplicated from SecurityManager to resolve cross-class method call
-             */
-            redirectToLogin(targetUrl = null) {
-                const fallback = '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
-                const destination = (typeof targetUrl === 'string' && targetUrl.length > 0) ? targetUrl : fallback;
-                window.location.href = destination;
-            }
-
-            /**
-             * Require authentication and redirect if not authenticated
-             * @description Called when protected operations need authentication.
-             *              Hides main content and redirects to login page.
-             * @security Ensures sensitive data not visible during redirect
-             */
             requireAuthentication() {
-                // Hide main content immediately to prevent data exposure
+                // Hide main content immediately
                 const mainContent = document.querySelector('.main-content');
                 if (mainContent) mainContent.style.display = 'none';
                 
@@ -3060,14 +3031,6 @@
                     return;
                 }
                 
-                console.log(`🔄 ==================== LOAD DATA START ====================`);
-                console.log(`   Called at: ${new Date().toISOString()}`);
-                console.log(`   Current devices: ${this.devices.length}`);
-                console.log(`   Max ever seen: ${this.maxDeviceCountEverSeen}`);
-                console.log(`   Initial complete: ${this.initialLoadComplete}`);
-                console.log(`   Is loading: ${this.isLoading}`);
-                console.trace('loadData call stack'); // Show where this was called from
-                console.log(`🔄 ============================================================`);
                 this.isLoading = true;
                 let retryCount = 0;
                 const maxRetries = 10; // Increased from 5 to 10 for better persistence
@@ -3100,32 +3063,8 @@
                             }
                             
                             // Only update devices array after successful load
-                            console.log(`🎯 ==================== GUARD CLAUSE CHECK ====================`);
-                            console.log(`   Loaded from API: ${loadedDevices.length} devices`);
-                            console.log(`   Current in memory: ${this.devices.length} devices`);
-                            console.log(`   Historical max: ${this.maxDeviceCountEverSeen}`);
-                            console.log(`   this.devices.length === 0? ${this.devices.length === 0}`);
-                            console.log(`   loadedDevices.length > this.devices.length? ${loadedDevices.length} > ${this.devices.length} = ${loadedDevices.length > this.devices.length}`);
-                            
-                            // SIMPLE RULE: Only accept new data if it has MORE devices than current
-                            // Exception: If current is empty (first load), accept anything
-                            const shouldAccept = (this.devices.length === 0) || (loadedDevices.length > this.devices.length);
-                            console.log(`   DECISION: shouldAccept = ${shouldAccept}`);
-                            console.log(`🎯 ============================================================`);
-                            
-                            if (shouldAccept) {
-                                this.devices = loadedDevices;
-                                if (loadedDevices.length > this.maxDeviceCountEverSeen) {
-                                    this.maxDeviceCountEverSeen = loadedDevices.length;
-                                }
-                                console.log(`✅ ACCEPTED: Updated to ${this.devices.length} devices (max ever: ${this.maxDeviceCountEverSeen})`);
-                            } else {
-                                console.warn(`🚫 REJECTED: New data has ${loadedDevices.length} but current has ${this.devices.length}`);
-                                console.warn(`   Keeping current ${this.devices.length} devices`);
-                            }
-                            
-                            // Update connection status immediately after data decision
-                            this.updateConnectionStatus('connected', 'Authenticated & Connected');
+                            this.devices = loadedDevices;
+                            console.log(`✅ Data load complete: ${this.devices.length} devices ready`);
                             
                             // Process and render data only after devices are loaded
                             this.showLoadingProgress(85, 'Processing company data...');
@@ -3145,12 +3084,6 @@
                             // Clear any retry messages and show normal connected status
                             this.updateConnectionStatus(true, 'Connected');
                             this.updateLastUpdateTime();
-                            
-                            // Mark initial load as complete
-                            if (!this.initialLoadComplete) {
-                                this.initialLoadComplete = true;
-                                console.log('✅ Initial load complete, auto-refresh and WebSocket updates now enabled');
-                            }
                             
                             // Success - break out of retry loop
                             break;
@@ -3197,31 +3130,17 @@
                 } finally {
                     // Always release the loading lock
                     this.isLoading = false;
-                    console.log(`🔓 loadData() finished, isLoading set to false, final device count: ${this.devices.length}`);
                 }
-            }
-
-            groupDevicesByCompany(devices) {
-                const companies = {};
-                devices.forEach(d => {
-                    const code = d.companyCode || this.extractCompanyCode(d.name) || 'UNKNOWN';
-                    companies[code] = (companies[code] || 0) + 1;
-                });
-                return companies;
             }
 
             async loadAllDevices() {
                 // Use pagination as primary method for consistency (no more alternating 200/920)
                 this.showLoadingProgress(10, 'Loading devices...');
-                console.log(`🚀 loadAllDevices() called at ${new Date().toISOString()}`);
                 console.log('📊 Using pagination for consistent device loading');
-                const result = await this.loadDevicesWithPagination();
-                console.log(`🏁 loadAllDevices() returning ${result.length} devices at ${new Date().toISOString()}`);
-                return result;
+                return await this.loadDevicesWithPagination();
             }
 
             async loadDevicesWithPagination() {
-                console.log(`📦 ==================== PAGINATION START ====================`);
                 const allDevices = [];
                 let offset = 0;
                 const limit = 200; // Load in chunks of 200
@@ -3234,11 +3153,10 @@
                 this.showLoadingProgress(20, 'Loading devices in batches...');
 
                 while (hasMore && failureCount < maxFailures) {
-                    console.log(`📥 Fetching page: offset=${offset}, limit=${limit}, total loaded so far: ${allDevices.length}`);
                     try {
-                        // Add timeout per request (60 seconds for large queries with sensors/metadata)
+                        // Add timeout per request (15 seconds)
                         const timeout = new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Request timeout')), 60000)
+                            setTimeout(() => reject(new Error('Request timeout')), 15000)
                         );
                         
                         // Use authenticated fetch for consistent session
@@ -3263,23 +3181,15 @@
                             }
                         } else {
                             const responseData = await response.json();
-                            console.log(`📡 Raw API response type:`, typeof responseData, Array.isArray(responseData) ? '(array)' : '(object)');
-                            console.log(`📡 Response has 'devices' property?`, 'devices' in responseData);
-                            console.log(`📡 Response has 'pagination' property?`, 'pagination' in responseData);
-                            console.log(`📡 Full pagination object:`, JSON.stringify(responseData.pagination));
-                            
                             const devices = responseData.devices || responseData;
                             
-                            console.log(`✅ Received ${devices.length} devices, adding to total: ${allDevices.length}`);
                             allDevices.push(...devices);
-                            console.log(`📊 Total devices now: ${allDevices.length}`);
                             failureCount = 0; // Reset on success
                             
                             // Check if we have pagination metadata
                             if (responseData.pagination) {
                                 hasMore = responseData.pagination.hasMore;
                                 totalExpected = responseData.pagination.total;
-                                console.log(`🔄 hasMore from API: ${hasMore}, page ${responseData.pagination.page}/${responseData.pagination.totalPages}, total expected: ${totalExpected}`);
                                 
                                 // Update loading progress (20% to 80% during load)
                                 const progressPercent = 20 + Math.min((allDevices.length / totalExpected) * 60, 60);
@@ -3291,25 +3201,18 @@
                                 console.debug(`📦 Loaded batch ${responseData.pagination.page}/${responseData.pagination.totalPages} (${devices.length} devices)`);
                             } else {
                                 // Legacy response without pagination metadata
-                                console.log(`⚠️ No pagination metadata, using legacy logic: hasMore = ${devices.length} === ${limit}`);
                                 hasMore = devices.length === limit;
-                                console.log(`🔄 hasMore set to: ${hasMore}`);
                                 const progressPercent = 20 + Math.min((allDevices.length / 1000) * 60, 60);
                                 this.showLoadingProgress(progressPercent, `Loaded ${allDevices.length} devices...`);
                             }
                         }
                         
                         offset += limit;
-                        console.log(`➡️ Moving to next page: offset now ${offset}, hasMore=${hasMore}`);
                         
                         // Safety check to prevent infinite loops
                         if (offset > 10000) {
                             console.warn('⚠️ Reached safety limit of 10000 devices');
                             break;
-                        }
-                        
-                        if (!hasMore) {
-                            console.log(`🛑 hasMore is false, stopping pagination. Final count: ${allDevices.length}`);
                         }
                         
                     } catch (error) {
@@ -3329,14 +3232,10 @@
                 if (allDevices.length > 0) {
                     this.showLoadingProgress(80, `Pagination complete: ${allDevices.length} devices loaded`);
                     console.log(`✅ Total devices loaded via pagination: ${allDevices.length}`);
-                    console.log(`📊 Device breakdown by company:`, this.groupDevicesByCompany(allDevices));
                 } else {
                     this.showLoadingProgress(50, '⚠️ No devices loaded - check connection');
                     console.error('❌ No devices were loaded');
                 }
-                console.log(`📦 ==================== PAGINATION COMPLETE ====================`);
-                console.log(`   Returning ${allDevices.length} devices to loadData()`);
-                console.log(`📦 ============================================================`);
                 return allDevices;
             }
 
@@ -3396,7 +3295,6 @@
             }
 
             processCompanyData() {
-                console.log(`🔧 processCompanyData() called with ${this.devices.length} devices`);
                 this.companies.clear();
                 
                 // Debug: Log first few devices to see their structure
@@ -3405,9 +3303,7 @@
                 }
                 
                 // Group devices by company
-                let processedCount = 0;
                 this.devices.forEach(device => {
-                    processedCount++;
                     // Use enhanced company data if available, otherwise extract from name
                     const companyCode = device.companyCode || this.extractCompanyCode(device.name);
                     const companyName = device.companyName || this.getCompanyName(companyCode);
@@ -3464,9 +3360,9 @@
                 });
                 
                 // Debug: Log company stats summary
-                console.log(`📈 Company stats processed: ${processedCount} devices processed into ${this.companies.size} companies`);
+                console.log('📈 Company stats processed:');
                 this.companies.forEach((company, code) => {
-                    console.log(`  ${code}: ${company.devices.length} devices, ${company.stats.down} down, ${company.stats.warning} warning, ${company.stats.up} up (${company.sensorStats.down} sensors down, ${company.sensorStats.warning} sensors warning)`);
+                    console.log(`  ${code}: ${company.stats.down} down, ${company.stats.warning} warning, ${company.stats.up} up (${company.sensorStats.down} sensors down, ${company.sensorStats.warning} sensors warning)`);
                 });
                 
                 // Calculate average health scores for companies
@@ -3535,7 +3431,7 @@
             enhanceDeviceData(device) {
                 return {
                     ...device,
-                    deviceType: device.deviceType || device.device_type || this.getDeviceType(device.name),
+                    deviceType: this.getDeviceType(device.name),
                     criticality: this.getCriticality(device.name),
                     sensorCount: device.sensors?.length || 0,
                     alertCount: device.sensors?.filter(s => s.status === 5 || s.status === 4).length || 0
@@ -3832,53 +3728,29 @@
                     const companyCode = section.dataset.company;
                     const company = this.companies.get(companyCode);
                     
-                    // Company filter check first
+                    let shouldShow = true;
+                    
+                    // Company filter
                     if (this.filters.company !== 'all' && companyCode !== this.filters.company) {
-                        section.style.display = 'none';
-                        return;
+                        shouldShow = false;
                     }
                     
-                    // Get all device cards in this company
-                    const deviceCards = section.querySelectorAll('.device-card');
-                    let visibleDeviceCount = 0;
+                    // Search filter
+                    if (this.filters.search && shouldShow) {
+                        const searchMatch = company.name.toLowerCase().includes(this.filters.search) ||
+                                          company.devices.some(d => d.name.toLowerCase().includes(this.filters.search));
+                        if (!searchMatch) shouldShow = false;
+                    }
                     
-                    // Filter individual device cards based on search and status
-                    deviceCards.forEach(card => {
-                        const deviceId = parseInt(card.dataset.deviceId);
-                        const device = company.devices.find(d => d.id === deviceId);
-                        
-                        if (!device) {
-                            card.style.display = 'none';
-                            return;
-                        }
-                        
-                        let shouldShowDevice = true;
-                        
-                        // Search filter - check device name
-                        if (this.filters.search) {
-                            const searchLower = this.filters.search.toLowerCase();
-                            const deviceNameMatch = device.name.toLowerCase().includes(searchLower);
-                            const companyNameMatch = company.name.toLowerCase().includes(searchLower);
-                            
-                            if (!deviceNameMatch && !companyNameMatch) {
-                                shouldShowDevice = false;
-                            }
-                        }
-                        
-                        // Status filter
-                        if (this.filters.status !== 'all' && shouldShowDevice) {
-                            if (this.getStatusKey(device.status) !== this.filters.status) {
-                                shouldShowDevice = false;
-                            }
-                        }
-                        
-                        // Show/hide individual device card
-                        card.style.display = shouldShowDevice ? 'block' : 'none';
-                        if (shouldShowDevice) visibleDeviceCount++;
-                    });
+                    // Status filter
+                    if (this.filters.status !== 'all' && shouldShow) {
+                        const hasMatchingDevices = company.devices.some(d => 
+                            this.getStatusKey(d.status) === this.filters.status
+                        );
+                        if (!hasMatchingDevices) shouldShow = false;
+                    }
                     
-                    // Show company section only if it has visible devices
-                    section.style.display = visibleDeviceCount > 0 ? 'block' : 'none';
+                    section.style.display = shouldShow ? 'block' : 'none';
                 });
             }
 
@@ -3965,10 +3837,7 @@
                 if (data.type === 'dashboard_update') {
                     // Only trigger load if not already loading AND initial load is complete
                     if (!this.isLoading && this.initialLoadComplete) {
-                        console.log(`🔌 WebSocket triggered data refresh (current devices: ${this.devices.length})`);
                         this.loadData();
-                    } else {
-                        console.log('🔌 WebSocket message received but load skipped (isLoading:', this.isLoading, 'initialLoadComplete:', this.initialLoadComplete, ')');
                     }
                 } else if (data.type === 'device_update') {
                     this.updateDeviceData(data.device);
@@ -4032,7 +3901,6 @@
                 setInterval(() => {
                     // Only auto-refresh if not already loading AND initial load is complete
                     if (!this.isLoading && this.initialLoadComplete) {
-                        console.log(`⏰ Auto-refresh triggered (current devices: ${this.devices.length})`);
                         this.loadData();
                     }
                 }, 60000); // Refresh every minute
@@ -4049,19 +3917,17 @@
                 btn.textContent = 'Refreshing...';
                 btn.disabled = true;
                 
-                // Store current devices as backup (but DON'T clear until new data loads)
+                // Store current devices as backup
                 const backupDevices = [...this.devices];
                 
-                // DON'T clear this.devices here - keep existing data visible until refresh completes
-                // This prevents the 920→200 flipping issue during pagination
-                console.log(`🔄 Starting refresh with ${this.devices.length} devices currently loaded`);
+                // Clear existing data to force fresh load
+                this.devices = [];
+                this.companies.clear();
                 
-                // Show refreshing message but keep current data displayed
+                // Clear the display
                 const grid = document.getElementById('companiesGrid');
                 if (grid) {
-                    // Don't clear the grid - just add a subtle indicator
-                    const existingContent = grid.innerHTML;
-                    grid.setAttribute('data-refreshing', 'true');
+                    grid.innerHTML = '<div class="loading">Refreshing data...</div>';
                 }
                 
                 try {
@@ -4194,29 +4060,27 @@
                 
                 <!-- Sensor Statistics -->
                 <div class="detail-section">
-                    <div class="detail-section-title">Sensor Statistics (${sensorStats.total} Total) - Click to filter</div>
-                    <div class="detail-grid" style="gap: 0.5rem;">
-                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(46, 204, 113, 0.1);" onclick="filterSensorsByStatus(${device.id}, 'all')" title="Click to show all sensors">🔵 All Sensors</div>
-                        <div class="detail-value" style="color: #2ecc71; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 'all')">${sensorStats.total}</div>
-                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(39, 174, 96, 0.1);" onclick="filterSensorsByStatus(${device.id}, 3)" title="Click to show only UP sensors">🟢 Up/OK</div>
-                        <div class="detail-value" style="color: #27ae60; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 3)">${sensorStats.up}</div>
-                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(231, 76, 60, 0.1);" onclick="filterSensorsByStatus(${device.id}, 5)" title="Click to show only DOWN/ERROR sensors">🔴 Down/Error</div>
-                        <div class="detail-value" style="color: #e74c3c; cursor: pointer; font-weight: bold;" onclick="filterSensorsByStatus(${device.id}, 5)">${sensorStats.down}</div>
-                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(243, 156, 18, 0.1);" onclick="filterSensorsByStatus(${device.id}, 4)" title="Click to show only WARNING sensors">🟡 Warning</div>
-                        <div class="detail-value" style="color: #f39c12; cursor: pointer; font-weight: bold;" onclick="filterSensorsByStatus(${device.id}, 4)">${sensorStats.warning}</div>
-                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(149, 165, 166, 0.1);" onclick="filterSensorsByStatus(${device.id}, 7)" title="Click to show only PAUSED sensors">⏸️ Paused</div>
-                        <div class="detail-value" style="color: #95a5a6; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 7)">${sensorStats.paused}</div>
-                        <div class="detail-label" style="cursor: pointer; padding: 0.5rem; border-radius: 4px; background: rgba(155, 89, 182, 0.1);" onclick="filterSensorsByStatus(${device.id}, 10)" title="Click to show only UNUSUAL sensors">🟣 Unusual</div>
-                        <div class="detail-value" style="color: #9b59b6; cursor: pointer;" onclick="filterSensorsByStatus(${device.id}, 10)">${sensorStats.unusual}</div>
+                    <div class="detail-section-title">Sensor Statistics (${sensorStats.total} Total)</div>
+                    <div class="detail-grid">
+                        <div class="detail-label">🟢 Up/OK</div>
+                        <div class="detail-value" style="color: #27ae60">${sensorStats.up}</div>
+                        <div class="detail-label">🔴 Down/Error</div>
+                        <div class="detail-value" style="color: #e74c3c">${sensorStats.down}</div>
+                        <div class="detail-label">🟡 Warning</div>
+                        <div class="detail-value" style="color: #f39c12">${sensorStats.warning}</div>
+                        <div class="detail-label">⏸️ Paused</div>
+                        <div class="detail-value" style="color: #95a5a6">${sensorStats.paused}</div>
+                        <div class="detail-label">🟣 Unusual</div>
+                        <div class="detail-value" style="color: #9b59b6">${sensorStats.unusual}</div>
                     </div>
                 </div>
                 
                 <!-- Sensors List -->
                 <div class="detail-section">
-                    <div class="detail-section-title" id="sensorListTitle">All Sensors (Showing ${Math.min(20, sensors.length)} of ${sensors.length})</div>
-                    <div class="sensor-list" id="sensorList">
+                    <div class="detail-section-title">Sensors</div>
+                    <div class="sensor-list">
                         ${sensors.slice(0, 20).map(sensor => `
-                            <div class="sensor-item ${getStatusKey(sensor.status)}" data-sensor-id="${sensor.id}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
+                            <div class="sensor-item ${getStatusKey(sensor.status)}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
                                 <div class="sensor-name">${sensor.name}</div>
                                 <div class="sensor-details">
                                     <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
@@ -4296,69 +4160,6 @@
             }
             html += '</div>';
             return html;
-        }
-        
-        // Filter sensors by status within device detail view
-        async function filterSensorsByStatus(deviceId, statusFilter) {
-            const authManager = window.dashboard.authManager;
-            
-            try {
-                // Fetch full device with all sensors
-                const response = await authManager.authenticatedFetch(`/api/devices/${deviceId}`);
-                if (!response.ok) {
-                    console.error('Failed to fetch device sensors');
-                    return;
-                }
-                
-                const device = await response.json();
-                const allSensors = device.sensors || [];
-                
-                // Filter sensors based on status
-                let filteredSensors = allSensors;
-                let filterLabel = 'All Sensors';
-                
-                if (statusFilter !== 'all') {
-                    filteredSensors = allSensors.filter(s => s.status === parseInt(statusFilter));
-                    const statusMap = {
-                        3: '🟢 UP/OK',
-                        4: '🟡 WARNING',
-                        5: '🔴 DOWN/ERROR',
-                        7: '⏸️ PAUSED',
-                        10: '🟣 UNUSUAL'
-                    };
-                    filterLabel = statusMap[statusFilter] || 'Filtered';
-                }
-                
-                // Update sensor list title
-                const titleEl = document.getElementById('sensorListTitle');
-                if (titleEl) {
-                    titleEl.textContent = `${filterLabel} Sensors (Showing ${Math.min(100, filteredSensors.length)} of ${filteredSensors.length})`;
-                    titleEl.style.color = statusFilter === 5 ? '#e74c3c' : statusFilter === 4 ? '#f39c12' : '';
-                }
-                
-                // Update sensor list content
-                const listEl = document.getElementById('sensorList');
-                if (listEl) {
-                    if (filteredSensors.length === 0) {
-                        listEl.innerHTML = '<div style="text-align: center; color: #95a5a6; padding: 2rem;">No sensors found with this status</div>';
-                    } else {
-                        listEl.innerHTML = filteredSensors.slice(0, 100).map(sensor => `
-                            <div class="sensor-item ${getStatusKey(sensor.status)}" data-sensor-id="${sensor.id}" onclick="showSensorDetail(${sensor.id}, '${sensor.name.replace(/'/g, '\\\'')}')">
-                                <div class="sensor-name">${sensor.name}</div>
-                                <div class="sensor-details">
-                                    <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
-                                    <span class="sensor-value">${sensor.lastValue || sensor.last_value || 'N/A'}</span>
-                                    <span class="sensor-status" style="color: ${getStatusColor(sensor.status)}">${getStatusText(sensor.status)}</span>
-                                </div>
-                            </div>
-                        `).join('') + (filteredSensors.length > 100 ? 
-                            `<div style="text-align: center; color: #95a5a6; padding: 1rem;">... and ${filteredSensors.length - 100} more sensors</div>` : '');
-                    }
-                }
-                
-            } catch (error) {
-                console.error('Error filtering sensors:', error);
-            }
         }
         
         function closeDeviceDetail() {
@@ -4840,10 +4641,7 @@
             async function fetchStatus(){
                 try {
                     const res = await fetch('/api/session/status', { credentials: 'same-origin' });
-                    if (!res.ok) {
-                        console.debug('Session status endpoint not available (404)');
-                        return;
-                    }
+                    if (!res.ok) return;
                     const data = await res.json();
                     if (data.restoredFromCache && data.expiresAt) {
                         // Use absolute expiry time from database (does NOT reset on activity)
@@ -4865,10 +4663,7 @@
                             serverPollInterval = setInterval(async () => {
                                 try {
                                     const r = await fetch('/api/session/status', { credentials: 'same-origin' });
-                                    if (!r.ok) {
-                                        console.debug('Session status endpoint not available (404)');
-                                        return;
-                                    }
+                                    if (!r.ok) return;
                                     const d = await r.json();
                                     if (d.expiresAt) {
                                         const newExpiry = new Date(d.expiresAt).getTime();
@@ -5149,79 +4944,6 @@
             window.securityManager = new SecurityManager();
             window.dashboard = new SOCDashboard();
             await syncSessionContext();
-            
-            // Check for openDevice URL parameter from topology
-            const urlParams = new URLSearchParams(window.location.search);
-            const openDeviceId = urlParams.get('openDevice');
-            const sensorId = urlParams.get('sensorId');
-            if (openDeviceId) {
-                // Wait for dashboard to ACTUALLY load data AND render (check multiple times)
-                const deviceId = parseInt(openDeviceId);
-                let attempts = 0;
-                const maxAttempts = 20; // Try for up to 10 seconds
-                
-                const checkAndFilter = setInterval(() => {
-                    attempts++;
-                    
-                    // Check if devices are loaded AND rendered in DOM
-                    if (window.dashboard && window.dashboard.allDevices && window.dashboard.allDevices.length > 0) {
-                        const device = window.dashboard.allDevices.find(d => d.id === deviceId);
-                        // Also check if companies are rendered
-                        const companySections = document.querySelectorAll('.company-section');
-                        
-                        if (device && companySections.length > 0) {
-                            clearInterval(checkAndFilter);
-                            
-                            console.log(`🎯 Found device: ${device.name} (ID: ${deviceId})`);
-                            console.log(`📊 Total devices loaded: ${window.dashboard.allDevices.length}`);
-                            console.log(`🏢 Company sections rendered: ${companySections.length}`);
-                            
-                            // Populate the search box
-                            const searchBox = document.getElementById('searchBox');
-                            if (searchBox) {
-                                searchBox.value = device.name;
-                                console.log(`✏️ Set search box to: "${device.name}"`);
-                            }
-                            
-                            // Directly set filter and apply (match dashboard's internal logic)
-                            window.dashboard.filters.search = device.name.toLowerCase();
-                            console.log(`🔍 Set filter to: "${device.name.toLowerCase()}"`);
-                            
-                            window.dashboard.applyFilters();
-                            console.log(`✅ Applied filters - should now show only devices matching "${device.name}"`);
-                            
-                            // If sensorId provided, open the specific sensor detail
-                            if (sensorId) {
-                                const sensorIdInt = parseInt(sensorId);
-                                setTimeout(() => {
-                                    console.log(`🔍 Looking for sensor ID: ${sensorIdInt}`);
-                                    const sensor = device.sensors?.find(s => s.id === sensorIdInt);
-                                    if (sensor) {
-                                        console.log(`✅ Found sensor: ${sensor.name}, opening detail...`);
-                                        showSensorDetail(sensorIdInt, sensor.name);
-                                    } else {
-                                        console.warn(`⚠️ Sensor ${sensorIdInt} not found in device`);
-                                    }
-                                }, 500);
-                            }
-                            
-                            // Verify filter was applied
-                            setTimeout(() => {
-                                const visibleSections = document.querySelectorAll('.company-section[style*="display: block"], .company-section:not([style*="display: none"])');
-                                console.log(`👀 Visible company sections after filter: ${visibleSections.length}`);
-                            }, 100);
-                        } else if (attempts >= maxAttempts) {
-                            clearInterval(checkAndFilter);
-                            console.warn('⚠️ Device not found or DOM not ready after multiple attempts:', deviceId);
-                            console.warn('   Device found:', !!device);
-                            console.warn('   Company sections:', companySections.length);
-                        }
-                    } else if (attempts >= maxAttempts) {
-                        clearInterval(checkAndFilter);
-                        console.warn('⚠️ Dashboard data not loaded after 10 seconds');
-                    }
-                }, 500); // Check every 500ms
-            }
             
             // Add beforeunload handler to attempt logout when tab/window closes
             // Note: This is best-effort, as browsers limit what can be done in this event
