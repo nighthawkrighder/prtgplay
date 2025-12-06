@@ -1502,32 +1502,25 @@
         // Helper function to create devices for a company
         // Helper function to check if device position intersects mothership
         function checkMothershipCollision(deviceX, deviceY, deviceZ, mothershipX, mothershipY, mothershipZ) {
-            // Mothership dimensions (after scaling): width ~14, height ~6, length ~24
+            // Use simple spherical collision with large radius
+            // Mothership size is 12 * 3 = 36 base, length is 24*3 = 72
             const mothershipSize = 12 * nodeSizeMultiplier;
-            const mothershipWidth = mothershipSize * 0.6 * 0.6; // ~7.2 radius
-            const mothershipHeight = mothershipSize * 0.6 * 0.25; // ~1.8 radius
-            const mothershipLength = mothershipSize * 2; // ~24 length
+            const mothershipRadius = mothershipSize * 2; // Full length radius ~72
             
-            // Device dimensions (after scaling): width ~4.8, height ~1.5, length ~8
+            // Device size
             const deviceSize = nodeSizeMultiplier * 2;
-            const deviceWidth = deviceSize * 0.8 * 0.6; // ~2.4 radius
-            const deviceHeight = deviceSize * 0.8 * 0.25; // ~0.75 radius
-            const deviceLength = deviceSize * 2; // ~8 length
+            const deviceRadius = deviceSize * 2; // ~12
             
-            // Calculate distance between ship centers
-            const dx = Math.abs(deviceX - mothershipX);
-            const dy = Math.abs(deviceY - mothershipY);
-            const dz = Math.abs(deviceZ - mothershipZ);
+            // Calculate 3D distance between ship centers
+            const dx = deviceX - mothershipX;
+            const dy = deviceY - mothershipY;
+            const dz = deviceZ - mothershipZ;
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             
-            // Add safety margin (50% larger collision box)
-            const safetyMargin = 1.5;
+            // Safety margin - 1.2x the combined radii for clearance
+            const minDistance = (mothershipRadius + deviceRadius) * 1.2;
             
-            // Check if bounding boxes intersect (ellipsoid collision)
-            const xOverlap = dx < (mothershipWidth + deviceWidth) * safetyMargin;
-            const yOverlap = dy < (mothershipHeight + deviceHeight) * safetyMargin;
-            const zOverlap = dz < (mothershipLength/2 + deviceLength/2) * safetyMargin;
-            
-            return xOverlap && yOverlap && zOverlap;
+            return distance < minDistance;
         }
         
         function createDevicesForCompany(companyNode, devices, x, y, z) {
@@ -1577,14 +1570,29 @@
                     const rotatedOffsetZ = columnOffsetX * Math.sin(perpAngle) + columnOffsetZ * Math.cos(perpAngle);
                     
                     // Final position: company base + column grid offset + vertical stack position
-                    const dx = baseX + rotatedOffsetX;
-                    const dz = baseZ + rotatedOffsetZ;
-                    const dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
+                    let dx = baseX + rotatedOffsetX;
+                    let dz = baseZ + rotatedOffsetZ;
+                    let dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
 
-                    // Check for mothership collision - skip this device if it would intersect
+                    // Check for mothership collision - if too close, push device outward radially
                     if (checkMothershipCollision(dx, dy, dz, x, y, z)) {
-                        console.log(`⚠️ Skipping device ${device.name} - would intersect mothership`);
-                        return; // Skip this device
+                        // Calculate angle from mothership to device
+                        const angleFromMothership = Math.atan2(dz - z, dx - x);
+                        
+                        // Calculate minimum safe distance
+                        const mothershipSize = 12 * nodeSizeMultiplier;
+                        const mothershipRadius = mothershipSize * 2;
+                        const deviceSize = nodeSizeMultiplier * 2;
+                        const deviceRadius = deviceSize * 2;
+                        const minSafeDistance = (mothershipRadius + deviceRadius) * 1.2;
+                        
+                        // Push device outward to safe distance, staggered slightly by index
+                        const staggerOffset = (deviceIndex % 5) * 10; // Stagger in rings
+                        const newDistance = minSafeDistance + staggerOffset;
+                        dx = x + Math.cos(angleFromMothership) * newDistance;
+                        dz = z + Math.sin(angleFromMothership) * newDistance;
+                        
+                        console.log(`📍 Repositioning device ${device.name} - pushed to distance ${newDistance.toFixed(1)} at angle ${(angleFromMothership * 180 / Math.PI).toFixed(1)}°`);
                     }
 
                     const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
