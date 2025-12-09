@@ -4220,7 +4220,8 @@
                                 <div class="sensor-name">${sensor.name}</div>
                                 <div class="sensor-details">
                                     <span class="sensor-type">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</span>
-                                    <span class="sensor-value">${sensor.lastValue || sensor.last_value || 'N/A'}</span>
+                                    <span class="sensor-value" style="font-weight: 600; font-size: 0.95rem;">${sensor.lastValue || sensor.last_value || 'N/A'}</span>
+                                    <span class="sensor-status" style="color: ${getStatusColor(sensor.status)}; font-weight: 600;">${getStatusText(sensor.status)}</span>
                                 </div>
                             </div>
                         `).join('')}
@@ -4435,6 +4436,22 @@
                     <button onclick="showDeviceDetail(${sensor.deviceId || 'null'}, '${sensor.device?.name || 'Device'}')" style="background: #95a5a6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">← Back to Device</button>
                 </div>
                 
+                <!-- Status and Value Highlight -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="background: linear-gradient(135deg, rgba(52, 152, 219, 0.15), rgba(41, 128, 185, 0.1)); border: 2px solid ${getStatusColor(sensor.status)}; border-radius: 8px; padding: 1rem; text-align: center;">
+                        <div style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Current Status</div>
+                        <div style="color: ${getStatusColor(sensor.status)}; font-size: 1.5rem; font-weight: 700;">${getStatusText(sensor.status)}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(46, 204, 113, 0.15), rgba(39, 174, 96, 0.1)); border: 2px solid rgba(46, 204, 113, 0.4); border-radius: 8px; padding: 1rem; text-align: center;">
+                        <div style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Current Value</div>
+                        <div style="color: #2ecc71; font-size: 1.5rem; font-weight: 700;">${sensor.lastValue || sensor.last_value || 'N/A'}</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(155, 89, 182, 0.15), rgba(142, 68, 173, 0.1)); border: 2px solid rgba(155, 89, 182, 0.4); border-radius: 8px; padding: 1rem; text-align: center;">
+                        <div style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Last Updated</div>
+                        <div style="color: #9b59b6; font-size: 1rem; font-weight: 600;">${sensor.lastSeen ? new Date(sensor.lastSeen).toLocaleString() : 'N/A'}</div>
+                    </div>
+                </div>
+                
                 <!-- Sensor Overview -->
                 <div class="detail-section">
                     <div class="detail-section-title">Sensor Information</div>
@@ -4443,16 +4460,14 @@
                         <div class="detail-value">${sensor.id}</div>
                         <div class="detail-label">Sensor Type</div>
                         <div class="detail-value">${sensor.sensorType || sensor.sensor_type || 'Unknown'}</div>
-                        <div class="detail-label">Current Status</div>
-                        <div class="detail-value" style="color: ${getStatusColor(sensor.status)}">${getStatusText(sensor.status)}</div>
                         <div class="detail-label">Priority</div>
                         <div class="detail-value">${sensor.priority || 'Normal'}</div>
-                        <div class="detail-label">Current Value</div>
-                        <div class="detail-value">${sensor.lastValue || sensor.last_value || 'N/A'}</div>
+                        <div class="detail-label">Device ID</div>
+                        <div class="detail-value">${sensor.deviceId || 'N/A'}</div>
                         <div class="detail-label">Last Message</div>
                         <div class="detail-value">${sensor.lastMessage || sensor.last_message ? (sensor.lastMessage || sensor.last_message).replace(/<[^>]*>/g, '') : 'N/A'}</div>
-                        <div class="detail-label">Last Updated</div>
-                        <div class="detail-value">${sensor.lastSeen ? new Date(sensor.lastSeen).toLocaleString() : 'N/A'}</div>
+                        <div class="detail-label">Status Message</div>
+                        <div class="detail-value">${sensor.message || 'N/A'}</div>
                     </div>
                 </div>
                 

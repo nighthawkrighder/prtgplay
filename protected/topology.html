@@ -864,6 +864,12 @@
                     const box = deviceNodeMap.get(device);
                     const oldStatus = device.status;
                     
+                    // Safety check: ensure box and material exist
+                    if (!box || !box.material || !box.material.color) {
+                        // Skip devices without 3D mesh (still initializing or failed to create)
+                        continue;
+                    }
+                    
                     // Find the node object to access status circle
                     const node = nodes.find(n => n.type === 'device' && n.data === device);
                     
@@ -1141,40 +1147,7 @@
             // Keyboard movement setup
             const keys = {};
             window.addEventListener('keydown', (e) => { 
-                keys[e.key.toLowerCase()] = true; 
-                
-                // B key toggles afterburners
-                if (e.key.toLowerCase() === 'b') {
-                    afterburnersEnabled = !afterburnersEnabled;
-                    console.log(`🔥 Afterburners ${afterburnersEnabled ? 'ENABLED' : 'DISABLED'}`);
-                    
-                    // Show/hide all afterburner particle systems and core lights
-                    nodes.forEach(node => {
-                        if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
-                            node.mesh.userData.engines.forEach(engine => {
-                                if (engine.particleSystem) engine.particleSystem.visible = afterburnersEnabled;
-                                if (engine.coreLight) engine.coreLight.visible = afterburnersEnabled;
-                            });
-                        }
-                    });
-                    
-                    // Reset 10-second timer if enabled
-                    if (afterburnersEnabled) {
-                        if (afterburnerTimer) clearTimeout(afterburnerTimer);
-                        afterburnerTimer = setTimeout(() => {
-                            afterburnersEnabled = false;
-                            console.log('🔥 Afterburners AUTO-DISABLED after 10 seconds');
-                            nodes.forEach(node => {
-                                if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
-                                    node.mesh.userData.engines.forEach(engine => {
-                                        if (engine.particleSystem) engine.particleSystem.visible = false;
-                                        if (engine.coreLight) engine.coreLight.visible = false;
-                                    });
-                                }
-                            });
-                        }, 10000);
-                    }
-                }
+                keys[e.key.toLowerCase()] = true;
             });
             window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
@@ -1462,19 +1435,9 @@
             
             console.log(`✅ Created ${nodes.length} total nodes`);
             
-            // Start 10-second timer to auto-disable afterburners
-            afterburnerTimer = setTimeout(() => {
-                afterburnersEnabled = false;
-                console.log('🔥 Afterburners AUTO-DISABLED after 10 seconds');
-                nodes.forEach(node => {
-                    if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
-                        node.mesh.userData.engines.forEach(engine => {
-                            if (engine.particleSystem) engine.particleSystem.visible = false;
-                            if (engine.coreLight) engine.coreLight.visible = false;
-                        });
-                    }
-                });
-            }, 10000);
+            // Afterburners stay enabled permanently - removed auto-disable timer
+            // Users can now enjoy the colorful radioactive particle trails continuously
+            console.log('🔥 Radioactive afterburners ENABLED permanently');
             
             // Calculate actual center of mass to verify positioning
             let sumX = 0, sumZ = 0, numCompanies = 0;
@@ -1932,82 +1895,8 @@
             }
         }
         
-        // Shared function to create realistic particle-based afterburner engines
-        function createAfterburnerEngine(engineX, engineY, engineZ, particleCount, particleSize, sphereSize) {
-            // Create particle system for realistic afterburner plume
-            const particles = new THREE.BufferGeometry();
-            const positions = new Float32Array(particleCount * 3);
-            const colors = new Float32Array(particleCount * 3);
-            const sizes = new Float32Array(particleCount);
-            const velocities = [];
-            const lifetimes = [];
-            
-            for (let p = 0; p < particleCount; p++) {
-                positions[p * 3] = engineX;
-                positions[p * 3 + 1] = engineY;
-                positions[p * 3 + 2] = engineZ;
-                
-                // Color gradient for realistic flame
-                const heat = Math.random();
-                if (heat > 0.8) {
-                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 1.0; colors[p * 3 + 2] = 0.95; // White hot
-                } else if (heat > 0.6) {
-                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 0.85; colors[p * 3 + 2] = 0.3; // Yellow
-                } else if (heat > 0.3) {
-                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 0.5; colors[p * 3 + 2] = 0.0; // Orange
-                } else {
-                    colors[p * 3] = 1.0; colors[p * 3 + 1] = 0.2; colors[p * 3 + 2] = 0.0; // Red
-                }
-                
-                sizes[p] = Math.random() * particleSize + 1;
-                
-                velocities.push({
-                    x: (Math.random() - 0.5) * 0.25,
-                    y: -(Math.random() * 0.45 + 0.45),
-                    z: (Math.random() - 0.5) * 0.25
-                });
-                
-                lifetimes.push(Math.random() * 80);
-            }
-            
-            particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            particles.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            particles.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-            
-            const particleMaterial = new THREE.PointsMaterial({
-                size: particleSize,
-                vertexColors: true,
-                transparent: true,
-                opacity: 0.88,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                sizeAttenuation: true
-            });
-            
-            const particleSystem = new THREE.Points(particles, particleMaterial);
-            
-            // Core glow sphere
-            const coreLight = new THREE.Mesh(
-                new THREE.SphereGeometry(sphereSize, 16, 16),
-                new THREE.MeshBasicMaterial({
-                    color: 0xffffaa,
-                    transparent: true,
-                    opacity: 0.75,
-                    blending: THREE.AdditiveBlending
-                })
-            );
-            coreLight.position.set(engineX, engineY, engineZ);
-            
-            return {
-                particleSystem: particleSystem,
-                particles: particles,
-                velocities: velocities,
-                lifetimes: lifetimes,
-                coreLight: coreLight,
-                position: { x: engineX, y: engineY, z: engineZ },
-                phase: Math.random() * Math.PI * 2
-            };
-        }
+        // Simple glowing engine effect - clean and performant
+
         
         function createCompanyNode(name, x, y, z) {
             // Special handling for LANAIR - create Earth at center (case-insensitive)
@@ -2135,25 +2024,33 @@
             dish.position.set(0, 22, 0);
             mothershipGroup.add(dish);
             
-            // Create powerful mothership afterburner array using shared function
-            const mothershipEngineCount = Math.floor(Math.random() * 3) + 1; // 1-3 engines
-            const mothershipEngines = [];
-            
-            for (let i = 0; i < mothershipEngineCount; i++) {
-                const angle = (i / mothershipEngineCount) * Math.PI * 2;
-                const radius = 8; // Larger radius for mothership
-                const engineX = Math.cos(angle) * radius;
-                const engineZ = Math.sin(angle) * radius;
-                
-                // Use shared afterburner creation function (200 particles, size 5, sphere 3)
-                const engine = createAfterburnerEngine(engineX, -20, engineZ, 200, 5, 3);
-                
-                mothershipGroup.add(engine.particleSystem);
-                mothershipGroup.add(engine.coreLight);
-                mothershipEngines.push(engine);
+            // Add glowing hexagonal back face matching mothership's exact back hex
+            const mothershipSize = 12 * nodeSizeMultiplier;
+            const mothershipHexRadius = mothershipSize * 0.6; // 18
+            const mothershipHexShape = new THREE.Shape();
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 2) + (i * Math.PI / 3); // Start at top, 60° segments
+                const x = mothershipHexRadius * Math.cos(angle) * 0.6; // Apply X scale
+                const y = mothershipHexRadius * Math.sin(angle) * 0.25; // Apply Y scale
+                if (i === 0) mothershipHexShape.moveTo(x, y);
+                else mothershipHexShape.lineTo(x, y);
             }
-            
-            mothershipGroup.userData.engines = mothershipEngines;
+            mothershipHexShape.closePath();
+            const mothershipHexGlowGeom = new THREE.ShapeGeometry(mothershipHexShape);
+            const mothershipHexGlowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00aaff, // Cyan-blue glow
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                depthWrite: false // Don't write to depth buffer so it renders on top
+            });
+            const mothershipHexGlow = new THREE.Mesh(mothershipHexGlowGeom, mothershipHexGlowMaterial);
+            mothershipHexGlow.position.z = -mothershipSize - 0.5; // Behind back face so it's visible
+            mothershipHexGlow.renderOrder = 999; // Render on top
+            mothershipHexGlow.raycast = function() {}; // Disable raycasting so clicks pass through
+            mothershipGroup.add(mothershipHexGlow);
+            mothershipGroup.userData.hexGlow = mothershipHexGlow;
             
             mothershipGroup.position.set(x, y, z);
             console.log('  ✅ Mothership with details created at:', mothershipGroup.position);
@@ -2317,6 +2214,35 @@
             const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
             shipGroup.add(ship);
             
+            // Add glowing hexagonal back face matching ship's exact back hex
+            const deviceSize = nodeSizeMultiplier * 2; // 5
+            // Cone base radius = deviceSize * 0.8 = 4, after scale: X = 4 * 0.6 = 2.4, Y = 4 * 0.25 = 1.0
+            const hexRadius = deviceSize * 0.8; // 4
+            const hexShape = new THREE.Shape();
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 2) + (i * Math.PI / 3); // Start at top, 60° segments
+                const x = hexRadius * Math.cos(angle) * 0.6; // Apply X scale
+                const y = hexRadius * Math.sin(angle) * 0.25; // Apply Y scale
+                if (i === 0) hexShape.moveTo(x, y);
+                else hexShape.lineTo(x, y);
+            }
+            hexShape.closePath();
+            const hexGlowGeom = new THREE.ShapeGeometry(hexShape);
+            const hexGlowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00aaff, // Cyan-blue glow
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                depthWrite: false // Don't write to depth buffer so it renders on top
+            });
+            const hexGlow = new THREE.Mesh(hexGlowGeom, hexGlowMaterial);
+            hexGlow.position.z = -deviceSize - 0.2; // Behind back face so it's visible
+            hexGlow.renderOrder = 999; // Render on top
+            hexGlow.raycast = function() {}; // Disable raycasting so clicks pass through
+            shipGroup.add(hexGlow);
+            shipGroup.userData.hexGlow = hexGlow;
+            
             // Add integrated cockpit canopy (flush with hull)
             const canopyGeom = new THREE.PlaneGeometry(2, 0.8);
             const canopyMaterial = new THREE.MeshBasicMaterial({
@@ -2348,29 +2274,7 @@
             panel2.position.set(-3, 0, 1);
             shipGroup.add(panel2);
             
-            // Create realistic particle-based afterburner jets using shared function
-            const engineCount = Math.floor(Math.random() * 4) + 3; // 3-6 engines per ship
-            const engines = [];
-            
-            for (let i = 0; i < engineCount; i++) {
-                // Distribute engines around the back of the ship in a circle pattern
-                const angle = (i / engineCount) * Math.PI * 2;
-                const radius = 2.5;
-                const engineX = Math.cos(angle) * radius;
-                const engineZ = Math.sin(angle) * radius;
-                
-                // Use shared afterburner creation function (120 particles, size 3, sphere 1.5)
-                const engine = createAfterburnerEngine(engineX, -5, engineZ, 120, 3, 1.5);
-                
-                shipGroup.add(engine.particleSystem);
-                shipGroup.add(engine.coreLight);
-                engines.push(engine);
-            }
-            
             shipGroup.position.set(x, y, z);
-            
-            // Store engines for animation
-            shipGroup.userData.engines = engines;
             
             // Orient ship to point toward center while staying flat on XZ plane
             // Project target direction onto XZ plane (ignore Y) to keep ships level
@@ -2611,73 +2515,17 @@
                 }
             }
             
-            // PASS 0.5: Animate realistic particle-based afterburner jets (optimized)
-            // Batch all geometry updates together for better performance
-            const particleUpdates = [];
-            
+            // PASS 0.5: Animate hex glows
             nodes.forEach(node => {
-                if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.engines) {
-                    // Frustum culling - skip if not visible
+                if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.hexGlow) {
                     if (!node.mesh.visible) return;
                     
-                    const engines = node.mesh.userData.engines;
+                    const hexGlow = node.mesh.userData.hexGlow;
+                    const time = Date.now() * 0.001;
                     
-                    engines.forEach(engine => {
-                        if (engine.particleSystem && engine.particles) {
-                            particleUpdates.push(engine);
-                        }
-                    });
-                }
-            });
-            
-            // Process all particle updates in one batch
-            particleUpdates.forEach(engine => {
-                const positions = engine.particles.attributes.position.array;
-                const sizes = engine.particles.attributes.size.array;
-                let needsUpdate = false;
-                
-                // Update each particle in the plume
-                for (let p = 0; p < engine.lifetimes.length; p++) {
-                    engine.lifetimes[p]--;
-                    
-                    // Reset particle if lifetime expired
-                    if (engine.lifetimes[p] <= 0) {
-                        positions[p * 3] = engine.position.x;
-                        positions[p * 3 + 1] = engine.position.y;
-                        positions[p * 3 + 2] = engine.position.z;
-                        engine.lifetimes[p] = 60 + Math.random() * 40; // New lifetime
-                        sizes[p] = Math.random() * 2.5 + 1;
-                        needsUpdate = true;
-                    } else {
-                        // Move particle with velocity and turbulence
-                        positions[p * 3] += engine.velocities[p].x + (Math.random() - 0.5) * 0.1;
-                        positions[p * 3 + 1] += engine.velocities[p].y;
-                        positions[p * 3 + 2] += engine.velocities[p].z + (Math.random() - 0.5) * 0.1;
-                        
-                        // Expand as particle ages
-                        sizes[p] *= 1.015; // Gradual expansion
-                        
-                        // Add drag (slow down over time)
-                        engine.velocities[p].y *= 0.98;
-                        engine.velocities[p].x *= 0.98;
-                        engine.velocities[p].z *= 0.98;
-                        needsUpdate = true;
-                    }
-                }
-                
-                // Only update if particles changed
-                if (needsUpdate) {
-                    engine.particles.attributes.position.needsUpdate = true;
-                    engine.particles.attributes.size.needsUpdate = true;
-                }
-                
-                // Animate core glow pulsing
-                if (engine.coreLight) {
-                    engine.phase += 0.1;
-                    const pulse = Math.sin(engine.phase) * 0.2 + 0.8;
-                    engine.coreLight.material.opacity = pulse * 0.7;
-                    const scale = 1.0 + Math.sin(engine.phase * 2) * 0.15;
-                    engine.coreLight.scale.set(scale, scale, scale);
+                    // Pulse the hex glow
+                    const pulse = Math.sin(time * 2) * 0.2 + 0.7;
+                    hexGlow.material.opacity = pulse;
                 }
             });
             
@@ -3324,14 +3172,26 @@
                         <div style="color: #e5e7eb;">${device.deviceType || device.device_type || 'Network Device'}</div>
                         
                         <div style="color: #9ca3af; font-weight: 500;">Status:</div>
-                        <div style="color: ${statusColor}; font-weight: bold;">${statusText}</div>
+                        <div style="color: ${statusColor}; font-weight: bold;">${statusText}${device.statusText ? ` (${device.statusText})` : ''}</div>
                         
                         <div style="color: #9ca3af; font-weight: 500;">Priority:</div>
-                        <div style="color: #e5e7eb;">${device.priority || 'Normal'}</div>
+                        <div style="color: ${device.priority > 3 ? '#fbbf24' : '#e5e7eb'}; ${device.priority > 3 ? 'font-weight: bold;' : ''}">
+                            ${device.priority || 'Normal'}${device.priority > 3 ? ' ⚡' : ''}
+                        </div>
                         
-                        ${device.lastSeen ? `
+                        ${device.lastSeen || device.last_seen ? `
                             <div style="color: #9ca3af; font-weight: 500;">Last Seen:</div>
-                            <div style="color: #e5e7eb;">${new Date(device.lastSeen).toLocaleString()}</div>
+                            <div style="color: #e5e7eb;">${new Date(device.lastSeen || device.last_seen).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${device.created_at ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Created:</div>
+                            <div style="color: #e5e7eb;">${new Date(device.created_at).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${device.prtgServerId || device.prtg_server_id ? `
+                            <div style="color: #9ca3af; font-weight: 500;">PRTG Server ID:</div>
+                            <div style="color: #e5e7eb;">${device.prtgServerId || device.prtg_server_id}</div>
                         ` : ''}
                     </div>
                 </div>
@@ -3547,20 +3407,20 @@
                 <!-- Sensor Title -->
                 <div style="margin-bottom: 15px;">
                     <div style="font-size: 22px; font-weight: bold; color: #e5e7eb; margin-bottom: 5px;">
-                        ${sensor.name || sensor.sensorType || sensor.sensor_type || 'Sensor #' + (sensorNode.sensorIndex + 1)}
+                        ${sensor.name || 'Sensor #' + (sensorNode.sensorIndex + 1)}
                     </div>
                     ${sensor.sensorType || sensor.sensor_type ? `
                         <div style="font-size: 13px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px;">
-                            ${sensor.sensorType || sensor.sensor_type}
+                            Type: ${sensor.sensorType || sensor.sensor_type}
                         </div>
                     ` : ''}
                 </div>
 
                 <!-- Current Value (Prominent) -->
-                ${sensor.lastValue || sensor.last_value ? `
+                ${sensor.lastvalue || sensor.lastValue || sensor.last_value ? `
                     <div style="background: rgba(139, 92, 246, 0.15); border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;">
                         <div style="font-size: 32px; font-weight: bold; color: #8b5cf6; font-family: monospace;">
-                            ${sensor.lastValue || sensor.last_value}
+                            ${sensor.lastvalue || sensor.lastValue || sensor.last_value}
                         </div>
                     </div>
                 ` : ''}
@@ -3632,6 +3492,11 @@
             // Filter sensors by status
             const filteredSensors = sensors.filter(s => s.status === status);
             
+            // Debug: Log first sensor to see available data
+            if (filteredSensors.length > 0) {
+                console.log('📊 Sample sensor data:', JSON.stringify(filteredSensors[0], null, 2));
+            }
+            
             // Status display configurations
             const statusConfigs = {
                 3: { name: '🟢 Up', color: '#22c55e', icon: '✓', bg: 'rgba(34, 197, 94, 0.1)' },
@@ -3656,10 +3521,35 @@
                             <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
                                 <div style="flex: 1;">
                                     <div style="font-weight: bold; color: ${sensorConfig.color}; margin-bottom: 2px; font-size: 13px;">
-                                        ${sensorConfig.icon} ${sensor.name || sensor.sensorType || sensor.sensor_type || 'Sensor'}
+                                        ${sensorConfig.icon} ${sensor.name || (sensor.sensorType || sensor.sensor_type) || 'Sensor'}
                                     </div>
-                                    ${sensor.sensorType || sensor.sensor_type ? `
+                                    ${(sensor.sensorType || sensor.sensor_type) && sensor.name ? `
                                         <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px;">
+                                            Type: ${sensor.sensorType || sensor.sensor_type}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.lastvalue || sensor.lastValue || sensor.last_value ? `
+                                        <div style="font-size: 12px; color: #8b5cf6; font-weight: bold; margin-top: 4px;">
+                                            💎 ${sensor.lastvalue || sensor.lastValue || sensor.last_value}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.message || sensor.statusText || sensor.status_text ? `
+                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
+                                            ${sensor.message || sensor.statusText || sensor.status_text}
+                                        </div>
+                                    ` : ''}
+                                    ${!sensor.name && (sensor.id || sensor.objid) ? `
+                                        <div style="font-size: 10px; color: #6b7280; margin-top: 2px;">
+                                            ID: ${sensor.id || sensor.objid}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.lastMessage || sensor.last_message ? `
+                                        <div style="font-size: 11px; color: #d1d5db; margin-top: 4px; padding: 4px 6px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                                            📝 ${(sensor.lastMessage || sensor.last_message).substring(0, 100)}${(sensor.lastMessage || sensor.last_message).length > 100 ? '...' : ''}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.sensorType || sensor.sensor_type ? `
+                                        <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px; display:none;">
                                             ${sensor.sensorType || sensor.sensor_type}
                                         </div>
                                     ` : ''}
@@ -3669,11 +3559,22 @@
                                         </div>
                                     ` : ''}
                                 </div>
-                                ${sensor.last_value || sensor.lastValue ? `
-                                    <div style="text-align: right; font-weight: bold; color: ${sensorConfig.color}; font-size: 16px; font-family: monospace; white-space: nowrap;">
-                                        ${sensor.last_value || sensor.lastValue}
-                                    </div>
-                                ` : ''}
+                                <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                                    ${sensor.lastvalue || sensor.last_value || sensor.lastValue ? `
+                                        <div style="font-weight: bold; color: ${sensorConfig.color}; font-size: 16px; font-family: monospace; white-space: nowrap;">
+                                            ${sensor.lastvalue || sensor.last_value || sensor.lastValue}
+                                        </div>
+                                    ` : `
+                                        <div style="font-size: 11px; color: #6b7280; font-style: italic;">
+                                            No value
+                                        </div>
+                                    `}
+                                    ${sensor.priority && sensor.priority > 3 ? `
+                                        <div style="font-size: 10px; color: #fbbf24; font-weight: bold;">
+                                            ⚡ Priority ${sensor.priority}
+                                        </div>
+                                    ` : ''}
+                                </div>
                             </div>
                             <div style="margin-top: 8px; text-align: right;">
                                 <a href="javascript:void(0);" onclick="window.open('/?openDevice=${device.id}&sensorId=${sensor.id}', '_blank');" style="display: inline-block; padding: 4px 12px; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 11px; cursor: pointer;">📊 View in Dashboard</a>
