@@ -697,6 +697,88 @@
             console.log('✅ Shared geometries and materials initialized');
         }
         
+        // Helper: Create status stripes for troubled ships
+        function createStatusStripes(shipSize, status) {
+            let needsStripes = false;
+            let stripeColor = 0xfbbf24;
+            
+            if (typeof status === 'number') {
+                if (status === 5) {
+                    needsStripes = true;
+                    stripeColor = 0xef4444;
+                } else if (status === 4 || status === 10 || status === 1) {
+                    needsStripes = true;
+                    stripeColor = 0xfbbf24;
+                }
+            } else if (typeof status === 'string') {
+                if (status === 'down') {
+                    needsStripes = true;
+                    stripeColor = 0xef4444;
+                } else if (status === 'warning') {
+                    needsStripes = true;
+                    stripeColor = 0xfbbf24;
+                }
+            }
+            
+            if (!needsStripes) return null;
+            
+            const isMothership = shipSize > 10;
+            const stripeWidth = isMothership ? 0.3 : 0.15;
+            const stripeHeight = shipSize * (isMothership ? 0.5 : 0.6);
+            const stripeOffsetX = shipSize * (isMothership ? 0.35 : 0.45);
+            const stripeOffsetZ = shipSize * (isMothership ? 0.3 : 0.2);
+            
+            // Create gradient texture for stripes with light reflection
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Create vertical gradient with light reflection
+            const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+            const colorHex = '#' + stripeColor.toString(16).padStart(6, '0');
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)'); // Bright top
+            gradient.addColorStop(0.2, colorHex);
+            gradient.addColorStop(0.5, colorHex);
+            gradient.addColorStop(0.8, 'rgba(0, 0, 0, 0.6)'); // Dark bottom
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 64, 256);
+            
+            // Add horizontal light reflection
+            const reflectGrad = ctx.createLinearGradient(0, 0, 64, 0);
+            reflectGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            reflectGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.3)');
+            reflectGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = reflectGrad;
+            ctx.fillRect(0, 64, 64, 128);
+            
+            const stripeTexture = new THREE.CanvasTexture(canvas);
+            
+            const stripeGeom = new THREE.PlaneGeometry(stripeWidth, stripeHeight);
+            const stripeMaterial = new THREE.MeshBasicMaterial({
+                map: stripeTexture,
+                transparent: true,
+                opacity: 0.9,
+                side: THREE.DoubleSide,
+                emissive: stripeColor,
+                emissiveIntensity: 0.8
+            });
+            
+            // Create stripes aligned with ship's hull - positioned in local space
+            // They will automatically rotate with the ship group
+            const leftStripe = new THREE.Mesh(stripeGeom, stripeMaterial.clone());
+            leftStripe.position.set(-stripeOffsetX, 0, stripeOffsetZ);
+            leftStripe.rotation.set(0, Math.PI / 2, 0);
+            
+            const rightStripe = new THREE.Mesh(stripeGeom, stripeMaterial.clone());
+            rightStripe.position.set(stripeOffsetX, 0, stripeOffsetZ);
+            rightStripe.rotation.set(0, -Math.PI / 2, 0);
+            
+            return [leftStripe, rightStripe];
+        }
+        
         // Get or create gradient texture (cached by color)
         function getGradientTexture(color, icon) {
             const cacheKey = `${color}-${icon}`;
@@ -1913,19 +1995,41 @@
             // Create mothership group (main hull + details)
             const mothershipGroup = new THREE.Group();
             
-            // Main hull - dark gunmetal gray like Millennium Falcon
+            // Main hull - dark gunmetal gray with normal material
             const hullGeom = geometryCache.mothership.clone();
             const hullMaterial = new THREE.MeshPhongMaterial({
                 color: 0x4A4A4A, // Dark gunmetal gray
-                emissive: 0x1A1A1A, // Very dark emission
-                emissiveIntensity: 0.15,
-                specular: 0x888888, // Muted specular for weathered look
-                shininess: 30, // Lower shine for worn metal
+                emissive: 0x000000,
+                emissiveIntensity: 0,
+                specular: 0x888888,
+                shininess: 30,
                 flatShading: false,
-                metalness: 0.7 // Less reflective, more weathered
+                metalness: 0.7
             });
-            const hull = new THREE.Mesh(hullGeom, hullMaterial);
+            
+            // Back face material - glowing engine
+            const backFaceMaterial = new THREE.MeshPhongMaterial({
+                color: 0x00aaff,
+                emissive: 0x00aaff,
+                emissiveIntensity: 0.8,
+                specular: 0x000000,
+                shininess: 0
+            });
+            
+            // Set up geometry groups for per-face materials
+            hullGeom.clearGroups();
+            // ConeGeometry with 6 radial segments creates 12 triangles for sides + 6 for back cap
+            // Sides: faces 0-11, Back cap: faces 12-17
+            hullGeom.addGroup(0, 36, 0); // First 12 faces (sides) use hull material
+            hullGeom.addGroup(36, 18, 1); // Last 6 faces (back cap) use glowing material
+            
+            const materials = [hullMaterial, backFaceMaterial];
+            
+            const hull = new THREE.Mesh(hullGeom, materials);
             mothershipGroup.add(hull);
+            
+            // Store reference to back face material for animation
+            mothershipGroup.userData.backFaceMaterial = backFaceMaterial;
             
             // Use cached panel texture or create once
             if (!cachedTextures.panelTexture) {
@@ -1964,8 +2068,9 @@
                 
                 cachedTextures.panelTexture = new THREE.CanvasTexture(panelCanvas);
             }
-            hull.material.map = cachedTextures.panelTexture;
-            hull.material.needsUpdate = true;
+            // Apply texture to hull material only (not back face emissive material)
+            hullMaterial.map = cachedTextures.panelTexture;
+            hullMaterial.needsUpdate = true;
             
             // Add integrated bridge viewport (flush with hull)
             const viewportGeom = new THREE.PlaneGeometry(8, 1.5);
@@ -2024,33 +2129,9 @@
             dish.position.set(0, 22, 0);
             mothershipGroup.add(dish);
             
-            // Add glowing hexagonal back face matching mothership's exact back hex
-            const mothershipSize = 12 * nodeSizeMultiplier;
-            const mothershipHexRadius = mothershipSize * 0.6; // 18
-            const mothershipHexShape = new THREE.Shape();
-            for (let i = 0; i < 6; i++) {
-                const angle = (Math.PI / 2) + (i * Math.PI / 3); // Start at top, 60° segments
-                const x = mothershipHexRadius * Math.cos(angle) * 0.6; // Apply X scale
-                const y = mothershipHexRadius * Math.sin(angle) * 0.25; // Apply Y scale
-                if (i === 0) mothershipHexShape.moveTo(x, y);
-                else mothershipHexShape.lineTo(x, y);
-            }
-            mothershipHexShape.closePath();
-            const mothershipHexGlowGeom = new THREE.ShapeGeometry(mothershipHexShape);
-            const mothershipHexGlowMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00aaff, // Cyan-blue glow
-                transparent: true,
-                opacity: 0.6,
-                blending: THREE.AdditiveBlending,
-                side: THREE.DoubleSide,
-                depthWrite: false // Don't write to depth buffer so it renders on top
-            });
-            const mothershipHexGlow = new THREE.Mesh(mothershipHexGlowGeom, mothershipHexGlowMaterial);
-            mothershipHexGlow.position.z = -mothershipSize - 0.5; // Behind back face so it's visible
-            mothershipHexGlow.renderOrder = 999; // Render on top
-            mothershipHexGlow.raycast = function() {}; // Disable raycasting so clicks pass through
-            mothershipGroup.add(mothershipHexGlow);
-            mothershipGroup.userData.hexGlow = mothershipHexGlow;
+            // Add status light stripes on mothership hull using helper
+            // Note: Company nodes don't have status data here - stripes added later when data is available
+            mothershipGroup.userData.statusStripesNeeded = true;
             
             mothershipGroup.position.set(x, y, z);
             console.log('  ✅ Mothership with details created at:', mothershipGroup.position);
@@ -2169,18 +2250,29 @@
                 hullCanvas.height = 128;
                 const hullCtx = hullCanvas.getContext('2d');
                 
-                // Base color (neutral gray, will be colored by material)
-                hullCtx.fillStyle = '#888888';
+                // Create gradient base instead of flat color
+                const gradient = hullCtx.createRadialGradient(64, 64, 0, 64, 64, 90);
+                gradient.addColorStop(0, '#9a9a9a'); // Lighter center
+                gradient.addColorStop(0.5, '#6a6a6a'); // Mid gray
+                gradient.addColorStop(1, '#3a3a3a'); // Darker edges
+                hullCtx.fillStyle = gradient;
                 hullCtx.fillRect(0, 0, 128, 128);
                 
-                // Add hexagonal panel pattern
-                hullCtx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
-                hullCtx.lineWidth = 1;
+                // Add hexagonal panel pattern with varying opacity for depth
                 const hexSize = 12;
                 for (let row = 0; row < 12; row++) {
                     for (let col = 0; col < 12; col++) {
                         const hexX = col * hexSize + (row % 2) * (hexSize / 2);
                         const hexY = row * hexSize * 0.866;
+                        
+                        // Calculate distance from center for gradient effect
+                        const dx = hexX - 64;
+                        const dy = hexY - 64;
+                        const dist = Math.sqrt(dx * dx + dy * dy) / 90;
+                        const opacity = 0.3 + dist * 0.3;
+                        
+                        hullCtx.strokeStyle = `rgba(0, 0, 0, ${opacity})`;
+                        hullCtx.lineWidth = 1;
                         hullCtx.beginPath();
                         for (let i = 0; i < 6; i++) {
                             const angle = (Math.PI / 3) * i;
@@ -2191,57 +2283,67 @@
                         }
                         hullCtx.closePath();
                         hullCtx.stroke();
+                        
+                        // Add subtle highlight to each hex
+                        hullCtx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (1 - dist)})`;
+                        hullCtx.lineWidth = 0.5;
+                        hullCtx.stroke();
                     }
                 }
                 
                 cachedTextures.hexTexture = new THREE.CanvasTexture(hullCanvas);
             }
             
-            const material = new THREE.MeshPhongMaterial({
-                color: 0x3A3A3A, // Dark gunmetal gray
+            const hullMaterial = new THREE.MeshPhongMaterial({
+                color: 0x3A3A3A,
                 map: cachedTextures.hexTexture,
-                emissive: 0x1A1A1A, // Very dark emission
-                emissiveIntensity: 0.12,
-                specular: 0x666666, // Muted specular for weathered look
-                shininess: 25, // Lower shine for worn metal
+                emissive: 0x000000,
+                emissiveIntensity: 0,
+                specular: 0x666666,
+                shininess: 25,
                 flatShading: false,
                 transparent: false,
                 opacity: 1.0,
-                metalness: 0.6 // Less reflective, more battle-worn
+                metalness: 0.6
+            });
+            
+            // Back face material - glowing engine
+            const backFaceMaterial = new THREE.MeshPhongMaterial({
+                color: 0x00aaff,
+                emissive: 0x00aaff,
+                emissiveIntensity: 0.8,
+                specular: 0x000000,
+                shininess: 0
             });
             
             // Main ship body
-            const ship = new THREE.Mesh(geometryCache.spaceship.clone(), material);
+            const deviceSize = nodeSizeMultiplier * 2;
+            const shipGeometry = geometryCache.spaceship.clone();
+            
+            // Set up geometry groups for per-face materials
+            shipGeometry.clearGroups();
+            // ConeGeometry with 6 radial segments creates 12 triangles for sides + 6 for back cap
+            // Sides: faces 0-11, Back cap: faces 12-17
+            shipGeometry.addGroup(0, 36, 0); // First 12 faces (sides) use hull material
+            shipGeometry.addGroup(36, 18, 1); // Last 6 faces (back cap) use glowing material
+            
+            const materials = [hullMaterial, backFaceMaterial];
+            
+            const ship = new THREE.Mesh(shipGeometry, materials);
             shipGroup.add(ship);
             
-            // Add glowing hexagonal back face matching ship's exact back hex
-            const deviceSize = nodeSizeMultiplier * 2; // 5
-            // Cone base radius = deviceSize * 0.8 = 4, after scale: X = 4 * 0.6 = 2.4, Y = 4 * 0.25 = 1.0
-            const hexRadius = deviceSize * 0.8; // 4
-            const hexShape = new THREE.Shape();
-            for (let i = 0; i < 6; i++) {
-                const angle = (Math.PI / 2) + (i * Math.PI / 3); // Start at top, 60° segments
-                const x = hexRadius * Math.cos(angle) * 0.6; // Apply X scale
-                const y = hexRadius * Math.sin(angle) * 0.25; // Apply Y scale
-                if (i === 0) hexShape.moveTo(x, y);
-                else hexShape.lineTo(x, y);
+            // Store reference to back face material for animation
+            shipGroup.userData.backFaceMaterial = backFaceMaterial;
+            
+            // Add status light stripes on hull using helper
+            const stripes = createStatusStripes(deviceSize, device.effectiveStatus || device.status);
+            if (stripes) {
+                stripes.forEach(stripe => {
+                    // Position stripes relative to ship's local coordinate system
+                    shipGroup.add(stripe);
+                });
+                shipGroup.userData.statusStripes = stripes;
             }
-            hexShape.closePath();
-            const hexGlowGeom = new THREE.ShapeGeometry(hexShape);
-            const hexGlowMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00aaff, // Cyan-blue glow
-                transparent: true,
-                opacity: 0.6,
-                blending: THREE.AdditiveBlending,
-                side: THREE.DoubleSide,
-                depthWrite: false // Don't write to depth buffer so it renders on top
-            });
-            const hexGlow = new THREE.Mesh(hexGlowGeom, hexGlowMaterial);
-            hexGlow.position.z = -deviceSize - 0.2; // Behind back face so it's visible
-            hexGlow.renderOrder = 999; // Render on top
-            hexGlow.raycast = function() {}; // Disable raycasting so clicks pass through
-            shipGroup.add(hexGlow);
-            shipGroup.userData.hexGlow = hexGlow;
             
             // Add integrated cockpit canopy (flush with hull)
             const canopyGeom = new THREE.PlaneGeometry(2, 0.8);
@@ -2256,22 +2358,56 @@
             canopy.position.set(0, 0, 4); // Flush at front of ship
             shipGroup.add(canopy);
             
-            // Add integrated hull panel accents (status indicators)
+            // Add integrated hull panel accents with gradient (matching stripe style)
+            const panelColor = status === 5 || status === 'down' ? 0xff0000 : 
+                               status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x4488ff;
+            
+            // Create gradient texture for panels with light reflection
+            const panelCanvas = document.createElement('canvas');
+            panelCanvas.width = 64;
+            panelCanvas.height = 256;
+            const panelCtx = panelCanvas.getContext('2d');
+            
+            // Create vertical gradient with light reflection
+            const panelGradient = panelCtx.createLinearGradient(0, 0, 0, 256);
+            const panelColorHex = '#' + panelColor.toString(16).padStart(6, '0');
+            panelGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)'); // Bright top
+            panelGradient.addColorStop(0.2, panelColorHex);
+            panelGradient.addColorStop(0.5, panelColorHex);
+            panelGradient.addColorStop(0.8, 'rgba(0, 0, 0, 0.6)'); // Dark bottom
+            panelGradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+            
+            panelCtx.fillStyle = panelGradient;
+            panelCtx.fillRect(0, 0, 64, 256);
+            
+            // Add horizontal light reflection
+            const panelReflectGrad = panelCtx.createLinearGradient(0, 0, 64, 0);
+            panelReflectGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            panelReflectGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.4)');
+            panelReflectGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            panelCtx.fillStyle = panelReflectGrad;
+            panelCtx.fillRect(0, 64, 64, 128);
+            
+            const panelTexture = new THREE.CanvasTexture(panelCanvas);
+            
             const panelGeom = new THREE.PlaneGeometry(0.3, 3);
             const panelMaterial = new THREE.MeshBasicMaterial({
-                color: status === 5 || status === 'down' ? 0xff0000 : 
-                       status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x00ff00,
-                emissive: status === 5 || status === 'down' ? 0xff0000 : 
-                       status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x00ff00,
-                emissiveIntensity: 0.5
+                map: panelTexture,
+                transparent: true,
+                opacity: 0.9,
+                side: THREE.DoubleSide,
+                emissive: panelColor,
+                emissiveIntensity: 0.7
             });
-            const panel1 = new THREE.Mesh(panelGeom, panelMaterial);
-            panel1.position.set(3, 0, 1); // Flush on side hull
+            
+            const panel1 = new THREE.Mesh(panelGeom, panelMaterial.clone());
+            panel1.position.set(3, 0, 1);
             panel1.rotation.y = Math.PI / 2;
             shipGroup.add(panel1);
             
-            const panel2 = panel1.clone();
+            const panel2 = new THREE.Mesh(panelGeom, panelMaterial.clone());
             panel2.position.set(-3, 0, 1);
+            panel2.rotation.y = -Math.PI / 2;
             shipGroup.add(panel2);
             
             shipGroup.position.set(x, y, z);
@@ -2288,30 +2424,13 @@
             shipGroup.rotation.y = Math.random() * Math.PI * 2;
             
             scene.add(shipGroup);
-            
-            // Add status indicator circle (yellow/red) behind ship engines
-            let statusCircle = null;
-            if (color === COLORS.deviceWarning || color === COLORS.deviceDown) {
-                const statusType = color === COLORS.deviceWarning ? 'warning' : 'down';
-                statusCircle = new THREE.Mesh(
-                    geometryCache.circle.clone(), 
-                    materialCache.statusCircles[statusType]
-                );
-                const shipSize = nodeSizeMultiplier * 2;
-                // Position behind ship (away from center, engine glow)
-                const angleFromCenter = Math.atan2(z, x);
-                const behindX = x + Math.cos(angleFromCenter) * shipSize;
-                const behindZ = z + Math.sin(angleFromCenter) * shipSize;
-                statusCircle.position.set(behindX, y, behindZ);
-                scene.add(statusCircle);
-            }
 
             const node = {
                 type: 'device',
                 name: device.name,
                 mesh: shipGroup,
                 label: null,  // No label
-                statusCircle: statusCircle,  // Track status circle for updates
+                statusCircle: null,  // Deprecated - now using hull stripes
                 data: device,
                 parent: parent,
                 connections: [],
@@ -2515,17 +2634,152 @@
                 }
             }
             
-            // PASS 0.5: Animate hex glows
+            // PASS 0.5: Animate ship engine glow (emissive color on back face only)
             nodes.forEach(node => {
-                if ((node.type === 'device' || node.type === 'company') && node.mesh && node.mesh.userData.hexGlow) {
+                if ((node.type === 'device' || node.type === 'company') && node.mesh) {
                     if (!node.mesh.visible) return;
                     
-                    const hexGlow = node.mesh.userData.hexGlow;
+                    const backFaceMaterial = node.mesh.userData?.backFaceMaterial;
+                    if (!backFaceMaterial) return; // Skip if no back face material
+                    
                     const time = Date.now() * 0.001;
                     
-                    // Pulse the hex glow
-                    const pulse = Math.sin(time * 2) * 0.2 + 0.7;
-                    hexGlow.material.opacity = pulse;
+                    // Get device status
+                    const status = node.data?.effectiveStatus || node.data?.status;
+                    
+                    // Determine glow color and intensity based on status
+                    let glowColor = 0x00aaff; // Default cyan-blue (healthy)
+                    let pulseSpeed = 2;
+                    let intensityRange = 0.3;
+                    let intensityBase = 0.5;
+                    let inTrouble = false;
+                    
+                    if (typeof status === 'number') {
+                        // PRTG status codes: 1=unknown, 3=up, 4=warning, 5=down, 10=unusual
+                        if (status === 5) {
+                            // Down - bright red with intense pulse
+                            glowColor = 0xff0000;
+                            pulseSpeed = 3;
+                            intensityRange = 0.6;
+                            intensityBase = 0.8;
+                            inTrouble = true;
+                        } else if (status === 4 || status === 10 || status === 1) {
+                            // Warning/Unusual/Unknown - orange with faster pulse
+                            glowColor = 0xff6600;
+                            pulseSpeed = 2.5;
+                            intensityRange = 0.5;
+                            intensityBase = 0.7;
+                            inTrouble = true;
+                        }
+                        // status 3 (up) uses default cyan-blue
+                    } else if (typeof status === 'string') {
+                        // String status
+                        if (status === 'down') {
+                            glowColor = 0xff0000;
+                            pulseSpeed = 3;
+                            intensityRange = 0.6;
+                            intensityBase = 0.8;
+                            inTrouble = true;
+                        } else if (status === 'warning') {
+                            glowColor = 0xff6600;
+                            pulseSpeed = 2.5;
+                            intensityRange = 0.5;
+                            intensityBase = 0.7;
+                            inTrouble = true;
+                        }
+                        // 'up' uses default cyan-blue
+                    }
+                    
+                    // Verify material exists before accessing
+                    if (!backFaceMaterial) {
+                        return; // Skip nodes without proper material setup
+                    }
+                    
+                    // Animate back face emissive color and intensity based on status
+                    backFaceMaterial.color.setHex(glowColor);
+                    backFaceMaterial.emissive.setHex(glowColor);
+                    
+                    // Motherships (companies) in trouble blink SOS morse code
+                    if (node.type === 'company' && inTrouble) {
+                        // SOS morse: dot dot dot / dash dash dash / dot dot dot
+                        const sosPattern = 7.2; // Full SOS cycle duration
+                        const t = (time % sosPattern);
+                        
+                        let intensity = 0;
+                        
+                        // S (dot dot dot): 0.0-1.0s
+                        if (t < 0.2) intensity = 1.5; // dot 1
+                        else if (t < 0.4) intensity = 0; // gap
+                        else if (t < 0.6) intensity = 1.5; // dot 2
+                        else if (t < 0.8) intensity = 0; // gap
+                        else if (t < 1.0) intensity = 1.5; // dot 3
+                        // Letter gap: 1.0-1.6s
+                        else if (t < 1.6) intensity = 0;
+                        // O (dash dash dash): 1.6-4.2s
+                        else if (t < 2.2) intensity = 1.5; // dash 1
+                        else if (t < 2.4) intensity = 0; // gap
+                        else if (t < 3.0) intensity = 1.5; // dash 2
+                        else if (t < 3.2) intensity = 0; // gap
+                        else if (t < 3.8) intensity = 1.5; // dash 3
+                        // Letter gap: 3.8-4.4s
+                        else if (t < 4.4) intensity = 0;
+                        // S (dot dot dot): 4.4-5.4s
+                        else if (t < 4.6) intensity = 1.5; // dot 1
+                        else if (t < 4.8) intensity = 0; // gap
+                        else if (t < 5.0) intensity = 1.5; // dot 2
+                        else if (t < 5.2) intensity = 0; // gap
+                        else if (t < 5.4) intensity = 1.5; // dot 3
+                        // Word gap: 5.4-7.2s
+                        else intensity = 0;
+                        
+                        backFaceMaterial.emissiveIntensity = intensity;
+                    } else {
+                        // Normal animated pulse for devices and healthy motherships
+                        const pulse = Math.sin(time * pulseSpeed) * intensityRange + intensityBase;
+                        backFaceMaterial.emissiveIntensity = pulse;
+                    }
+                }
+            });
+            
+            // PASS 0.6: Create and animate status stripes on ship hulls
+            nodes.forEach(node => {
+                if ((node.type === 'device' || node.type === 'company') && node.mesh) {
+                    if (!node.mesh.visible) return;
+                    
+                    const status = node.data?.effectiveStatus || node.data?.status;
+                    const time = Date.now() * 0.001;
+                    
+                    // Create stripes if needed and not already created
+                    if (node.mesh.userData.statusStripesNeeded && !node.mesh.userData.statusStripes && status) {
+                        const shipSize = node.type === 'company' ? 12 * nodeSizeMultiplier : nodeSizeMultiplier * 2;
+                        const stripes = createStatusStripes(shipSize, status);
+                        if (stripes) {
+                            stripes.forEach(stripe => {
+                                // Add to parent group, not mesh, so stripes follow ship orientation
+                                node.mesh.add(stripe);
+                            });
+                            node.mesh.userData.statusStripes = stripes;
+                            node.mesh.userData.statusStripesNeeded = false;
+                        }
+                    }
+                    
+                    // Animate existing stripes
+                    if (node.mesh.userData.statusStripes) {
+                        const stripes = node.mesh.userData.statusStripes;
+                        
+                        // Pulse the stripes based on status severity
+                        let pulseSpeed = 2;
+                        if (status === 5 || status === 'down') {
+                            pulseSpeed = 4; // Faster pulse for critical
+                        } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
+                            pulseSpeed = 3; // Medium pulse for warning
+                        }
+                        
+                        const pulse = Math.sin(time * pulseSpeed) * 0.3 + 0.7; // 0.4 to 1.0
+                        stripes.forEach(stripe => {
+                            stripe.material.opacity = pulse;
+                        });
+                    }
                 }
             });
             
