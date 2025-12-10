@@ -2007,13 +2007,56 @@
                 metalness: 0.7
             });
             
-            // Back face material - glowing engine
+            // Create engine glow texture with gradient for back face
+            if (!cachedTextures.engineGlowTexture) {
+                const engineCanvas = document.createElement('canvas');
+                engineCanvas.width = 256;
+                engineCanvas.height = 256;
+                const engineCtx = engineCanvas.getContext('2d');
+                
+                // Create radial gradient from bright center to darker edges
+                const engineGradient = engineCtx.createRadialGradient(128, 128, 0, 128, 128, 128);
+                engineGradient.addColorStop(0, '#ffffff'); // Bright white center
+                engineGradient.addColorStop(0.2, '#88ddff'); // Light cyan
+                engineGradient.addColorStop(0.5, '#00aaff'); // Cyan
+                engineGradient.addColorStop(0.8, '#0066aa'); // Dark cyan
+                engineGradient.addColorStop(1, '#003355'); // Very dark blue
+                
+                engineCtx.fillStyle = engineGradient;
+                engineCtx.fillRect(0, 0, 256, 256);
+                
+                // Add some radial light rays
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 * i) / 8;
+                    const rayGradient = engineCtx.createLinearGradient(
+                        128, 128,
+                        128 + Math.cos(angle) * 128, 128 + Math.sin(angle) * 128
+                    );
+                    rayGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+                    rayGradient.addColorStop(0.5, 'rgba(136, 221, 255, 0.1)');
+                    rayGradient.addColorStop(1, 'rgba(0, 170, 255, 0)');
+                    
+                    engineCtx.fillStyle = rayGradient;
+                    engineCtx.beginPath();
+                    engineCtx.moveTo(128, 128);
+                    engineCtx.arc(128, 128, 128, angle - 0.15, angle + 0.15);
+                    engineCtx.closePath();
+                    engineCtx.fill();
+                }
+                
+                cachedTextures.engineGlowTexture = new THREE.CanvasTexture(engineCanvas);
+            }
+            
+            // Back face material - glowing engine with gradient texture
             const backFaceMaterial = new THREE.MeshPhongMaterial({
-                color: 0x00aaff,
+                map: cachedTextures.engineGlowTexture,
+                color: 0xffffff,
                 emissive: 0x00aaff,
                 emissiveIntensity: 0.8,
-                specular: 0x000000,
-                shininess: 0
+                transparent: true,
+                opacity: 0.95,
+                specular: 0x88ddff,
+                shininess: 30
             });
             
             // Set up geometry groups for per-face materials
@@ -2307,13 +2350,56 @@
                 metalness: 0.6
             });
             
-            // Back face material - glowing engine
+            // Use cached engine glow texture (created in mothership section)
+            if (!cachedTextures.engineGlowTexture) {
+                const engineCanvas = document.createElement('canvas');
+                engineCanvas.width = 256;
+                engineCanvas.height = 256;
+                const engineCtx = engineCanvas.getContext('2d');
+                
+                // Create radial gradient from bright center to darker edges
+                const engineGradient = engineCtx.createRadialGradient(128, 128, 0, 128, 128, 128);
+                engineGradient.addColorStop(0, '#ffffff'); // Bright white center
+                engineGradient.addColorStop(0.2, '#88ddff'); // Light cyan
+                engineGradient.addColorStop(0.5, '#00aaff'); // Cyan
+                engineGradient.addColorStop(0.8, '#0066aa'); // Dark cyan
+                engineGradient.addColorStop(1, '#003355'); // Very dark blue
+                
+                engineCtx.fillStyle = engineGradient;
+                engineCtx.fillRect(0, 0, 256, 256);
+                
+                // Add some radial light rays
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 * i) / 8;
+                    const rayGradient = engineCtx.createLinearGradient(
+                        128, 128,
+                        128 + Math.cos(angle) * 128, 128 + Math.sin(angle) * 128
+                    );
+                    rayGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+                    rayGradient.addColorStop(0.5, 'rgba(136, 221, 255, 0.1)');
+                    rayGradient.addColorStop(1, 'rgba(0, 170, 255, 0)');
+                    
+                    engineCtx.fillStyle = rayGradient;
+                    engineCtx.beginPath();
+                    engineCtx.moveTo(128, 128);
+                    engineCtx.arc(128, 128, 128, angle - 0.15, angle + 0.15);
+                    engineCtx.closePath();
+                    engineCtx.fill();
+                }
+                
+                cachedTextures.engineGlowTexture = new THREE.CanvasTexture(engineCanvas);
+            }
+            
+            // Back face material - glowing engine with gradient texture
             const backFaceMaterial = new THREE.MeshPhongMaterial({
-                color: 0x00aaff,
+                map: cachedTextures.engineGlowTexture,
+                color: 0xffffff,
                 emissive: 0x00aaff,
                 emissiveIntensity: 0.8,
-                specular: 0x000000,
-                shininess: 0
+                transparent: true,
+                opacity: 0.95,
+                specular: 0x88ddff,
+                shininess: 30
             });
             
             // Main ship body
