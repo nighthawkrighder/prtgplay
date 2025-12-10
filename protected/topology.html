@@ -620,7 +620,20 @@
         const geometryCache = {
             box: null,
             sphere: null,
-            circle: null
+            circle: null,
+            // Ship geometries
+            mothership: null,
+            spaceship: null,
+            sensorSphere: null,
+            // Shared detail geometries
+            viewport: null,
+            navLight: null,
+            engineRing: null,
+            antenna: null,
+            dish: null,
+            canopy: null,
+            stripe: null,
+            panel: null
         };
         
         const materialCache = {
@@ -628,7 +641,21 @@
             warning: null,
             down: null,
             company: null,
-            statusCircles: {}
+            statusCircles: {},
+            // Ship materials (shared by all ships of same type)
+            shipHull: null,
+            shipEngine: null,
+            mothershipHull: null,
+            mothershipEngine: null,
+            // Detail materials
+            canopy: null,
+            viewport: null,
+            navLight: null,
+            antenna: null,
+            // Status-based materials
+            stripes: {},  // By status: red, yellow
+            panels: {},   // By status: up, warning, down
+            sensors: {}   // By status: up, warning, down, normal
         };
         
         const textureCache = new Map(); // Cache gradient textures by color
@@ -658,6 +685,11 @@
             // Keep length (Z), make wider (X) but much flatter (Y) for irregular hex
             geometryCache.mothership.scale(0.6, 0.25, 1);
             
+            // Set up geometry groups for per-face materials (hull vs engine)
+            geometryCache.mothership.clearGroups();
+            geometryCache.mothership.addGroup(0, 36, 0); // Sides use hull material
+            geometryCache.mothership.addGroup(36, 18, 1); // Back cap uses engine material
+            
             // Small spaceship: Smaller cone with irregular flattened hex cross-section
             geometryCache.spaceship = new THREE.ConeGeometry(deviceSize * 0.8, deviceSize * 2, 6);
             // Rotate 90 degrees to point forward (Z-axis) instead of up (Y-axis)
@@ -666,8 +698,25 @@
             // Keep length (Z), make wider (X) but much flatter (Y) for irregular hex
             geometryCache.spaceship.scale(0.6, 0.25, 1);
             
+            // Set up geometry groups for per-face materials (hull vs engine)
+            geometryCache.spaceship.clearGroups();
+            geometryCache.spaceship.addGroup(0, 36, 0); // Sides use hull material
+            geometryCache.spaceship.addGroup(36, 18, 1); // Back cap uses engine material
+            
             // Sensor escort: Tiny sphere
             geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
+            
+            // Mothership detail geometries (shared by all motherships)
+            geometryCache.viewport = new THREE.PlaneGeometry(8, 1.5);
+            geometryCache.navLight = new THREE.SphereGeometry(0.3, 8, 8);
+            geometryCache.engineRing = new THREE.TorusGeometry(8, 0.5, 8, 32);
+            geometryCache.antenna = new THREE.CylinderGeometry(0.3, 0.3, 8);
+            geometryCache.dish = new THREE.CylinderGeometry(3, 3, 0.5, 32);
+            
+            // Ship detail geometries
+            geometryCache.canopy = new THREE.PlaneGeometry(2, 0.8);
+            geometryCache.stripe = new THREE.PlaneGeometry(0.15, 2.4); // Will be scaled
+            geometryCache.panel = new THREE.PlaneGeometry(0.3, 3);
             
             console.log('🔹 Mothership geometry type:', geometryCache.mothership.type, 'parameters:', geometryCache.mothership.parameters);
             console.log('🔹 Spaceship geometry type:', geometryCache.spaceship.type, 'parameters:', geometryCache.spaceship.parameters);
@@ -697,38 +746,41 @@
             console.log('✅ Shared geometries and materials initialized');
         }
         
-        // Helper: Create status stripes for troubled ships
-        function createStatusStripes(shipSize, status) {
-            let needsStripes = false;
+        // Helper: Get or create cached stripe material by status
+        function getStripeMaterial(status) {
+            let materialKey = 'normal';
             let stripeColor = 0xfbbf24;
             
             if (typeof status === 'number') {
                 if (status === 5) {
-                    needsStripes = true;
+                    materialKey = 'red';
                     stripeColor = 0xef4444;
                 } else if (status === 4 || status === 10 || status === 1) {
-                    needsStripes = true;
+                    materialKey = 'yellow';
                     stripeColor = 0xfbbf24;
+                } else {
+                    return null; // No stripes for normal status
                 }
             } else if (typeof status === 'string') {
                 if (status === 'down') {
-                    needsStripes = true;
+                    materialKey = 'red';
                     stripeColor = 0xef4444;
                 } else if (status === 'warning') {
-                    needsStripes = true;
+                    materialKey = 'yellow';
                     stripeColor = 0xfbbf24;
+                } else {
+                    return null;
                 }
+            } else {
+                return null;
             }
             
-            if (!needsStripes) return null;
+            // Return cached material if exists
+            if (materialCache.stripes[materialKey]) {
+                return materialCache.stripes[materialKey];
+            }
             
-            const isMothership = shipSize > 10;
-            const stripeWidth = isMothership ? 0.3 : 0.15;
-            const stripeHeight = shipSize * (isMothership ? 0.5 : 0.6);
-            const stripeOffsetX = shipSize * (isMothership ? 0.35 : 0.45);
-            const stripeOffsetZ = shipSize * (isMothership ? 0.3 : 0.2);
-            
-            // Create gradient texture for stripes with light reflection
+            // Create gradient texture for stripes with light reflection (once per color)
             const canvas = document.createElement('canvas');
             canvas.width = 64;
             canvas.height = 256;
@@ -756,8 +808,8 @@
             
             const stripeTexture = new THREE.CanvasTexture(canvas);
             
-            const stripeGeom = new THREE.PlaneGeometry(stripeWidth, stripeHeight);
-            const stripeMaterial = new THREE.MeshBasicMaterial({
+            // Cache the material for reuse
+            materialCache.stripes[materialKey] = new THREE.MeshBasicMaterial({
                 map: stripeTexture,
                 transparent: true,
                 opacity: 0.9,
@@ -766,15 +818,31 @@
                 emissiveIntensity: 0.8
             });
             
-            // Create stripes aligned with ship's hull - positioned in local space
-            // They will automatically rotate with the ship group
-            const leftStripe = new THREE.Mesh(stripeGeom, stripeMaterial.clone());
-            leftStripe.position.set(-stripeOffsetX, 0, stripeOffsetZ);
-            leftStripe.rotation.set(0, Math.PI / 2, 0);
+            return materialCache.stripes[materialKey];
+        }
+        
+        // Helper: Create status stripes for troubled ships (using cached materials)
+        function createStatusStripes(shipSize, status) {
+            const stripeMaterial = getStripeMaterial(status);
+            if (!stripeMaterial) return null;
             
-            const rightStripe = new THREE.Mesh(stripeGeom, stripeMaterial.clone());
+            const isMothership = shipSize > 10;
+            // Stripes run parallel along ship body like status lights
+            const stripeLength = shipSize * (isMothership ? 0.6 : 0.7); // Length along ship
+            const stripeWidth = isMothership ? 0.2 : 0.12; // Narrow width
+            const stripeOffsetX = shipSize * (isMothership ? 0.28 : 0.38); // Distance from centerline
+            const stripeOffsetZ = shipSize * (isMothership ? 0.15 : 0.1); // Forward position
+            
+            const stripeGeom = new THREE.PlaneGeometry(stripeLength, stripeWidth);
+            
+            // Create stripes mounted flush on hull, parallel to ship axis (horizontal)
+            const leftStripe = new THREE.Mesh(stripeGeom, stripeMaterial);
+            leftStripe.position.set(-stripeOffsetX, 0, stripeOffsetZ);
+            leftStripe.rotation.set(0, Math.PI / 2, 0); // Flat on side, parallel to ship
+            
+            const rightStripe = new THREE.Mesh(stripeGeom, stripeMaterial);
             rightStripe.position.set(stripeOffsetX, 0, stripeOffsetZ);
-            rightStripe.rotation.set(0, -Math.PI / 2, 0);
+            rightStripe.rotation.set(0, -Math.PI / 2, 0); // Flat on side, parallel to ship
             
             return [leftStripe, rightStripe];
         }
@@ -1233,6 +1301,40 @@
             });
             window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
+            // Drag detection to prevent clicks during panning - use window scope so onCanvasClick can access
+            window.mouseDownPos = null;
+            window.mouseUpPos = null;
+            window.dragThreshold = 10; // pixels - if mouse moves more than this, it's a drag not a click (increased for better detection)
+            window.isOrbitControlsActive = false;
+            window.orbitControlsWasUsed = false; // Track if controls actually moved the camera
+            
+            // Track when OrbitControls start/stop (more reliable than just mousedown/up)
+            controls.addEventListener('start', () => {
+                window.isOrbitControlsActive = true;
+                window.orbitControlsWasUsed = false; // Reset on start
+                console.log('🎮 OrbitControls started');
+            });
+            
+            controls.addEventListener('change', () => {
+                // Camera is actually moving
+                if (window.isOrbitControlsActive) {
+                    window.orbitControlsWasUsed = true;
+                }
+            });
+            
+            controls.addEventListener('end', () => {
+                window.isOrbitControlsActive = false;
+                console.log('🎮 OrbitControls ended - was used:', window.orbitControlsWasUsed);
+            });
+            
+            canvas.addEventListener('mousedown', (e) => {
+                window.mouseDownPos = { x: e.clientX, y: e.clientY };
+            });
+            
+            canvas.addEventListener('mouseup', (e) => {
+                window.mouseUpPos = { x: e.clientX, y: e.clientY };
+            });
+
             // Event listeners
             window.addEventListener('resize', onWindowResize);
             canvas.addEventListener('click', onCanvasClick);
@@ -1604,15 +1706,20 @@
                     const columnRow = Math.floor(columnIndex / columnsPerRow);
                     const columnCol = columnIndex % columnsPerRow;
                     
-                    // Offset columns in a tight grid pattern (30 units apart)
-                    const columnSpacing = 30 * spreadFactor;
-                    const columnOffsetX = (columnCol - columnsPerRow / 2) * columnSpacing;
-                    const columnOffsetZ = (columnRow - columnsPerRow / 2) * columnSpacing;
+                    // Offset columns in a tight grid pattern (20 units apart for tighter grouping)
+                    const columnSpacing = 20 * spreadFactor;
+                    
+                    // Calculate offsets relative to mothership:
+                    // - columnOffsetRadial: offset along the radial direction (away from/toward center)
+                    // - columnOffsetTangent: offset perpendicular to radial (left/right from mothership's perspective)
+                    const columnOffsetTangent = (columnCol - (columnsPerRow - 1) / 2) * columnSpacing;
+                    const columnOffsetRadial = (columnRow - (columnsPerRow - 1) / 2) * columnSpacing;
                     
                     // Rotate offsets to align with company's radial position
-                    const perpAngle = companyAngle + Math.PI / 2;
-                    const rotatedOffsetX = columnOffsetX * Math.cos(perpAngle) - columnOffsetZ * Math.sin(perpAngle);
-                    const rotatedOffsetZ = columnOffsetX * Math.sin(perpAngle) + columnOffsetZ * Math.cos(perpAngle);
+                    // Radial direction: same as companyAngle
+                    // Tangential direction: perpendicular to radial (companyAngle + PI/2)
+                    const rotatedOffsetX = columnOffsetRadial * Math.cos(companyAngle) + columnOffsetTangent * Math.cos(companyAngle + Math.PI / 2);
+                    const rotatedOffsetZ = columnOffsetRadial * Math.sin(companyAngle) + columnOffsetTangent * Math.sin(companyAngle + Math.PI / 2);
                     
                     // Final position: company base + column grid offset + vertical stack position
                     let dx = baseX + rotatedOffsetX;
@@ -1899,6 +2006,30 @@
             scene.add(glowMesh);
             console.log('  ✨ Glow mesh added to scene');
             
+            // Create node object first
+            const node = {
+                type: 'company',
+                name: name,
+                mesh: earthMesh,
+                glowMesh: glowMesh,
+                label: null,
+                data: { name: name },
+                connections: [],
+                expanded: false,
+                isEarth: true,
+                earthRadius: earthRadius
+            };
+            
+            // Store unique node reference in mesh userData for raycaster
+            earthMesh.userData.node = node;
+            earthMesh.userData.nodeType = 'company';
+            earthMesh.userData.isEarth = true;
+            
+            // Also set on glow mesh for consistency
+            glowMesh.userData.node = node;
+            glowMesh.userData.nodeType = 'company';
+            glowMesh.userData.isEarth = true;
+            
             scene.add(earthMesh);
             console.log('  ✅ Earth planet added to scene. Total scene children:', scene.children.length);
             
@@ -1907,18 +2038,8 @@
             nameLabel.position.set(x, y + earthRadius + 15, z);
             scene.add(nameLabel);
             
-            return {
-                type: 'company',
-                name: name,
-                mesh: earthMesh,
-                glowMesh: glowMesh,
-                label: nameLabel,
-                data: { name: name },
-                connections: [],
-                expanded: false,
-                isEarth: true,
-                earthRadius: earthRadius
-            };
+            node.label = nameLabel;
+            return node;
         }
         
         // Create Earth label with distinctive styling
@@ -1995,17 +2116,18 @@
             // Create mothership group (main hull + details)
             const mothershipGroup = new THREE.Group();
             
-            // Main hull - dark gunmetal gray with normal material
-            const hullGeom = geometryCache.mothership.clone();
-            const hullMaterial = new THREE.MeshPhongMaterial({
-                color: 0x4A4A4A, // Dark gunmetal gray
-                emissive: 0x000000,
-                emissiveIntensity: 0,
-                specular: 0x888888,
-                shininess: 30,
-                flatShading: false,
-                metalness: 0.7
-            });
+            // Create shared materials if not already cached
+            if (!materialCache.mothershipHull) {
+                materialCache.mothershipHull = new THREE.MeshPhongMaterial({
+                    color: 0x4A4A4A, // Dark gunmetal gray (platinum-ish)
+                    emissive: 0x000000,
+                    emissiveIntensity: 0,
+                    specular: 0x888888,
+                    shininess: 30,
+                    flatShading: false,
+                    metalness: 0.7
+                });
+            }
             
             // Create engine glow texture with gradient for back face
             if (!cachedTextures.engineGlowTexture) {
@@ -2047,32 +2169,47 @@
                 cachedTextures.engineGlowTexture = new THREE.CanvasTexture(engineCanvas);
             }
             
-            // Back face material - glowing engine with gradient texture
-            const backFaceMaterial = new THREE.MeshPhongMaterial({
-                map: cachedTextures.engineGlowTexture,
-                color: 0xffffff,
-                emissive: 0x00aaff,
-                emissiveIntensity: 0.8,
-                transparent: true,
-                opacity: 0.95,
-                specular: 0x88ddff,
-                shininess: 30
-            });
+            // Create shared engine material if not cached
+            if (!materialCache.mothershipEngine) {
+                materialCache.mothershipEngine = new THREE.MeshPhongMaterial({
+                    map: cachedTextures.engineGlowTexture,
+                    color: 0xffffff,
+                    emissive: 0x00aaff,
+                    emissiveIntensity: 0.8,
+                    transparent: true,
+                    opacity: 0.95,
+                    specular: 0x88ddff,
+                    shininess: 30
+                });
+            }
             
-            // Set up geometry groups for per-face materials
-            hullGeom.clearGroups();
-            // ConeGeometry with 6 radial segments creates 12 triangles for sides + 6 for back cap
-            // Sides: faces 0-11, Back cap: faces 12-17
-            hullGeom.addGroup(0, 36, 0); // First 12 faces (sides) use hull material
-            hullGeom.addGroup(36, 18, 1); // Last 6 faces (back cap) use glowing material
+            // Create node object early so we can reference it in userData
+            const node = {
+                type: 'company',
+                name: name,
+                mesh: mothershipGroup,
+                label: null,
+                data: { name: name },
+                connections: [],
+                expanded: false,
+                targetQuaternion: null, // Will be set later
+                rotationComplete: false,
+                rotationProgress: 0
+            };
             
-            const materials = [hullMaterial, backFaceMaterial];
+            // Store unique node reference in group userData FIRST
+            mothershipGroup.userData.node = node;
+            mothershipGroup.userData.nodeType = 'company';
             
-            const hull = new THREE.Mesh(hullGeom, materials);
+            // Clone engine material for this specific ship (so each can have different colors)
+            const instanceEngineMaterial = materialCache.mothershipEngine.clone();
+            mothershipGroup.userData.backFaceMaterial = instanceEngineMaterial;
+            
+            // Use shared geometry and shared hull material, but individual engine material
+            const materials = [materialCache.mothershipHull, instanceEngineMaterial];
+            const hull = new THREE.Mesh(geometryCache.mothership, materials);
+            hull.userData.parentGroup = mothershipGroup; // For raycaster identification
             mothershipGroup.add(hull);
-            
-            // Store reference to back face material for animation
-            mothershipGroup.userData.backFaceMaterial = backFaceMaterial;
             
             // Use cached panel texture or create once
             if (!cachedTextures.panelTexture) {
@@ -2111,64 +2248,66 @@
                 
                 cachedTextures.panelTexture = new THREE.CanvasTexture(panelCanvas);
             }
-            // Apply texture to hull material only (not back face emissive material)
-            hullMaterial.map = cachedTextures.panelTexture;
-            hullMaterial.needsUpdate = true;
+            // Apply panel texture to hull material only (not back face emissive material)
+            if (cachedTextures.panelTexture) {
+                materialCache.mothershipHull.map = cachedTextures.panelTexture;
+                materialCache.mothershipHull.needsUpdate = true;
+            }
             
-            // Add integrated bridge viewport (flush with hull)
-            const viewportGeom = new THREE.PlaneGeometry(8, 1.5);
-            const viewportMaterial = new THREE.MeshBasicMaterial({
-                color: 0x4488ff,
-                transparent: true,
-                opacity: 0.6,
-                emissive: 0x3366ff,
-                emissiveIntensity: 0.3
-            });
-            const bridgeViewport = new THREE.Mesh(viewportGeom, viewportMaterial);
-            bridgeViewport.position.set(0, 0, 12); // Positioned at front tip, flush
+            // Create shared detail materials if not cached
+            if (!materialCache.viewport) {
+                materialCache.viewport = new THREE.MeshBasicMaterial({
+                    color: 0x4488ff,
+                    transparent: true,
+                    opacity: 0.6,
+                    emissive: 0x3366ff,
+                    emissiveIntensity: 0.3
+                });
+            }
+            if (!materialCache.navLight) {
+                materialCache.navLight = new THREE.MeshBasicMaterial({
+                    color: 0x4488ff,
+                    emissive: 0x3366ff,
+                    emissiveIntensity: 1.0
+                });
+            }
+            if (!materialCache.antenna) {
+                materialCache.antenna = new THREE.MeshPhongMaterial({
+                    color: 0xcccccc,
+                    emissive: 0x3366ff,
+                    emissiveIntensity: 0.5
+                });
+            }
+            
+            // Use shared geometries and materials
+            const bridgeViewport = new THREE.Mesh(geometryCache.viewport, materialCache.viewport);
+            bridgeViewport.position.set(0, 0, 12);
             mothershipGroup.add(bridgeViewport);
             
-            // Add navigation lights at wing edges (small, integrated)
-            const navLightGeom = new THREE.SphereGeometry(0.3, 8, 8);
-            const navLightMaterial = new THREE.MeshBasicMaterial({
-                color: 0x4488ff,
-                emissive: 0x3366ff,
-                emissiveIntensity: 1.0
-            });
-            const navLight1 = new THREE.Mesh(navLightGeom, navLightMaterial);
+            const navLight1 = new THREE.Mesh(geometryCache.navLight, materialCache.navLight);
             navLight1.position.set(7, 0, 8);
             mothershipGroup.add(navLight1);
             
-            const navLight2 = navLight1.clone();
+            const navLight2 = new THREE.Mesh(geometryCache.navLight, materialCache.navLight);
             navLight2.position.set(-7, 0, 8);
             mothershipGroup.add(navLight2);
             
-            // Add engine glow rings at base
-            const ringGeom = new THREE.TorusGeometry(8, 0.5, 8, 32);
+            // Engine ring with shared geometry
             const ringMaterial = new THREE.MeshBasicMaterial({
                 color: shipColor,
                 emissive: shipColor,
                 emissiveIntensity: 1.0
             });
-            const engineRing = new THREE.Mesh(ringGeom, ringMaterial);
+            const engineRing = new THREE.Mesh(geometryCache.engineRing, ringMaterial);
             engineRing.position.set(0, -18, 0);
             engineRing.rotation.x = Math.PI / 2;
             mothershipGroup.add(engineRing);
             
-            // Add antenna array
-            const antennaGeom = new THREE.CylinderGeometry(0.3, 0.3, 8);
-            const antennaMaterial = new THREE.MeshPhongMaterial({
-                color: 0xcccccc,
-                emissive: 0x3366ff,
-                emissiveIntensity: 0.5
-            });
-            const antenna = new THREE.Mesh(antennaGeom, antennaMaterial);
+            const antenna = new THREE.Mesh(geometryCache.antenna, materialCache.antenna);
             antenna.position.set(0, 18, 0);
             mothershipGroup.add(antenna);
             
-            // Add radar dish
-            const dishGeom = new THREE.CylinderGeometry(3, 3, 0.5, 32);
-            const dish = new THREE.Mesh(dishGeom, antennaMaterial);
+            const dish = new THREE.Mesh(geometryCache.dish, materialCache.antenna);
             dish.position.set(0, 22, 0);
             mothershipGroup.add(dish);
             
@@ -2186,6 +2325,7 @@
             
             // Store target quaternion for smooth rotation animation
             const targetQuaternion = mothershipGroup.quaternion.clone();
+            node.targetQuaternion = targetQuaternion;
             
             // Start with random rotation for animation effect
             mothershipGroup.rotation.y = Math.random() * Math.PI * 2;
@@ -2197,19 +2337,9 @@
             const nameLabel = createCompanyNameLabel(name);
             nameLabel.position.set(x, y + 30, z);
             scene.add(nameLabel);
-
-            return {
-                type: 'company',
-                name: name,
-                mesh: mothershipGroup,
-                label: nameLabel,
-                data: { name: name },
-                connections: [],
-                expanded: false,
-                targetQuaternion: targetQuaternion,
-                rotationComplete: false,
-                rotationProgress: 0
-            };
+            
+            node.label = nameLabel;
+            return node;
         }
         
         // Create company name label
@@ -2293,7 +2423,7 @@
                 hullCanvas.height = 128;
                 const hullCtx = hullCanvas.getContext('2d');
                 
-                // Create gradient base instead of flat color
+                // Create gradient base with darker gunmetal tones
                 const gradient = hullCtx.createRadialGradient(64, 64, 0, 64, 64, 90);
                 gradient.addColorStop(0, '#9a9a9a'); // Lighter center
                 gradient.addColorStop(0.5, '#6a6a6a'); // Mid gray
@@ -2337,89 +2467,64 @@
                 cachedTextures.hexTexture = new THREE.CanvasTexture(hullCanvas);
             }
             
-            const hullMaterial = new THREE.MeshPhongMaterial({
-                color: 0x3A3A3A,
-                map: cachedTextures.hexTexture,
-                emissive: 0x000000,
-                emissiveIntensity: 0,
-                specular: 0x666666,
-                shininess: 25,
-                flatShading: false,
-                transparent: false,
-                opacity: 1.0,
-                metalness: 0.6
-            });
-            
-            // Use cached engine glow texture (created in mothership section)
-            if (!cachedTextures.engineGlowTexture) {
-                const engineCanvas = document.createElement('canvas');
-                engineCanvas.width = 256;
-                engineCanvas.height = 256;
-                const engineCtx = engineCanvas.getContext('2d');
-                
-                // Create radial gradient from bright center to darker edges
-                const engineGradient = engineCtx.createRadialGradient(128, 128, 0, 128, 128, 128);
-                engineGradient.addColorStop(0, '#ffffff'); // Bright white center
-                engineGradient.addColorStop(0.2, '#88ddff'); // Light cyan
-                engineGradient.addColorStop(0.5, '#00aaff'); // Cyan
-                engineGradient.addColorStop(0.8, '#0066aa'); // Dark cyan
-                engineGradient.addColorStop(1, '#003355'); // Very dark blue
-                
-                engineCtx.fillStyle = engineGradient;
-                engineCtx.fillRect(0, 0, 256, 256);
-                
-                // Add some radial light rays
-                for (let i = 0; i < 8; i++) {
-                    const angle = (Math.PI * 2 * i) / 8;
-                    const rayGradient = engineCtx.createLinearGradient(
-                        128, 128,
-                        128 + Math.cos(angle) * 128, 128 + Math.sin(angle) * 128
-                    );
-                    rayGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
-                    rayGradient.addColorStop(0.5, 'rgba(136, 221, 255, 0.1)');
-                    rayGradient.addColorStop(1, 'rgba(0, 170, 255, 0)');
-                    
-                    engineCtx.fillStyle = rayGradient;
-                    engineCtx.beginPath();
-                    engineCtx.moveTo(128, 128);
-                    engineCtx.arc(128, 128, 128, angle - 0.15, angle + 0.15);
-                    engineCtx.closePath();
-                    engineCtx.fill();
-                }
-                
-                cachedTextures.engineGlowTexture = new THREE.CanvasTexture(engineCanvas);
+            // Create shared device ship materials if not cached
+            if (!materialCache.shipHull) {
+                materialCache.shipHull = new THREE.MeshPhongMaterial({
+                    color: 0x3A3A3A, // Dark gunmetal gray (platinum-ish)
+                    map: cachedTextures.hexTexture,
+                    emissive: 0x000000,
+                    emissiveIntensity: 0,
+                    specular: 0x666666,
+                    shininess: 25,
+                    flatShading: false,
+                    transparent: false,
+                    opacity: 1.0,
+                    metalness: 0.6
+                });
             }
             
-            // Back face material - glowing engine with gradient texture
-            const backFaceMaterial = new THREE.MeshPhongMaterial({
-                map: cachedTextures.engineGlowTexture,
-                color: 0xffffff,
-                emissive: 0x00aaff,
-                emissiveIntensity: 0.8,
-                transparent: true,
-                opacity: 0.95,
-                specular: 0x88ddff,
-                shininess: 30
-            });
+            // Reuse engine material created for mothership (already cached)
+            if (!materialCache.shipEngine) {
+                materialCache.shipEngine = materialCache.mothershipEngine;
+            }
             
-            // Main ship body
+            // Main ship body - use shared geometry and materials (no clone!)
             const deviceSize = nodeSizeMultiplier * 2;
-            const shipGeometry = geometryCache.spaceship.clone();
             
-            // Set up geometry groups for per-face materials
-            shipGeometry.clearGroups();
-            // ConeGeometry with 6 radial segments creates 12 triangles for sides + 6 for back cap
-            // Sides: faces 0-11, Back cap: faces 12-17
-            shipGeometry.addGroup(0, 36, 0); // First 12 faces (sides) use hull material
-            shipGeometry.addGroup(36, 18, 1); // Last 6 faces (back cap) use glowing material
+            // Create node object early and set userData on group FIRST
+            const targetPos = new THREE.Vector3(0, y, 0);
+            shipGroup.lookAt(targetPos);
+            const targetQuaternion = shipGroup.quaternion.clone();
+            shipGroup.rotation.y = Math.random() * Math.PI * 2;
             
-            const materials = [hullMaterial, backFaceMaterial];
+            const node = {
+                type: 'device',
+                name: device.name,
+                mesh: shipGroup,
+                label: null,
+                statusCircle: null,
+                data: device,
+                parent: parent,
+                connections: [],
+                expanded: false,
+                visible: true,
+                targetQuaternion: targetQuaternion,
+                rotationComplete: false,
+                rotationProgress: 0
+            };
             
-            const ship = new THREE.Mesh(shipGeometry, materials);
+            // Store unique node reference in mesh userData BEFORE adding children
+            shipGroup.userData.node = node;
+            shipGroup.userData.nodeType = 'device';
+            
+            // Clone engine material for this specific ship (so each can have different colors)
+            const instanceEngineMaterial = materialCache.shipEngine.clone();
+            shipGroup.userData.backFaceMaterial = instanceEngineMaterial;
+            
+            const materials = [materialCache.shipHull, instanceEngineMaterial];
+            const ship = new THREE.Mesh(geometryCache.spaceship, materials);
+            ship.userData.parentGroup = shipGroup; // For raycaster identification
             shipGroup.add(ship);
-            
-            // Store reference to back face material for animation
-            shipGroup.userData.backFaceMaterial = backFaceMaterial;
             
             // Add status light stripes on hull using helper
             const stripes = createStatusStripes(deviceSize, device.effectiveStatus || device.status);
@@ -2431,106 +2536,85 @@
                 shipGroup.userData.statusStripes = stripes;
             }
             
-            // Add integrated cockpit canopy (flush with hull)
-            const canopyGeom = new THREE.PlaneGeometry(2, 0.8);
-            const canopyMaterial = new THREE.MeshBasicMaterial({
-                color: 0x3366ff,
-                transparent: true,
-                opacity: 0.5,
-                emissive: 0x2255dd,
-                emissiveIntensity: 0.2
-            });
-            const canopy = new THREE.Mesh(canopyGeom, canopyMaterial);
-            canopy.position.set(0, 0, 4); // Flush at front of ship
+            // Add integrated cockpit canopy (flush with hull) - use shared material
+            if (!materialCache.canopy) {
+                materialCache.canopy = new THREE.MeshBasicMaterial({
+                    color: 0x3366ff,
+                    transparent: true,
+                    opacity: 0.5,
+                    emissive: 0x2255dd,
+                    emissiveIntensity: 0.2
+                });
+            }
+            const canopy = new THREE.Mesh(geometryCache.canopy, materialCache.canopy);
+            canopy.position.set(0, 0, 4);
             shipGroup.add(canopy);
             
-            // Add integrated hull panel accents with gradient (matching stripe style)
-            const panelColor = status === 5 || status === 'down' ? 0xff0000 : 
-                               status === 4 || status === 10 || status === 1 || status === 'warning' ? 0xffaa00 : 0x4488ff;
+            // Add integrated hull panel accents - use cached material by status
+            const panelStatusKey = status === 5 || status === 'down' ? 'down' : 
+                                   status === 4 || status === 10 || status === 1 || status === 'warning' ? 'warning' : 'up';
             
-            // Create gradient texture for panels with light reflection
-            const panelCanvas = document.createElement('canvas');
-            panelCanvas.width = 64;
-            panelCanvas.height = 256;
-            const panelCtx = panelCanvas.getContext('2d');
+            if (!materialCache.panels[panelStatusKey]) {
+                const panelColor = panelStatusKey === 'down' ? 0xff0000 : 
+                                   panelStatusKey === 'warning' ? 0xffaa00 : 0x4488ff;
+                
+                // Create gradient texture for panels once per status
+                const panelCanvas = document.createElement('canvas');
+                panelCanvas.width = 64;
+                panelCanvas.height = 256;
+                const panelCtx = panelCanvas.getContext('2d');
+                
+                // Create vertical gradient with light reflection
+                const panelGradient = panelCtx.createLinearGradient(0, 0, 0, 256);
+                const panelColorHex = '#' + panelColor.toString(16).padStart(6, '0');
+                panelGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                panelGradient.addColorStop(0.2, panelColorHex);
+                panelGradient.addColorStop(0.5, panelColorHex);
+                panelGradient.addColorStop(0.8, 'rgba(0, 0, 0, 0.6)');
+                panelGradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+                
+                panelCtx.fillStyle = panelGradient;
+                panelCtx.fillRect(0, 0, 64, 256);
+                
+                // Add horizontal light reflection
+                const panelReflectGrad = panelCtx.createLinearGradient(0, 0, 64, 0);
+                panelReflectGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+                panelReflectGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.4)');
+                panelReflectGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                panelCtx.fillStyle = panelReflectGrad;
+                panelCtx.fillRect(0, 64, 64, 128);
+                
+                const panelTexture = new THREE.CanvasTexture(panelCanvas);
+                
+                materialCache.panels[panelStatusKey] = new THREE.MeshBasicMaterial({
+                    map: panelTexture,
+                    transparent: true,
+                    opacity: 0.9,
+                    side: THREE.DoubleSide,
+                    emissive: panelColor,
+                    emissiveIntensity: 0.7
+                });
+            }
             
-            // Create vertical gradient with light reflection
-            const panelGradient = panelCtx.createLinearGradient(0, 0, 0, 256);
-            const panelColorHex = '#' + panelColor.toString(16).padStart(6, '0');
-            panelGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)'); // Bright top
-            panelGradient.addColorStop(0.2, panelColorHex);
-            panelGradient.addColorStop(0.5, panelColorHex);
-            panelGradient.addColorStop(0.8, 'rgba(0, 0, 0, 0.6)'); // Dark bottom
-            panelGradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
-            
-            panelCtx.fillStyle = panelGradient;
-            panelCtx.fillRect(0, 0, 64, 256);
-            
-            // Add horizontal light reflection
-            const panelReflectGrad = panelCtx.createLinearGradient(0, 0, 64, 0);
-            panelReflectGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
-            panelReflectGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.4)');
-            panelReflectGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            panelCtx.fillStyle = panelReflectGrad;
-            panelCtx.fillRect(0, 64, 64, 128);
-            
-            const panelTexture = new THREE.CanvasTexture(panelCanvas);
-            
-            const panelGeom = new THREE.PlaneGeometry(0.3, 3);
-            const panelMaterial = new THREE.MeshBasicMaterial({
-                map: panelTexture,
-                transparent: true,
-                opacity: 0.9,
-                side: THREE.DoubleSide,
-                emissive: panelColor,
-                emissiveIntensity: 0.7
-            });
-            
-            const panel1 = new THREE.Mesh(panelGeom, panelMaterial.clone());
+            // Use shared panel geometry and cached material
+            const panel1 = new THREE.Mesh(geometryCache.panel, materialCache.panels[panelStatusKey]);
             panel1.position.set(3, 0, 1);
             panel1.rotation.y = Math.PI / 2;
             shipGroup.add(panel1);
             
-            const panel2 = new THREE.Mesh(panelGeom, panelMaterial.clone());
+            const panel2 = new THREE.Mesh(geometryCache.panel, materialCache.panels[panelStatusKey]);
             panel2.position.set(-3, 0, 1);
             panel2.rotation.y = -Math.PI / 2;
             shipGroup.add(panel2);
             
             shipGroup.position.set(x, y, z);
             
-            // Orient ship to point toward center while staying flat on XZ plane
-            // Project target direction onto XZ plane (ignore Y) to keep ships level
-            const targetPos = new THREE.Vector3(0, y, 0); // Keep at same Y height
-            shipGroup.lookAt(targetPos);
-            
-            // Store target quaternion for smooth rotation animation
-            const targetQuaternion = shipGroup.quaternion.clone();
-            
-            // Start with random rotation for animation effect
-            shipGroup.rotation.y = Math.random() * Math.PI * 2;
-            
             scene.add(shipGroup);
-
-            const node = {
-                type: 'device',
-                name: device.name,
-                mesh: shipGroup,
-                label: null,  // No label
-                statusCircle: null,  // Deprecated - now using hull stripes
-                data: device,
-                parent: parent,
-                connections: [],
-                expanded: false,
-                visible: true,  // Device is visible in scene
-                targetQuaternion: targetQuaternion,
-                rotationComplete: false,
-                rotationProgress: 0
-            };
             
-                // Register node for real-time updates
-                deviceNodeMap.set(device, shipGroup);
-                
-                return node;
+            // Register node for real-time updates
+            deviceNodeMap.set(device, shipGroup);
+            
+            return node;
             } catch (error) {
                 console.error('Error creating device node:', device.name, error);
                 // Return minimal fallback node
@@ -2554,41 +2638,52 @@
             const isDown = sensorStatus === 5;
             const isWarning = sensorStatus === 4;
             const isNormal = sensorStatus === 3;
-            let sensorColor = COLORS.sensor; // Default purple for unusual/paused
+            
+            // Determine material key based on status
+            let materialKey = 'normal';
+            let sensorColor = COLORS.sensor;
+            let emissiveIntensity = 0.4;
+            let opacity = 0.9;
             
             if (isDown) {
-                sensorColor = 0xff4444; // Bright red for down sensors
+                materialKey = 'down';
+                sensorColor = 0xff4444;
+                emissiveIntensity = 0.8;
+                opacity = 1.0;
             } else if (isWarning) {
-                sensorColor = 0xffaa44; // Bright orange for warning sensors
+                materialKey = 'warning';
+                sensorColor = 0xffaa44;
+                emissiveIntensity = 0.5;
+                opacity = 1.0;
             } else if (isNormal) {
-                sensorColor = COLORS.sensor; // Purple for normal/unusual/paused
+                materialKey = 'up';
+                sensorColor = COLORS.sensor;
+                emissiveIntensity = 0.4;
+                opacity = 0.9;
             }
             
-            // Tiny sphere for sensor (0.3x size)
-            // Use MeshStandardMaterial to support emissive properties for all sensors
-            const sensorMaterial = new THREE.MeshStandardMaterial({ 
-                color: sensorColor,
-                transparent: true,
-                opacity: isDown || isWarning ? 1.0 : 0.9, // Full opacity for alarms, high for normal
-                emissive: sensorColor, // ALL sensors glow with their color
-                emissiveIntensity: isDown ? 0.8 : (isWarning ? 0.5 : 0.4), // Purple sensors also glow (0.4)
-                metalness: 0.3,
-                roughness: 0.7
-            });
-            const sphere = new THREE.Mesh(geometryCache.sensorSphere.clone(), sensorMaterial);
+            // Create or reuse cached sensor material
+            if (!materialCache.sensors[materialKey]) {
+                materialCache.sensors[materialKey] = new THREE.MeshStandardMaterial({ 
+                    color: sensorColor,
+                    transparent: true,
+                    opacity: opacity,
+                    emissive: sensorColor,
+                    emissiveIntensity: emissiveIntensity,
+                    metalness: 0.3,
+                    roughness: 0.7
+                });
+            }
+            
+            // Use shared geometry and cached material (no clone!)
+            const sphere = new THREE.Mesh(geometryCache.sensorSphere, materialCache.sensors[materialKey]);
+            sphere.userData.nodeType = 'sensor'; // For raycaster identification
             
             // Evenly space sensors around device like beads on a necklace
             const angle = (sensorIndex / totalSensors) * Math.PI * 2;
             // Alarm sensors (red/yellow) positioned closer to front (smaller orbit)
             // Normal sensors (purple) positioned at normal distance
             const distance = (isDown || isWarning) ? 4 * spreadFactor : 6 * spreadFactor;
-            sphere.position.set(
-                x + Math.cos(angle) * distance,
-                y,
-                z + Math.sin(angle) * distance
-            );
-            scene.add(sphere);
-
             const node = {
                 type: 'sensor',
                 name: sensorData?.name || device.name || 'Sensor',  // Use sensor name if available
@@ -2609,6 +2704,17 @@
                     angleOffset: angle    // Maintain even spacing throughout orbit
                 }
             };
+            
+            // Store unique node reference in mesh userData for raycaster
+            sphere.userData.node = node;
+            sphere.userData.nodeType = 'sensor';
+            
+            sphere.position.set(
+                x + Math.cos(angle) * distance,
+                y,
+                z + Math.sin(angle) * distance
+            );
+            scene.add(sphere);
             
             return node;
         }
@@ -2720,18 +2826,69 @@
                 }
             }
             
+            // Helper function to calculate average status from child devices
+            function getNodeEffectiveStatus(node) {
+                // For devices, return their own status
+                if (node.type === 'device') {
+                    return node.data?.effectiveStatus || node.data?.status;
+                }
+                
+                // For companies (motherships), calculate from VISIBLE children only
+                if (node.type === 'company') {
+                    const childDevices = nodes.filter(n => 
+                        n.type === 'device' && 
+                        n.parent === node && 
+                        n.mesh && 
+                        n.mesh.visible
+                    );
+                    
+                    if (childDevices.length === 0) {
+                        return node.data?.effectiveStatus || node.data?.status || 3; // Default to up
+                    }
+                    
+                    // Count status types from visible children only
+                    const downCount = childDevices.filter(d => {
+                        const s = d.data?.effectiveStatus || d.data?.status;
+                        return s === 5 || s === 'down';
+                    }).length;
+                    
+                    const warningCount = childDevices.filter(d => {
+                        const s = d.data?.effectiveStatus || d.data?.status;
+                        return s === 4 || s === 10 || s === 1 || s === 'warning' || s === 'unusual' || s === 'unknown';
+                    }).length;
+                    
+                    // Priority: if any down, return down; if any warning, return warning; else up
+                    if (downCount > 0) return 5; // down
+                    if (warningCount > 0) return 4; // warning
+                    return 3; // up
+                }
+                
+                return 3; // Default to up
+            }
+            
             // PASS 0.5: Animate ship engine glow (emissive color on back face only)
             nodes.forEach(node => {
                 if ((node.type === 'device' || node.type === 'company') && node.mesh) {
                     if (!node.mesh.visible) return;
                     
-                    const backFaceMaterial = node.mesh.userData?.backFaceMaterial;
-                    if (!backFaceMaterial) return; // Skip if no back face material
+                    // Get the hull mesh (child of the Group)
+                    const hullMesh = node.mesh.children?.find(child => 
+                        child.geometry === geometryCache.spaceship || 
+                        child.geometry === geometryCache.mothership
+                    );
+                    
+                    if (!hullMesh || !Array.isArray(hullMesh.material) || hullMesh.material.length < 2) {
+                        return; // Skip if no hull mesh or no material array
+                    }
+                    
+                    // Engine material is at index 1 in the material array
+                    const backFaceMaterial = hullMesh.material[1];
+                    if (!backFaceMaterial) return;
                     
                     const time = Date.now() * 0.001;
                     
-                    // Get device status
-                    const status = node.data?.effectiveStatus || node.data?.status;
+                    // Get effective status (for motherships, this is average of children)
+                    const status = getNodeEffectiveStatus(node);
                     
                     // Determine glow color and intensity based on status
                     let glowColor = 0x00aaff; // Default cyan-blue (healthy)
@@ -2832,7 +2989,7 @@
                 if ((node.type === 'device' || node.type === 'company') && node.mesh) {
                     if (!node.mesh.visible) return;
                     
-                    const status = node.data?.effectiveStatus || node.data?.status;
+                    const status = getNodeEffectiveStatus(node);
                     const time = Date.now() * 0.001;
                     
                     // Create stripes if needed and not already created
@@ -3025,6 +3182,37 @@
 
         // Canvas click
         function onCanvasClick(event) {
+            // Check if OrbitControls actually moved the camera (not just a simple click)
+            if (window.orbitControlsWasUsed) {
+                console.log('🚫 Ignoring click - OrbitControls was used to move camera');
+                window.orbitControlsWasUsed = false; // Reset flag
+                return;
+            }
+            
+            // Check if this was a drag operation (mouse moved significantly between down and up)
+            // Use current click position if mouseUp hasn't fired yet
+            const currentPos = { x: event.clientX, y: event.clientY };
+            
+            if (window.mouseDownPos) {
+                const dragDistance = Math.sqrt(
+                    Math.pow(currentPos.x - window.mouseDownPos.x, 2) + 
+                    Math.pow(currentPos.y - window.mouseDownPos.y, 2)
+                );
+                
+                console.log(`📏 Drag distance: ${dragDistance.toFixed(1)}px (threshold: ${window.dragThreshold}px)`);
+                
+                if (dragDistance > window.dragThreshold) {
+                    console.log(`🚫 Ignoring click - detected drag (${dragDistance.toFixed(1)}px movement)`);
+                    window.mouseDownPos = null;
+                    window.mouseUpPos = null;
+                    return; // This was a drag, not a click
+                }
+            }
+            
+            // Reset drag tracking
+            window.mouseDownPos = null;
+            window.mouseUpPos = null;
+            
             // Set flag to prevent click-outside listener from interfering
             isProcessingCanvasClick = true;
             console.log('🔒 Canvas click started - flag set');
@@ -3036,8 +3224,13 @@
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
 
-            const meshes = nodes.map(n => n.mesh);
+            const meshes = nodes.map(n => n.mesh).filter(m => m); // Filter out null meshes
             const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for Groups
+            
+            console.log('🎯 Click detected - intersects:', intersects.length);
+            if (intersects.length > 0) {
+                console.log('🔍 First intersection:', intersects[0].object.type, intersects[0].object.userData);
+            }
 
             if (intersects.length > 0) {
                 // Prioritize device/company clicks over sensor clicks
@@ -3046,21 +3239,47 @@
                 
                 // First, try to find a device or company in the intersections
                 for (const intersect of intersects) {
-                    const node = nodes.find(n => n.mesh === intersect.object || n.mesh === intersect.object.parent);
+                    let node = null;
+                    
+                    // Strategy 1: Check userData.node directly on intersected object
+                    if (intersect.object.userData?.node) {
+                        node = intersect.object.userData.node;
+                        console.log('✅ Found node via userData.node:', node.name, node.type);
+                    }
+                    
+                    // Strategy 2: Check if this is a child mesh with parentGroup reference
+                    else if (intersect.object.userData?.parentGroup?.userData?.node) {
+                        node = intersect.object.userData.parentGroup.userData.node;
+                        console.log('✅ Found node via parentGroup:', node.name, node.type);
+                    }
+                    
+                    // Strategy 3: Traverse up the parent hierarchy
+                    else if (intersect.object.parent) {
+                        let parent = intersect.object.parent;
+                        while (parent && !node) {
+                            if (parent.userData?.node) {
+                                node = parent.userData.node;
+                                console.log('✅ Found node via parent traversal:', node.name, node.type);
+                                break;
+                            }
+                            parent = parent.parent;
+                        }
+                    }
+                    
                     if (node && (node.type === 'device' || node.type === 'company')) {
                         clickedNode = node;
                         break;
+                    } else if (node) {
+                        // Store sensor node but keep looking for device/company
+                        if (!clickedNode) clickedNode = node;
                     }
                 }
                 
-                // If no device/company found, fall back to first intersection (likely a sensor)
-                if (!clickedNode) {
-                    const clickedMesh = intersects[0].object;
-                    clickedNode = nodes.find(n => n.mesh === clickedMesh || n.mesh === clickedMesh.parent);
-                }
-                
                 if (clickedNode) {
+                    console.log('🎯 Selecting node:', clickedNode.name, clickedNode.type);
                     selectNode(clickedNode);
+                } else {
+                    console.warn('⚠️ No node found for intersected object');
                 }
             } else {
                 // Clicked on empty space - reset any rotated company and close popup
@@ -3098,7 +3317,10 @@
             // Update cursor and show tooltip for sensors/devices, rotate companies
             if (intersects.length > 0) {
                 const hoveredMesh = intersects[0].object;
-                const hoveredNode = nodes.find(n => n.mesh === hoveredMesh || n.mesh === hoveredMesh.parent);
+                // Use direct node reference from userData
+                const hoveredNode = hoveredMesh.userData.node || 
+                                   hoveredMesh.userData.parentGroup?.userData.node ||
+                                   hoveredMesh.parent?.userData?.node;
                 
                 if (hoveredNode && hoveredNode.type === 'sensor') {
                     document.body.style.cursor = 'pointer';
@@ -3213,7 +3435,14 @@
                 console.log('❌ Deselecting previous node:', selectedNode.name);
                 // Restore original material/color
                 if (selectedNode.originalMaterial) {
-                    selectedNode.mesh.material = selectedNode.originalMaterial;
+                    // For Groups (ships), get the hull child mesh
+                    const targetMesh = selectedNode.mesh.type === 'Group' ? 
+                        selectedNode.mesh.children.find(child => child.geometry === geometryCache.spaceship || child.geometry === geometryCache.mothership) : 
+                        selectedNode.mesh;
+                    
+                    if (targetMesh) {
+                        targetMesh.material = selectedNode.originalMaterial;
+                    }
                     selectedNode.originalMaterial = null;
                 }
                 
@@ -3228,65 +3457,64 @@
             console.log('✨ selectedNode set to:', selectedNode.name, '(type:', selectedNode.type + ')');
             
             // Highlight the newly selected node with cyan glow
-            if (node && node.mesh && node.mesh.material) {
-                // Store original material if not already stored
-                if (!node.originalMaterial) {
-                    node.originalMaterial = node.mesh.material.clone();
-                }
+            if (node && node.mesh) {
+                // For Groups (ships), get the hull child mesh; for direct meshes (sensors, earth), use mesh directly
+                const targetMesh = node.mesh.type === 'Group' ? node.mesh.children.find(child => child.geometry === geometryCache.spaceship || child.geometry === geometryCache.mothership) : node.mesh;
                 
-                // Create highlighted material based on node type
-                if (node.type === 'sensor') {
-                    // Sensor: Bright cyan glow
-                    const highlightMaterial = new THREE.MeshStandardMaterial({
-                        color: 0x00ffff,
-                        emissive: 0x00ffff,
-                        emissiveIntensity: 1.2,
-                        metalness: 0.8,
-                        roughness: 0.2,
-                        transparent: true,
-                        opacity: 1.0
-                    });
-                    node.mesh.material = highlightMaterial;
-                } else if (node.type === 'device') {
-                    // Device: Bright cyan glow with metallic finish
-                    const highlightMaterial = new THREE.MeshPhongMaterial({
-                        color: 0x00ffff,
-                        emissive: 0x00ffff,
-                        emissiveIntensity: 0.8,
-                        specular: 0xffffff,
-                        shininess: 120,
-                        transparent: false,
-                        opacity: 1.0
-                    });
-                    node.mesh.material = highlightMaterial;
-                    console.log('💎 Device cyan material applied to:', node.name);
-                } else if (node.type === 'company') {
-                    // Company: Handle Earth specially to preserve texture
-                    if (node.isEarth && node.originalMaterial.map) {
-                        // For Earth, preserve texture and just increase emissive glow
+                if (targetMesh && targetMesh.material) {
+                    // Store original material if not already stored
+                    if (!node.originalMaterial) {
+                        node.originalMaterial = Array.isArray(targetMesh.material) ? targetMesh.material.map(m => m.clone()) : targetMesh.material.clone();
+                    }
+                    
+                    // Create highlighted material based on node type
+                    if (node.type === 'sensor') {
+                        // Sensor: Bright cyan glow
+                        const highlightMaterial = new THREE.MeshStandardMaterial({
+                            color: 0x00ffff,
+                            emissive: 0x00ffff,
+                            emissiveIntensity: 1.2,
+                            metalness: 0.8,
+                            roughness: 0.2,
+                            transparent: true,
+                            opacity: 1.0
+                        });
+                        targetMesh.material = highlightMaterial;
+                    } else if (node.type === 'device' || (node.type === 'company' && !node.isEarth)) {
+                        // Device/Mothership: Apply cyan glow to hull material (first in array)
+                        const hullHighlight = new THREE.MeshPhongMaterial({
+                            color: 0x00ffff,
+                            emissive: 0x00ffff,
+                            emissiveIntensity: 0.8,
+                            specular: 0xffffff,
+                            shininess: 120,
+                            transparent: false,
+                            opacity: 1.0
+                        });
+                        
+                        if (Array.isArray(targetMesh.material)) {
+                            // Keep engine material, replace hull material
+                            targetMesh.material = [hullHighlight, targetMesh.material[1]];
+                        } else {
+                            targetMesh.material = hullHighlight;
+                        }
+                        console.log('💎 Ship cyan material applied to:', node.name);
+                    } else if (node.type === 'company' && node.isEarth) {
+                        // Earth: Preserve texture and just increase emissive glow
+                        const originalMat = Array.isArray(node.originalMaterial) ? node.originalMaterial[0] : node.originalMaterial;
                         const highlightMaterial = new THREE.MeshPhongMaterial({
-                            map: node.originalMaterial.map,  // Preserve the Earth texture
+                            map: originalMat.map,  // Preserve the Earth texture
                             color: 0xffffff,  // Keep original color
                             emissive: 0x00ddff,  // Add cyan glow
                             emissiveIntensity: 0.5,  // Moderate glow
                             specular: 0x333333,
                             shininess: 15
                         });
-                        node.mesh.material = highlightMaterial;
-                    } else {
-                        // Regular company: Subtle cyan tint
-                        const highlightMaterial = new THREE.MeshPhongMaterial({
-                            color: 0x00ddff,
-                            emissive: 0x00ddff,
-                            emissiveIntensity: 0.6,
-                            specular: 0xffffff,
-                            shininess: 120
-                        });
-                        node.mesh.material = highlightMaterial;
+                        targetMesh.material = highlightMaterial;
                     }
+                    
+                    console.log(`✨ Selected ${node.type}: ${node.name} - highlighted with cyan`);
                 }
-                
-                console.log(`✨ Selected ${node.type}: ${node.name} - highlighted with cyan`);
             }
             
             // If clicking a sensor, zoom to it and show individual sensor details
