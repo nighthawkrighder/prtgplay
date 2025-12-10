@@ -416,7 +416,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.2.3</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.3.0</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -1706,46 +1706,36 @@
                     const columnRow = Math.floor(columnIndex / columnsPerRow);
                     const columnCol = columnIndex % columnsPerRow;
                     
-                    // Offset columns in a tight grid pattern (20 units apart for tighter grouping)
-                    const columnSpacing = 20 * spreadFactor;
+                    // Start at safe distance from mothership (outside collision zone)
+                    const mothershipSize = 12 * nodeSizeMultiplier;
+                    const mothershipRadius = mothershipSize * 2;
+                    const deviceSize = nodeSizeMultiplier * 2;
+                    const deviceRadius = deviceSize * 2;
+                    const minSafeDistance = (mothershipRadius + deviceRadius) * 1.5; // Extra margin
+                    
+                    // Offset columns in a tight grid pattern (25 units apart)
+                    const columnSpacing = 25 * spreadFactor;
                     
                     // Calculate offsets relative to mothership:
-                    // - columnOffsetRadial: offset along the radial direction (away from/toward center)
                     // - columnOffsetTangent: offset perpendicular to radial (left/right from mothership's perspective)
+                    // - Start at minSafeDistance PLUS column row offset
                     const columnOffsetTangent = (columnCol - (columnsPerRow - 1) / 2) * columnSpacing;
-                    const columnOffsetRadial = (columnRow - (columnsPerRow - 1) / 2) * columnSpacing;
+                    const baseRadialDistance = minSafeDistance + (columnRow * columnSpacing);
                     
-                    // Rotate offsets to align with company's radial position
-                    // Radial direction: same as companyAngle
-                    // Tangential direction: perpendicular to radial (companyAngle + PI/2)
-                    const rotatedOffsetX = columnOffsetRadial * Math.cos(companyAngle) + columnOffsetTangent * Math.cos(companyAngle + Math.PI / 2);
-                    const rotatedOffsetZ = columnOffsetRadial * Math.sin(companyAngle) + columnOffsetTangent * Math.sin(companyAngle + Math.PI / 2);
+                    // Position device at baseRadialDistance from mothership, offset tangentially
+                    // Use the same companyAngle to stay aligned with parent
+                    const radialX = Math.cos(companyAngle) * baseRadialDistance;
+                    const radialZ = Math.sin(companyAngle) * baseRadialDistance;
                     
-                    // Final position: company base + column grid offset + vertical stack position
-                    let dx = baseX + rotatedOffsetX;
-                    let dz = baseZ + rotatedOffsetZ;
+                    // Add tangential offset (perpendicular to radial)
+                    const tangentAngle = companyAngle + Math.PI / 2;
+                    const tangentX = Math.cos(tangentAngle) * columnOffsetTangent;
+                    const tangentZ = Math.sin(tangentAngle) * columnOffsetTangent;
+                    
+                    // Final position: mothership base + radial distance + tangential offset
+                    let dx = baseX + radialX + tangentX;
+                    let dz = baseZ + radialZ + tangentZ;
                     let dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
-
-                    // Check for mothership collision - if too close, push device outward radially
-                    if (checkMothershipCollision(dx, dy, dz, x, y, z)) {
-                        // Calculate angle from mothership to device
-                        const angleFromMothership = Math.atan2(dz - z, dx - x);
-                        
-                        // Calculate minimum safe distance
-                        const mothershipSize = 12 * nodeSizeMultiplier;
-                        const mothershipRadius = mothershipSize * 2;
-                        const deviceSize = nodeSizeMultiplier * 2;
-                        const deviceRadius = deviceSize * 2;
-                        const minSafeDistance = (mothershipRadius + deviceRadius) * 1.2;
-                        
-                        // Push device outward to safe distance, staggered slightly by index
-                        const staggerOffset = (deviceIndex % 5) * 10; // Stagger in rings
-                        const newDistance = minSafeDistance + staggerOffset;
-                        dx = x + Math.cos(angleFromMothership) * newDistance;
-                        dz = z + Math.sin(angleFromMothership) * newDistance;
-                        
-                        console.log(`📍 Repositioning device ${device.name} - pushed to distance ${newDistance.toFixed(1)} at angle ${(angleFromMothership * 180 / Math.PI).toFixed(1)}°`);
-                    }
 
                     const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
                     
@@ -3029,6 +3019,11 @@
             // PASS 1: Update device positions (static on spokes with status effects)
             nodes.forEach(node => {
                 if (node.type === 'device' && node.mesh && node.spoke) {
+                    // Skip animation if this device is being hovered
+                    if (window.hoveredDevice === node) {
+                        return; // Keep it frozen at current position
+                    }
+                    
                     const status = node.data.status;
                     const spoke = node.spoke;
                     
@@ -3344,6 +3339,9 @@
                     // Show device name
                     showTooltip(event.clientX, event.clientY, hoveredNode.name || 'Device');
                     
+                    // Track hovered device to pause animation
+                    window.hoveredDevice = hoveredNode;
+                    
                     // Reset any previously hovered company
                     if (lastHoveredCompany) {
                         resetCompanyRotation(lastHoveredCompany);
@@ -3377,6 +3375,9 @@
             } else {
                 document.body.style.cursor = 'default';
                 hideTooltip();
+                
+                // Clear hovered device
+                window.hoveredDevice = null;
                 
                 // Reset company rotation
                 if (lastHoveredCompany) {

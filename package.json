@@ -1,6 +1,6 @@
 {
   "name": "prtg-unified-dashboard",
-  "version": "11.2.3",
+  "version": "11.3.0",
   "description": "Single pane of glass dashboard for multiple PRTG servers",
   "main": "src/server.js",
   "scripts": {
