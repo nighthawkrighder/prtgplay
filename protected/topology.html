@@ -1352,6 +1352,7 @@
             // Event listeners
             window.addEventListener('resize', onWindowResize);
             canvas.addEventListener('click', onCanvasClick);
+            canvas.addEventListener('dblclick', onCanvasDoubleClick);
             canvas.addEventListener('mousemove', onCanvasMouseMove);
 
             // Store keys object for animation loop
@@ -3442,6 +3443,70 @@
                 isProcessingCanvasClick = false;
                 console.log('🔓 Canvas click processing complete - flag reset');
             }, 50); // Increased from 0 to 50ms to ensure popup fully updates
+        }
+
+        // Canvas double-click - zoom to point
+        function onCanvasDoubleClick(event) {
+            console.log('🔍 Double-click detected - zooming to point');
+            
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            raycaster.near = 0.1;
+            raycaster.far = 100000;
+
+            // Cast ray to find 3D point in space
+            // If hits an object, zoom to that object
+            // If hits nothing, zoom to a point along the ray
+            const meshes = nodes.map(n => n.mesh).filter(m => m);
+            const intersects = raycaster.intersectObjects(meshes, true);
+
+            let targetPoint;
+            if (intersects.length > 0) {
+                // Zoom to intersected object
+                targetPoint = intersects[0].point.clone();
+                console.log('🎯 Zooming to object at:', targetPoint);
+            } else {
+                // No object hit - zoom to a point along the ray at current camera distance
+                const currentDistance = camera.position.length();
+                targetPoint = raycaster.ray.origin.clone().add(
+                    raycaster.ray.direction.clone().multiplyScalar(currentDistance * 0.5)
+                );
+                console.log('🌌 Zooming to empty space at:', targetPoint);
+            }
+
+            // Smooth zoom animation
+            const startPos = camera.position.clone();
+            const startTarget = controls.target.clone();
+            
+            // Calculate new camera position - zoom in to 150 units from target point
+            const zoomDistance = 150;
+            const direction = camera.position.clone().sub(targetPoint).normalize();
+            const endPos = targetPoint.clone().add(direction.multiplyScalar(zoomDistance));
+            
+            const duration = 500; // 500ms animation
+            const startTime = Date.now();
+            
+            function animateZoom() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+                
+                camera.position.lerpVectors(startPos, endPos, eased);
+                controls.target.lerpVectors(startTarget, targetPoint, eased);
+                controls.update();
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animateZoom);
+                } else {
+                    console.log('✅ Zoom animation complete');
+                }
+            }
+            
+            animateZoom();
         }
 
         // Canvas mouse move
