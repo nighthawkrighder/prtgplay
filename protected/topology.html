@@ -808,14 +808,15 @@
             
             const stripeTexture = new THREE.CanvasTexture(canvas);
             
-            // Cache the material for reuse
+            // Cache the material for reuse - BRIGHTER for visibility
             materialCache.stripes[materialKey] = new THREE.MeshBasicMaterial({
                 map: stripeTexture,
                 transparent: true,
-                opacity: 0.9,
+                opacity: 1.0,
                 side: THREE.DoubleSide,
                 emissive: stripeColor,
-                emissiveIntensity: 0.8
+                emissiveIntensity: 2.0, // Much brighter glow
+                color: stripeColor
             });
             
             return materialCache.stripes[materialKey];
@@ -827,22 +828,35 @@
             if (!stripeMaterial) return null;
             
             const isMothership = shipSize > 10;
-            // Stripes run parallel along ship body like status lights
-            const stripeLength = shipSize * (isMothership ? 0.6 : 0.7); // Length along ship
-            const stripeWidth = isMothership ? 0.2 : 0.12; // Narrow width
-            const stripeOffsetX = shipSize * (isMothership ? 0.28 : 0.38); // Distance from centerline
-            const stripeOffsetZ = shipSize * (isMothership ? 0.15 : 0.1); // Forward position
             
-            const stripeGeom = new THREE.PlaneGeometry(stripeLength, stripeWidth);
+            // Create converging status lights - angled toward the tip
+            const stripeLength = shipSize * (isMothership ? 0.75 : 0.85);
+            const stripeWidth = isMothership ? 0.6 : 0.5;
             
-            // Create stripes mounted flush on hull, parallel to ship axis (horizontal)
-            const leftStripe = new THREE.Mesh(stripeGeom, stripeMaterial);
-            leftStripe.position.set(-stripeOffsetX, 0, stripeOffsetZ);
-            leftStripe.rotation.set(0, Math.PI / 2, 0); // Flat on side, parallel to ship
+            // Position on hull surface
+            const topOfHull = shipSize * (isMothership ? 0.05 : 0.08);
+            const stripeOffsetX = shipSize * (isMothership ? 0.12 : 0.15);
+            const stripeOffsetZ = shipSize * (isMothership ? 0.0 : -0.05);
             
-            const rightStripe = new THREE.Mesh(stripeGeom, stripeMaterial);
-            rightStripe.position.set(stripeOffsetX, 0, stripeOffsetZ);
-            rightStripe.rotation.set(0, -Math.PI / 2, 0); // Flat on side, parallel to ship
+            // Create plane geometry
+            const stripeGeom = new THREE.PlaneGeometry(stripeWidth, stripeLength);
+            
+            // BRIGHT glowing material
+            const glowMaterial = stripeMaterial.clone();
+            glowMaterial.transparent = true;
+            glowMaterial.opacity = 1.0;
+            glowMaterial.emissiveIntensity = 2.5;
+            glowMaterial.side = THREE.DoubleSide;
+            
+            // Left stripe - angled INWARD toward tip
+            const leftStripe = new THREE.Mesh(stripeGeom, glowMaterial);
+            leftStripe.position.set(-stripeOffsetX, topOfHull, stripeOffsetZ);
+            leftStripe.rotation.set(-Math.PI / 2, 0, Math.PI / 12); // Angled inward ~15°
+            
+            // Right stripe - angled INWARD toward tip
+            const rightStripe = new THREE.Mesh(stripeGeom, glowMaterial.clone());
+            rightStripe.position.set(stripeOffsetX, topOfHull, stripeOffsetZ);
+            rightStripe.rotation.set(-Math.PI / 2, 0, -Math.PI / 12); // Angled inward ~15°
             
             return [leftStripe, rightStripe];
         }
@@ -1680,10 +1694,25 @@
                 
                 console.log(`    💻 ${devices.length} devices for ${companyNode.name}`);
                 
+                // Separate trouble devices from normal devices
+                const troubleDevices = [];
+                const normalDevices = [];
+                devices.forEach(device => {
+                    const deviceStatus = device.effectiveStatus || device.status;
+                    if (deviceStatus === 5 || deviceStatus === 4) {
+                        troubleDevices.push(device);
+                    } else {
+                        normalDevices.push(device);
+                    }
+                });
+                
                 // Arrange devices serially along radial spokes
-                const devicesPerSpoke = Math.ceil(Math.sqrt(devices.length)); // Distribute evenly
-                const numSpokes = Math.ceil(devices.length / devicesPerSpoke);
+                const devicesPerSpoke = Math.ceil(Math.sqrt(normalDevices.length)); // Distribute evenly
+                const numSpokes = Math.ceil(normalDevices.length / devicesPerSpoke);
                 const deviceSpacing = 25 * spreadFactor; // More spacing to prevent bunching
+                
+                // Track trouble device index for circular arrangement
+                let troubleIndex = 0;
                 
                 devices.forEach((device, deviceIndex) => {
                     // Vertical column arrangement - devices stack vertically like beads
@@ -1703,7 +1732,7 @@
                     const positionInColumn = deviceIndex % devicesPerColumn;
                     
                     // For multiple columns, arrange them in a small rectangular grid around company
-                    const columnsPerRow = Math.ceil(Math.sqrt(Math.ceil(devices.length / devicesPerColumn)));
+                    const columnsPerRow = Math.ceil(Math.sqrt(Math.ceil(normalDevices.length / devicesPerColumn)));
                     const columnRow = Math.floor(columnIndex / columnsPerRow);
                     const columnCol = columnIndex % columnsPerRow;
                     
@@ -1737,6 +1766,32 @@
                     let dx = baseX + radialX + tangentX;
                     let dz = baseZ + radialZ + tangentZ;
                     let dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
+
+                    // Position trouble devices in concentric circles at mothership tip
+                    const deviceStatus = device.effectiveStatus || device.status;
+                    if (deviceStatus === 5 || deviceStatus === 4) {
+                        // Mothership tip is at y + 30 (cone height/2)
+                        const mothershipTipY = y + 30;
+                        
+                        // Arrange in concentric circles: 4 per ring (fewer devices per ring for more space)
+                        const devicesPerRing = 4;
+                        const ringIndex = Math.floor(troubleIndex / devicesPerRing);
+                        const posInRing = troubleIndex % devicesPerRing;
+                        
+                        // Start further out to keep tip visible, with wider spacing
+                        const ringRadius = 15 + (ringIndex * 10); // First ring at radius 15, then 25, 35, etc.
+                        const angleInRing = (posInRing / devicesPerRing) * Math.PI * 2;
+                        
+                        // Stagger the Y position by ring to create depth and avoid blocking tip
+                        const yOffset = ringIndex * 5; // Each ring slightly lower
+                        
+                        // Position around the tip in XZ plane
+                        dx = baseX + Math.cos(angleInRing) * ringRadius;
+                        dz = baseZ + Math.sin(angleInRing) * ringRadius;
+                        dy = mothershipTipY - yOffset; // Outer rings lower
+                        
+                        troubleIndex++;
+                    }
 
                     const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
                     
@@ -2200,6 +2255,7 @@
             const materials = [materialCache.mothershipHull, instanceEngineMaterial];
             const hull = new THREE.Mesh(geometryCache.mothership, materials);
             hull.userData.parentGroup = mothershipGroup; // For raycaster identification
+            hull.userData.node = node; // Direct node reference on hull mesh itself
             mothershipGroup.add(hull);
             
             // Use cached panel texture or create once
@@ -2523,6 +2579,7 @@
             const materials = [materialCache.shipHull, instanceEngineMaterial];
             const ship = new THREE.Mesh(geometryCache.spaceship, materials);
             ship.userData.parentGroup = shipGroup; // For raycaster identification
+            ship.userData.node = node; // Direct node reference on ship mesh itself
             shipGroup.add(ship);
             
             // Add status light stripes on hull using helper
@@ -3005,21 +3062,39 @@
                         }
                     }
                     
-                    // Animate existing stripes
+                    // Animate existing stripes with BEEP BEEP bright pulsing
                     if (node.mesh.userData.statusStripes) {
                         const stripes = node.mesh.userData.statusStripes;
                         
-                        // Pulse the stripes based on status severity
+                        // Emergency beacon style pulsing based on severity
                         let pulseSpeed = 2;
+                        let intensityBase = 2.0;
+                        let intensityRange = 1.5;
+                        
                         if (status === 5 || status === 'down') {
-                            pulseSpeed = 4; // Faster pulse for critical
+                            pulseSpeed = 6; // Fast beeping for critical
+                            intensityBase = 2.5;
+                            intensityRange = 2.0; // Strong pulse
                         } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
-                            pulseSpeed = 3; // Medium pulse for warning
+                            pulseSpeed = 4; // Medium beeping for warning
+                            intensityBase = 2.0;
+                            intensityRange = 1.5;
                         }
                         
-                        const pulse = Math.sin(time * pulseSpeed) * 0.3 + 0.7; // 0.4 to 1.0
+                        // Sharp sine wave for beep-beep effect
+                        const pulse = Math.sin(time * pulseSpeed) * 0.5 + 0.5; // 0.0 to 1.0
+                        const sharpPulse = Math.pow(pulse, 2); // Sharper peaks
+                        
                         stripes.forEach(stripe => {
-                            stripe.material.opacity = pulse;
+                            // Full opacity always
+                            stripe.material.opacity = 1.0;
+                            
+                            // BRIGHT pulsing emissive intensity
+                            stripe.material.emissiveIntensity = intensityBase + (sharpPulse * intensityRange);
+                            
+                            // Scale pulse for beacon effect
+                            const scalePulse = 1.0 + (sharpPulse * 0.2);
+                            stripe.scale.set(1.0, scalePulse, 1.0);
                         });
                     }
                 }
@@ -3129,30 +3204,35 @@
                     // Use parent device's CURRENT position (sensors follow devices)
                     const parentPos = node.parent.mesh.position;
                     
-                    // All sensors rotate at same speed, maintaining even spacing
-                    node.orbit.currentAngle += node.orbit.speed;
+                    // Sensors stay in fixed positions (no orbiting) for easier clicking
+                    // node.orbit.currentAngle += node.orbit.speed;
                     
-                    // Simple horizontal circular orbit (no tilting)
-                    const x = Math.cos(node.orbit.currentAngle) * node.orbit.radius;
-                    const z = Math.sin(node.orbit.currentAngle) * node.orbit.radius;
+                    // Use initial angle for fixed position
+                    const x = Math.cos(node.orbit.angle) * node.orbit.radius;
+                    const z = Math.sin(node.orbit.angle) * node.orbit.radius;
                     
                     // Check if sensor is in alarm state (down=5, warning=4)
                     const isAlarm = node.data.status === 5 || node.data.status === 4;
                     
-                    // Add bouncing animation for alarm sensors
+                    // Minimal animation - just glow pulsing for alarm sensors
                     let yOffset = 0;
                     if (isAlarm) {
-                        // Bounce up and down with sin wave
-                        const bounceSpeed = node.data.status === 5 ? 3.0 : 2.0; // Faster bounce for critical
-                        const bounceHeight = node.data.status === 5 ? 2.5 : 1.5; // Higher bounce for critical
-                        yOffset = Math.sin(time * bounceSpeed) * bounceHeight;
-                        
-                        // Pulse the sensor size for more visibility
-                        const pulseScale = 1.0 + Math.sin(time * bounceSpeed * 2) * 0.3;
+                        // Gentle pulse for visibility without movement
+                        const pulseSpeed = node.data.status === 5 ? 2.0 : 1.5;
+                        const pulseScale = 1.0 + Math.sin(time * pulseSpeed) * 0.15; // Subtle pulse
                         node.mesh.scale.set(pulseScale, pulseScale, pulseScale);
+                        
+                        // Update emissive intensity for glow effect
+                        if (node.mesh.material) {
+                            const glowIntensity = 0.3 + Math.sin(time * pulseSpeed) * 0.2;
+                            node.mesh.material.emissiveIntensity = glowIntensity;
+                        }
                     } else {
                         // Reset scale for non-alarm sensors
                         node.mesh.scale.set(1, 1, 1);
+                        if (node.mesh.material && node.mesh.material.emissiveIntensity !== undefined) {
+                            node.mesh.material.emissiveIntensity = 0.2;
+                        }
                     }
                     
                     // Set final position relative to parent device's CURRENT position
@@ -3203,9 +3283,17 @@
                     Math.pow(currentPos.y - window.mouseDownPos.y, 2)
                 );
                 
-                console.log(`📏 Drag distance: ${dragDistance.toFixed(1)}px (threshold: ${window.dragThreshold}px)`);
+                // Scale drag threshold based on camera distance from center
+                // Close camera = MUCH more forgiving (larger threshold)
+                // Far camera = stricter (smaller threshold)
+                const cameraDistance = camera.position.length();
+                const baseDragThreshold = window.dragThreshold || 5;
+                // Scale: at 100 units = 10x threshold, at 1000 units = 1x threshold (increased from 5x max)
+                const scaledThreshold = baseDragThreshold * Math.max(1, Math.min(10, 1000 / cameraDistance));
                 
-                if (dragDistance > window.dragThreshold) {
+                console.log(`📏 Drag distance: ${dragDistance.toFixed(1)}px (threshold: ${scaledThreshold.toFixed(1)}px, camera: ${cameraDistance.toFixed(1)})`);
+                
+                if (dragDistance > scaledThreshold) {
                     console.log(`🚫 Ignoring click - detected drag (${dragDistance.toFixed(1)}px movement)`);
                     window.mouseDownPos = null;
                     window.mouseUpPos = null;
@@ -3217,6 +3305,50 @@
             window.mouseDownPos = null;
             window.mouseUpPos = null;
             
+            // Add debounce delay to prevent accidental selections during camera movement
+            const clickDelay = 200; // 200ms delay
+            if (window.lastClickTime && (Date.now() - window.lastClickTime) < clickDelay) {
+                console.log('🚫 Ignoring click - too soon after previous click');
+                return;
+            }
+            window.lastClickTime = Date.now();
+            
+            // Zoom out significantly before processing click for better accuracy
+            const currentDistance = camera.position.length();
+            const minDistance = 600; // Minimum distance for accurate raycasting (increased from 200)
+            
+            if (currentDistance < minDistance) {
+                const zoomOutFactor = minDistance / currentDistance;
+                const targetPosition = camera.position.clone().multiplyScalar(zoomOutFactor);
+                
+                // Quick zoom out (100ms)
+                const zoomDuration = 100;
+                const startPos = camera.position.clone();
+                const startTime = Date.now();
+                
+                function quickZoomOut() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / zoomDuration, 1);
+                    
+                    camera.position.lerpVectors(startPos, targetPosition, progress);
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(quickZoomOut);
+                    } else {
+                        // Process click after zoom out
+                        processClick(event);
+                    }
+                }
+                
+                quickZoomOut();
+                return; // Exit and let quickZoomOut callback handle the click
+            }
+            
+            // If already at good distance, process immediately
+            processClick(event);
+        }
+        
+        function processClick(event) {
             // Set flag to prevent click-outside listener from interfering
             isProcessingCanvasClick = true;
             console.log('🔒 Canvas click started - flag set');
@@ -3227,9 +3359,18 @@
 
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
+            // Higher threshold to compensate for no bounding boxes
+            raycaster.params.Points.threshold = 15;
+            raycaster.params.Line.threshold = 15;
+            raycaster.params.Mesh = {};
+            raycaster.near = 0.1;
+            raycaster.far = 100000;
 
             const meshes = nodes.map(n => n.mesh).filter(m => m); // Filter out null meshes
             const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for Groups
+            
+            // Sort by distance (closest first)
+            intersects.sort((a, b) => a.distance - b.distance);
             
             console.log('🎯 Click detected - intersects:', intersects.length);
             if (intersects.length > 0) {
@@ -3314,6 +3455,12 @@
 
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
+            // Moderate threshold for hover detection
+            raycaster.params.Points.threshold = 5;
+            raycaster.params.Line.threshold = 5;
+            raycaster.params.Mesh = {}; // Ensure Mesh params exist
+            raycaster.near = 0.1;
+            raycaster.far = 100000;
 
             const meshes = nodes.map(n => n.mesh).filter(m => m);
             const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for groups
