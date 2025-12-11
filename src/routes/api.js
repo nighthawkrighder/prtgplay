@@ -236,6 +236,7 @@ router.get('/devices/enhanced', async (req, res) => {
     const enhancedDevices = devices.map(device => {
       const deviceData = device.toJSON();
       const sensors = deviceData.sensors || [];
+      
       const sensorStats = {
         total: sensors.length,
         up: sensors.filter(s => s.status === 3).length,
@@ -306,6 +307,14 @@ router.get('/devices/enhanced', async (req, res) => {
      * @returns {number} response.pagination.totalPages - Total pages needed (5)
      * @returns {boolean} response.pagination.hasMore - More pages available (true/false)
      */
+    // Force no caching
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+    
     res.json({
       devices: enhancedDevices,
       pagination: {

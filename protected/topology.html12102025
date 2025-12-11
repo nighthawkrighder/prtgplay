@@ -1368,9 +1368,8 @@
                 console.log('[FETCH 2] Sending request to /devices/enhanced...');
                 const fetchStart = Date.now();
                 
-                // Apache proxies /devices/enhanced to Node.js backend (strips /api prefix for protected folder)
-                // Use same endpoint as dashboard but without /api prefix since we're in /protected folder
-                const response = await fetch(`/devices/enhanced?all=true&_t=${Date.now()}`, {
+                // NGINX strips /api prefix, so use /devices/enhanced directly
+                const response = await fetch('/devices/enhanced?all=true', {
                     credentials: 'same-origin',  // Include session cookie
                     signal: controller.signal,
                     cache: 'no-cache',  // Prevent stale data
@@ -2482,18 +2481,10 @@
             // Main ship body - use shared geometry and materials (no clone!)
             const deviceSize = nodeSizeMultiplier * 2;
             
-            // Set position FIRST before calculating lookAt orientation
-            shipGroup.position.set(x, y, z);
-            
-            // Point ship towards center (0, 0, 0)
-            const targetPos = new THREE.Vector3(0, 0, 0);
+            // Create node object early and set userData on group FIRST
+            const targetPos = new THREE.Vector3(0, y, 0);
             shipGroup.lookAt(targetPos);
             const targetQuaternion = shipGroup.quaternion.clone();
-            
-            // Start with random rotation for animation effect
-            shipGroup.rotation.y = Math.random() * Math.PI * 2;
-            
-            // Start with random rotation for animation effect
             shipGroup.rotation.y = Math.random() * Math.PI * 2;
             
             const node = {
@@ -2606,7 +2597,7 @@
             panel2.rotation.y = -Math.PI / 2;
             shipGroup.add(panel2);
             
-            // Position was already set earlier before lookAt calculation
+            shipGroup.position.set(x, y, z);
             
             scene.add(shipGroup);
             
@@ -4073,12 +4064,6 @@
             // Debug: Log first sensor to see available data
             if (filteredSensors.length > 0) {
                 console.log('📊 Sample sensor data:', JSON.stringify(filteredSensors[0], null, 2));
-                console.log('📊 Available keys:', Object.keys(filteredSensors[0]));
-                console.log('📊 lastValue check:', {
-                    lastValue: filteredSensors[0].lastValue,
-                    last_value: filteredSensors[0].last_value,
-                    lastvalue: filteredSensors[0].lastvalue
-                });
             }
             
             // Status display configurations
@@ -4100,31 +4085,26 @@
                 list.innerHTML = filteredSensors.map(sensor => {
                     const sensorConfig = statusConfigs[sensor.status] || statusConfigs[5];
                     
-                    // Get sensor value - API returns camelCase fields
-                    const sensorValue = sensor.lastValue || sensor.last_value;
-                    const sensorType = sensor.sensorType || sensor.sensor_type;
-                    const statusMsg = sensor.statusText || sensor.lastMessage;
-                    
                     return `
                         <div style="background: ${sensorConfig.bg}; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid ${sensorConfig.color};">
                             <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
                                 <div style="flex: 1;">
                                     <div style="font-weight: bold; color: ${sensorConfig.color}; margin-bottom: 2px; font-size: 13px;">
-                                        ${sensorConfig.icon} ${sensor.name || sensorType || 'Sensor'}
+                                        ${sensorConfig.icon} ${sensor.name || (sensor.sensorType || sensor.sensor_type) || 'Sensor'}
                                     </div>
-                                    ${sensorType && sensor.name ? `
+                                    ${(sensor.sensorType || sensor.sensor_type) && sensor.name ? `
                                         <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px;">
-                                            Type: ${sensorType}
+                                            Type: ${sensor.sensorType || sensor.sensor_type}
                                         </div>
                                     ` : ''}
-                                    ${sensorValue ? `
+                                    ${sensor.lastvalue || sensor.lastValue || sensor.last_value ? `
                                         <div style="font-size: 12px; color: #8b5cf6; font-weight: bold; margin-top: 4px;">
-                                            💎 ${sensorValue}
+                                            💎 ${sensor.lastvalue || sensor.lastValue || sensor.last_value}
                                         </div>
                                     ` : ''}
-                                    ${statusMsg ? `
+                                    ${sensor.message || sensor.statusText || sensor.status_text ? `
                                         <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
-                                            ${statusMsg}
+                                            ${sensor.message || sensor.statusText || sensor.status_text}
                                         </div>
                                     ` : ''}
                                     ${!sensor.name && (sensor.id || sensor.objid) ? `
@@ -4149,9 +4129,9 @@
                                     ` : ''}
                                 </div>
                                 <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-                                    ${sensorValue ? `
+                                    ${sensor.lastvalue || sensor.last_value || sensor.lastValue ? `
                                         <div style="font-weight: bold; color: ${sensorConfig.color}; font-size: 16px; font-family: monospace; white-space: nowrap;">
-                                            ${sensorValue}
+                                            ${sensor.lastvalue || sensor.last_value || sensor.lastValue}
                                         </div>
                                     ` : `
                                         <div style="font-size: 11px; color: #6b7280; font-style: italic;">

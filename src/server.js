@@ -952,7 +952,7 @@ app.get('/devices/enhanced', requireAuth, async (req, res, next) => {
           model: Sensor,
           as: 'sensors',
           required: false,
-          attributes: ['id', 'status', 'sensor_type', 'priority']
+          attributes: ['id', 'name', 'status', 'sensorType', 'lastValue', 'lastMessage', 'priority']
         }
       ]
     };
