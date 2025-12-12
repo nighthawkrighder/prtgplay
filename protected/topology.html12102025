@@ -416,7 +416,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.3.0</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.2.2</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>

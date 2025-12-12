@@ -416,7 +416,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.3.0</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.2.2</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -1312,6 +1312,12 @@
             const keys = {};
             window.addEventListener('keydown', (e) => { 
                 keys[e.key.toLowerCase()] = true;
+                
+                // Arrow key navigation through selected devices/companies
+                if (selectedNode && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                    e.preventDefault(); // Prevent page scrolling
+                    navigateToAdjacentNode(e.key);
+                }
             });
             window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
@@ -3881,6 +3887,47 @@
 
             // Zoom to node
             zoomToNode(node);
+        }
+
+        // Navigate to adjacent node using arrow keys
+        function navigateToAdjacentNode(arrowKey) {
+            if (!selectedNode) return;
+            
+            // Filter nodes based on selected node type
+            let navigableNodes;
+            if (selectedNode.type === 'company') {
+                // Navigate only through companies (excluding Earth)
+                navigableNodes = nodes.filter(n => n.type === 'company' && !n.isEarth);
+            } else if (selectedNode.type === 'device') {
+                // Navigate only through devices
+                navigableNodes = nodes.filter(n => n.type === 'device');
+            } else {
+                // Sensors - don't navigate
+                return;
+            }
+            
+            if (navigableNodes.length === 0) return;
+            
+            // Get current index
+            const currentIndex = navigableNodes.findIndex(n => n === selectedNode);
+            if (currentIndex === -1) return;
+            
+            let nextNode;
+            
+            if (arrowKey === 'ArrowRight' || arrowKey === 'ArrowDown') {
+                // Next node (wrap around to start)
+                const nextIndex = (currentIndex + 1) % navigableNodes.length;
+                nextNode = navigableNodes[nextIndex];
+            } else if (arrowKey === 'ArrowLeft' || arrowKey === 'ArrowUp') {
+                // Previous node (wrap around to end)
+                const prevIndex = (currentIndex - 1 + navigableNodes.length) % navigableNodes.length;
+                nextNode = navigableNodes[prevIndex];
+            }
+            
+            if (nextNode) {
+                console.log(`⬅️➡️ Navigating from ${selectedNode.name} to ${nextNode.name}`);
+                selectNode(nextNode);
+            }
         }
 
         // Show sensor popup with real-time data
