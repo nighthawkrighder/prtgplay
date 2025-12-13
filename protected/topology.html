@@ -3312,46 +3312,15 @@
             window.mouseDownPos = null;
             window.mouseUpPos = null;
             
-            // Add debounce delay to prevent accidental selections during camera movement
-            const clickDelay = 200; // 200ms delay
+            // Minimal debounce to prevent rapid duplicate clicks only
+            const clickDelay = 50; // 50ms minimal delay
             if (window.lastClickTime && (Date.now() - window.lastClickTime) < clickDelay) {
-                console.log('🚫 Ignoring click - too soon after previous click');
+                console.log('🚫 Ignoring click - duplicate click detected');
                 return;
             }
             window.lastClickTime = Date.now();
             
-            // Zoom out significantly before processing click for better accuracy
-            const currentDistance = camera.position.length();
-            const minDistance = 600; // Minimum distance for accurate raycasting (increased from 200)
-            
-            if (currentDistance < minDistance) {
-                const zoomOutFactor = minDistance / currentDistance;
-                const targetPosition = camera.position.clone().multiplyScalar(zoomOutFactor);
-                
-                // Quick zoom out (100ms)
-                const zoomDuration = 100;
-                const startPos = camera.position.clone();
-                const startTime = Date.now();
-                
-                function quickZoomOut() {
-                    const elapsed = Date.now() - startTime;
-                    const progress = Math.min(elapsed / zoomDuration, 1);
-                    
-                    camera.position.lerpVectors(startPos, targetPosition, progress);
-                    
-                    if (progress < 1) {
-                        requestAnimationFrame(quickZoomOut);
-                    } else {
-                        // Process click after zoom out
-                        processClick(event);
-                    }
-                }
-                
-                quickZoomOut();
-                return; // Exit and let quickZoomOut callback handle the click
-            }
-            
-            // If already at good distance, process immediately
+            // Process click immediately without zoom-out check
             processClick(event);
         }
         
@@ -4468,8 +4437,8 @@
                 .add(centerToShip.clone().multiplyScalar(horizontalDistance))  // Behind (away from center)
                 .add(up.clone().multiplyScalar(heightOffset));                  // Elevated
             
-            // Look at the center (where all ships point) to see the whole array
-            const lookAtTarget = new THREE.Vector3(0, targetPosition.y, 0);
+            // Look at the SHIP itself to center it in view, not the center of the formation
+            const lookAtTarget = targetPosition.clone();
             
             console.log('📷 Camera: Behind ship at', targetPosition, '→ Position:', cameraTarget, '→ Looking at center');
 
@@ -4486,65 +4455,111 @@
                 }, 60000);
             }
 
-            // Single continuous camera movement with ultra-smooth, graceful deceleration
-            // Sweeps from current position → side of ship → elevated position behind
-            const totalDuration = 4500;  // 4.5 seconds for extra smooth travel
             const startPosition = camera.position.clone();
             const startTarget = controls.target.clone();
             const startTime = Date.now();
             
-            // Calculate orbit direction (right or left based on current position)
-            const toCamera = startPosition.clone().sub(targetPosition).normalize();
-            const orbitRight = new THREE.Vector3().crossVectors(up, toCamera).normalize();
-            const orbitDirection = Math.random() > 0.5 ? orbitRight : orbitRight.clone().negate();
+            // Determine if target is on same side or opposite side of the circle
+            // Project both positions onto XZ plane and calculate angle between them
+            const currentDir = new THREE.Vector2(startPosition.x, startPosition.z).normalize();
+            const targetDir = new THREE.Vector2(targetPosition.x, targetPosition.z).normalize();
+            const angleBetween = Math.acos(currentDir.dot(targetDir));
+            const angleDegrees = angleBetween * 180 / Math.PI;
             
-            // Mid-point in the orbital sweep - to the side at lower elevation
-            const orbitMidDistance = 200;
-            const orbitMidHeight = 100;
-            const orbitMidPosition = targetPosition.clone()
-                .add(orbitDirection.multiplyScalar(orbitMidDistance))
-                .add(up.clone().multiplyScalar(orbitMidHeight));
+            // Calculate arc length to determine animation duration
+            // Closer ships = longer duration (slower, more visible orbit)
+            // Farther ships = shorter duration (quicker to cover more distance)
+            const currentPos = new THREE.Vector2(camera.position.x, camera.position.z);
+            const targetPos2D = new THREE.Vector2(targetPosition.x, targetPosition.z);
+            const arcRadius = currentPos.length(); // Distance from center
+            const arcLength = arcRadius * angleBetween; // Physical distance to travel
             
-            function updateCamera() {
-                const elapsed = Date.now() - startTime;
-                const progress = Math.min(elapsed / totalDuration, 1);
+            // Inverse relationship: closer angles get MORE time per unit distance
+            const normalizedAngle = angleBetween / Math.PI; // 0 to 1
+            const baseDuration = 3500; // 3.5s for adjacent ships (very slow, smooth orbit)
+            const maxDuration = 5000;  // 5s for opposite side
+            // Use inverse power curve: closer = slower per degree, farther = faster per degree
+            const totalDuration = baseDuration + (maxDuration - baseDuration) * Math.pow(normalizedAngle, 0.7);
+            
+            console.log(`📷 Camera pan - angle: ${angleDegrees.toFixed(1)}°, duration: ${(totalDuration/1000).toFixed(1)}s`);
+            
+            // Use sweep approach only for far opposite side (> 120 degrees)
+            const useSweepApproach = angleBetween > (2 * Math.PI / 3); // 120 degrees
+            
+            if (useSweepApproach) {
+                // FAR OPPOSITE SIDE (>120°): Graceful sweep approach
+                const toCamera = startPosition.clone().sub(targetPosition).normalize();
+                const orbitRight = new THREE.Vector3().crossVectors(up, toCamera).normalize();
+                const orbitDirection = Math.random() > 0.5 ? orbitRight : orbitRight.clone().negate();
                 
-                // Gentle, consistent ease-out cubic for smooth, graceful deceleration
-                // No sudden changes - just a smooth, flowing motion that gradually slows
-                const eased = 1 - Math.pow(1 - progress, 3);
+                const orbitMidDistance = 200;
+                const orbitMidHeight = 100;
+                const orbitMidPosition = targetPosition.clone()
+                    .add(orbitDirection.multiplyScalar(orbitMidDistance))
+                    .add(up.clone().multiplyScalar(orbitMidHeight));
                 
-                // Smooth curved path through three points
-                let currentPos, currentLookAt;
-                
-                if (eased < 0.4) {
-                    // First 40%: start → orbit mid-point
-                    const t = eased / 0.4;
-                    currentPos = new THREE.Vector3().lerpVectors(startPosition, orbitMidPosition, t);
-                    currentLookAt = new THREE.Vector3().lerpVectors(startTarget, targetPosition, t);
-                } else {
-                    // Last 60%: orbit mid-point → final position
-                    const t = (eased - 0.4) / 0.6;
-                    currentPos = new THREE.Vector3().lerpVectors(orbitMidPosition, cameraTarget, t);
-                    currentLookAt = new THREE.Vector3().lerpVectors(targetPosition, lookAtTarget, t);
-                }
-                
-                camera.position.copy(currentPos);
-                controls.target.copy(currentLookAt);
-                controls.update();
+                function updateCamera() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / totalDuration, 1);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    
+                    let currentPos, currentLookAt;
+                    
+                    if (eased < 0.4) {
+                        const t = eased / 0.4;
+                        currentPos = new THREE.Vector3().lerpVectors(startPosition, orbitMidPosition, t);
+                        currentLookAt = new THREE.Vector3().lerpVectors(startTarget, targetPosition, t);
+                    } else {
+                        const t = (eased - 0.4) / 0.6;
+                        currentPos = new THREE.Vector3().lerpVectors(orbitMidPosition, cameraTarget, t);
+                        currentLookAt = new THREE.Vector3().lerpVectors(targetPosition, lookAtTarget, t);
+                    }
+                    
+                    camera.position.copy(currentPos);
+                    controls.target.copy(currentLookAt);
+                    controls.update();
 
-                if (progress < 1) {
-                    requestAnimationFrame(updateCamera);
-                } else {
-                    console.log('✅ Camera orbital travel complete - viewing formation from behind');
+                    if (progress < 1) {
+                        requestAnimationFrame(updateCamera);
+                    } else {
+                        console.log('✅ Camera sweep complete');
+                    }
                 }
+                
+                updateCamera();
+                
+            } else {
+                // ORBITAL PAN (≤120°): Direct circular movement with gentle deceleration
+                // Camera stays at constant distance - pure rotation around center
+                // Remove elastic overshoot to eliminate end jitter
+                
+                function updateCamera() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / totalDuration, 1);
+                    
+                    // Smooth ease-out cubic - no overshoot, no jitter
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    
+                    // Interpolate position and look-at separately to maintain constant camera distance
+                    camera.position.lerpVectors(startPosition, cameraTarget, eased);
+                    controls.target.lerpVectors(startTarget, lookAtTarget, eased);
+                    controls.update();
+
+                    if (progress < 1) {
+                        requestAnimationFrame(updateCamera);
+                    } else {
+                        console.log('✅ Camera orbital pan complete');
+                    }
+                }
+                
+                updateCamera();
             }
-
-            updateCamera();
         }
 
         // Control functions
         function resetCamera() {
-            camera.position.set(0, 350, 0);
+            // Reset to initial page load view: angled perspective showing entire formation
+            camera.position.set(800, 500, 600);
             controls.target.set(0, 0, 0);
             selectedNode = null;
             document.getElementById('info-panel').classList.remove('visible');
