@@ -416,7 +416,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.2.2</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.3.0</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -4442,19 +4442,36 @@
         // Zoom to node
         function zoomToNode(node) {
             const targetPosition = node.mesh.position.clone();
-            // Keep comfortable distance to see context
-            // Company: 150 units (see entire company + surrounding space)
-            // Device: 100 units (see device + all sensors orbiting)
-            // Sensor: 120 units (see sensor, parent device, and company context)
-            let distance = 150;
-            if (node.type === 'device') distance = 100;
-            if (node.type === 'sensor') distance = 120;
             
-            const cameraTarget = new THREE.Vector3(
-                targetPosition.x,
-                targetPosition.y + 40,  // Higher elevation for better overview
-                targetPosition.z + distance
-            );
+            // ALWAYS use consistent positioning for all node types
+            // Ships (devices and motherships) point toward center (0,0,0)
+            // We want camera BEHIND the ship, looking toward center
+            
+            // Calculate direction from center to ship (this is BEHIND the ship)
+            const centerToShip = targetPosition.clone().normalize();
+            
+            // For ships on the XZ plane, we want to be behind and elevated
+            // Behind = in the direction away from center
+            const up = new THREE.Vector3(0, 1, 0);
+            
+            // Position camera much further back - elevated at 40 degrees
+            const behindDistance = 500;      // Total distance from ship
+            const elevationAngle = 40;        // 40 degrees elevation
+            const elevationRadians = elevationAngle * Math.PI / 180;
+            
+            // Calculate camera position: behind and elevated
+            const horizontalDistance = behindDistance * Math.cos(elevationRadians);
+            const heightOffset = behindDistance * Math.sin(elevationRadians);
+            
+            // Position camera behind ship (away from center) and elevated
+            const cameraTarget = targetPosition.clone()
+                .add(centerToShip.clone().multiplyScalar(horizontalDistance))  // Behind (away from center)
+                .add(up.clone().multiplyScalar(heightOffset));                  // Elevated
+            
+            // Look at the center (where all ships point) to see the whole array
+            const lookAtTarget = new THREE.Vector3(0, targetPosition.y, 0);
+            
+            console.log('📷 Camera: Behind ship at', targetPosition, '→ Position:', cameraTarget, '→ Looking at center');
 
             // Pause auto-rotate for 60 seconds when user clicks something
             if (autoRotate) {
@@ -4469,24 +4486,57 @@
                 }, 60000);
             }
 
-            // Smooth camera transition
-            const duration = 1000;
+            // Single continuous camera movement with ultra-smooth, graceful deceleration
+            // Sweeps from current position → side of ship → elevated position behind
+            const totalDuration = 4500;  // 4.5 seconds for extra smooth travel
             const startPosition = camera.position.clone();
+            const startTarget = controls.target.clone();
             const startTime = Date.now();
-
+            
+            // Calculate orbit direction (right or left based on current position)
+            const toCamera = startPosition.clone().sub(targetPosition).normalize();
+            const orbitRight = new THREE.Vector3().crossVectors(up, toCamera).normalize();
+            const orbitDirection = Math.random() > 0.5 ? orbitRight : orbitRight.clone().negate();
+            
+            // Mid-point in the orbital sweep - to the side at lower elevation
+            const orbitMidDistance = 200;
+            const orbitMidHeight = 100;
+            const orbitMidPosition = targetPosition.clone()
+                .add(orbitDirection.multiplyScalar(orbitMidDistance))
+                .add(up.clone().multiplyScalar(orbitMidHeight));
+            
             function updateCamera() {
                 const elapsed = Date.now() - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                const eased = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-
-                camera.position.lerpVectors(startPosition, cameraTarget, eased);
-                controls.target.lerp(targetPosition, eased);
+                const progress = Math.min(elapsed / totalDuration, 1);
+                
+                // Gentle, consistent ease-out cubic for smooth, graceful deceleration
+                // No sudden changes - just a smooth, flowing motion that gradually slows
+                const eased = 1 - Math.pow(1 - progress, 3);
+                
+                // Smooth curved path through three points
+                let currentPos, currentLookAt;
+                
+                if (eased < 0.4) {
+                    // First 40%: start → orbit mid-point
+                    const t = eased / 0.4;
+                    currentPos = new THREE.Vector3().lerpVectors(startPosition, orbitMidPosition, t);
+                    currentLookAt = new THREE.Vector3().lerpVectors(startTarget, targetPosition, t);
+                } else {
+                    // Last 60%: orbit mid-point → final position
+                    const t = (eased - 0.4) / 0.6;
+                    currentPos = new THREE.Vector3().lerpVectors(orbitMidPosition, cameraTarget, t);
+                    currentLookAt = new THREE.Vector3().lerpVectors(targetPosition, lookAtTarget, t);
+                }
+                
+                camera.position.copy(currentPos);
+                controls.target.copy(currentLookAt);
+                controls.update();
 
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
+                } else {
+                    console.log('✅ Camera orbital travel complete - viewing formation from behind');
                 }
-                // Note: Don't clear lastPopupNode here - let the popup close handler manage that
-                // This allows sensor-to-sensor and device-to-sensor transitions to work properly
             }
 
             updateCamera();

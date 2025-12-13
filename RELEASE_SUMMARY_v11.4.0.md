@@ -1,27 +1,39 @@
-# Release Summary v11.4.0
+# CPM v11.4.0 - Unified Vendor Management
 
-## 3D Topology Enhancements & Data Consistency
+**Released:** 2025-12-13  
+**Codename:** Unified Vendor Management  
+**Status:** Production Ready ✅
 
-**Release Date:** December 11, 2025
+---
 
-### Key Improvements
+## 🎯 Executive Summary
 
-✅ **Fixed Device Orientation** - Ships now point toward center  
-✅ **Complete Sensor Data** - Popup shows values like "100 %", "31 %", "871 kbit/s"  
-✅ **Data Consistency** - Topology matches dashboard sidebar information  
-✅ **Cache Prevention** - Fresh data on every page load
+This release includes various updates and improvements to the platform.
 
-### Technical Changes
+This release includes **3 commits** since v11.4.0.
 
-- Updated `/devices/enhanced` endpoint to return all 7 sensor fields
-- Fixed device ship `lookAt()` calculation order
-- Added cache-control headers to prevent stale data
-- Aligned API responses between dashboard and topology views
+---
 
-### Bug Fixes
+## ✨ Key Highlights
 
-1. Device ships pointing down → Now point toward center (0,0,0)
-2. Sensor values "No value" → Now show actual metrics
-3. Incomplete API data → Now returns full sensor information
 
-**Upgrade:** `pm2 restart prtg-dashboard` + hard refresh browsers
+---
+
+## 🚀 Deployment
+
+### Quick Upgrade
+```bash
+cd /srv/www/htdocs/cva/cpm
+git pull origin main
+```
+
+---
+
+## 📞 Support
+
+- **Issues**: https://github.com/nighthawkrighder/prtgplay/issues
+- **Status**: Production ready
+
+---
+
+**End of Summary**
