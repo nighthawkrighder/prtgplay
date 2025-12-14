@@ -224,6 +224,72 @@
             border-color: rgba(255, 255, 255, 0.2);
         }
 
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 100, 255, 0.95);
+            border: 2px solid rgba(0, 255, 255, 0.5);
+            border-radius: 12px;
+            padding: 20px 40px;
+            z-index: 10000;
+            backdrop-filter: blur(10px);
+            display: none;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+        }
+
+        .loading-overlay.visible {
+            display: block;
+        }
+
+        .loading-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: #00ffff;
+            margin-bottom: 8px;
+        }
+
+        .loading-subtext {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 100, 255, 0.95);
+            border: 2px solid rgba(0, 255, 255, 0.5);
+            border-radius: 12px;
+            padding: 20px 40px;
+            z-index: 10000;
+            backdrop-filter: blur(10px);
+            display: none;
+            text-align: center;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+        }
+
+        .loading-overlay.visible {
+            display: block;
+        }
+
+        .loading-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: #00ffff;
+            margin-bottom: 8px;
+        }
+
+        .loading-subtext {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
         /* Info Panel */
         .info-panel {
             position: absolute;
@@ -497,7 +563,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v12.0.2</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v12.0.3</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -613,6 +679,18 @@
                 <button class="control-button" onclick="expandAll()">Expand All</button>
                 <button class="control-button" onclick="collapseAll()">Collapse All</button>
             </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="loading-text">⏳ Loading vendor details...</div>
+            <div class="loading-subtext">Clicks disabled during navigation</div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="loading-text">⏳ Loading vendor details...</div>
+            <div class="loading-subtext">Clicks disabled during navigation</div>
         </div>
 
         <!-- Info Panel -->
@@ -1598,6 +1676,13 @@
                     cancelAnimationFrame(window.activeCameraAnimation);
                     window.activeCameraAnimation = null;
                     console.log('⏹️ Camera animation cancelled by user action');
+                    
+                    // Hide loading overlay when animation is cancelled
+                    const loadingOverlay = document.getElementById('loading-overlay');
+                    if (loadingOverlay) {
+                        loadingOverlay.classList.remove('visible');
+                    }
+                    
                     return true;
                 }
                 return false;
@@ -3725,12 +3810,10 @@
 
         // Canvas click
         function onCanvasClick(event) {
-            // Visual feedback: Show click was registered even during animation
-            const wasAnimating = window.activeCameraAnimation !== null;
-            if (wasAnimating) {
-                console.log('🎯 Click during animation - cancelling and processing');
-                // Show brief flash effect at click location
-                showClickFeedback(event.clientX, event.clientY);
+            // Block clicks during camera animation
+            if (window.activeCameraAnimation !== null) {
+                console.log('🚫 Click blocked - camera animation in progress');
+                return; // Don't process clicks during animation
             }
             
             // Check if OrbitControls actually moved the camera (not just a simple click)
@@ -3987,6 +4070,12 @@
                 } else {
                     window.activeCameraAnimation = null;
                     console.log('✅ Zoom animation complete');
+                    
+                    // Hide loading overlay
+                    const loadingOverlay = document.getElementById('loading-overlay');
+                    if (loadingOverlay) {
+                        loadingOverlay.classList.remove('visible');
+                    }
                 }
             }
             
@@ -4954,6 +5043,12 @@
             // Cancel any existing camera animation before starting new one
             window.cancelCameraAnimation();
 
+            // Show loading overlay
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('visible');
+            }
+
             // Pause auto-rotate for 60 seconds when user clicks something
             if (autoRotate) {
                 autoRotate = false;
@@ -5036,6 +5131,12 @@
                     } else {
                         window.activeCameraAnimation = null;
                         console.log('✅ Camera sweep complete');
+                        
+                        // Hide loading overlay
+                        const loadingOverlay = document.getElementById('loading-overlay');
+                        if (loadingOverlay) {
+                            loadingOverlay.classList.remove('visible');
+                        }
                     }
                 }
                 
@@ -5063,6 +5164,12 @@
                     } else {
                         window.activeCameraAnimation = null;
                         console.log('✅ Camera orbital pan complete');
+                        
+                        // Hide loading overlay
+                        const loadingOverlay = document.getElementById('loading-overlay');
+                        if (loadingOverlay) {
+                            loadingOverlay.classList.remove('visible');
+                        }
                     }
                 }
                 
