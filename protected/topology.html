@@ -224,21 +224,21 @@
             border-color: rgba(255, 255, 255, 0.2);
         }
 
-        /* Loading Overlay */
+        /* Loading Overlay - HUD Style */
         .loading-overlay {
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(0, 100, 255, 0.95);
-            border: 2px solid rgba(0, 255, 255, 0.5);
-            border-radius: 12px;
+            background: rgba(0, 40, 80, 0.15);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 4px;
             padding: 20px 40px;
             z-index: 10000;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(8px);
             display: none;
             text-align: center;
-            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
         }
 
         .loading-overlay.visible {
@@ -248,46 +248,13 @@
         .loading-text {
             font-size: 16px;
             font-weight: 600;
-            color: #00ffff;
+            color: rgba(0, 255, 255, 0.9);
             margin-bottom: 8px;
         }
 
         .loading-subtext {
             font-size: 12px;
-            color: rgba(255, 255, 255, 0.7);
-        }
-
-        /* Loading Overlay */
-        .loading-overlay {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 100, 255, 0.95);
-            border: 2px solid rgba(0, 255, 255, 0.5);
-            border-radius: 12px;
-            padding: 20px 40px;
-            z-index: 10000;
-            backdrop-filter: blur(10px);
-            display: none;
-            text-align: center;
-            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
-        }
-
-        .loading-overlay.visible {
-            display: block;
-        }
-
-        .loading-text {
-            font-size: 16px;
-            font-weight: 600;
-            color: #00ffff;
-            margin-bottom: 8px;
-        }
-
-        .loading-subtext {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.7);
+            color: rgba(255, 255, 255, 0.5);
         }
 
         /* Info Panel */
