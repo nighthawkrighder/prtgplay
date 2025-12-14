@@ -530,7 +530,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v12.0.3</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v12.1.0</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -1648,6 +1648,12 @@
                     const loadingOverlay = document.getElementById('loading-overlay');
                     if (loadingOverlay) {
                         loadingOverlay.classList.remove('visible');
+                        // Clear stats
+                        const statsContainer = document.getElementById('loading-stats');
+                        if (statsContainer) {
+                            statsContainer.style.display = 'none';
+                            statsContainer.innerHTML = '';
+                        }
                     }
                     
                     return true;
@@ -4042,6 +4048,12 @@
                     const loadingOverlay = document.getElementById('loading-overlay');
                     if (loadingOverlay) {
                         loadingOverlay.classList.remove('visible');
+                        // Clear stats
+                        const statsContainer = document.getElementById('loading-stats');
+                        if (statsContainer) {
+                            statsContainer.style.display = 'none';
+                            statsContainer.innerHTML = '';
+                        }
                     }
                 }
             }
@@ -4300,6 +4312,7 @@
                 closeSensorPopup();
                 console.log('🏢 Company clicked - popup closed, state reset');
                 
+                populateLoadingStats(node);  // Populate loading overlay with company stats
                 zoomToNode(node);
                 
                 // Highlight devices of this company
@@ -4326,6 +4339,7 @@
             if (node.type === 'device') {
                 console.log(`Device clicked: ${node.name}`);
                 showSensorPopup(node);  // Show popup FIRST for immediate feedback
+                populateLoadingStats(node);  // Populate loading overlay with device stats
                 zoomToNode(node);  // Then animate camera
                 return;
             }
@@ -4465,6 +4479,120 @@
         }
 
         // Show sensor popup with real-time data
+        function populateLoadingStats(node) {
+            const statsContainer = document.getElementById('loading-stats');
+            if (!statsContainer) return;
+
+            let statsHTML = '';
+
+            if (node.type === 'device') {
+                // Device statistics
+                const device = node.data;
+                const sensors = device.sensors || [];
+                
+                const sensorStats = {
+                    total: sensors.length,
+                    up: sensors.filter(s => s.status === 3).length,
+                    down: sensors.filter(s => s.status === 5).length,
+                    warning: sensors.filter(s => s.status === 4).length
+                };
+
+                const healthPercent = sensorStats.total > 0 
+                    ? Math.round((sensorStats.up / sensorStats.total) * 100) 
+                    : 0;
+
+                statsHTML = `
+                    <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                        <div style="color: rgba(0, 255, 255, 0.9); font-weight: 600; margin-bottom: 8px;">${device.name}</div>
+                        <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; color: rgba(255, 255, 255, 0.7);">
+                            <span>Health:</span>
+                            <span style="color: ${healthPercent >= 80 ? '#22c55e' : healthPercent >= 50 ? '#fbbf24' : '#ef4444'}; font-weight: 600;">${healthPercent}%</span>
+                            
+                            <span>Sensors:</span>
+                            <span>${sensorStats.total} total</span>
+                            
+                            ${sensorStats.down > 0 ? `
+                                <span style="color: #ef4444;">⚠️ Critical:</span>
+                                <span style="color: #ef4444; font-weight: 600;">${sensorStats.down} sensor${sensorStats.down !== 1 ? 's' : ''} down</span>
+                            ` : ''}
+                            
+                            ${sensorStats.warning > 0 ? `
+                                <span style="color: #fbbf24;">⚡ Warning:</span>
+                                <span style="color: #fbbf24; font-weight: 600;">${sensorStats.warning} sensor${sensorStats.warning !== 1 ? 's' : ''}</span>
+                            ` : ''}
+                            
+                            ${sensorStats.down === 0 && sensorStats.warning === 0 ? `
+                                <span style="color: #22c55e;">✓ Status:</span>
+                                <span style="color: #22c55e; font-weight: 600;">All systems nominal</span>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (node.type === 'company') {
+                // Company/Organization statistics
+                const devices = nodes.filter(n => n.type === 'device' && n.parent === node);
+                const totalDevices = devices.length;
+                
+                const deviceStats = {
+                    up: devices.filter(d => d.data?.status === 3).length,
+                    down: devices.filter(d => d.data?.status === 5).length,
+                    warning: devices.filter(d => d.data?.status === 4).length
+                };
+
+                // Count total sensors across all devices
+                let totalSensors = 0;
+                let totalSensorsUp = 0;
+                let totalSensorsDown = 0;
+                let totalSensorsWarning = 0;
+                
+                devices.forEach(d => {
+                    const sensors = d.data?.sensors || [];
+                    totalSensors += sensors.length;
+                    totalSensorsUp += sensors.filter(s => s.status === 3).length;
+                    totalSensorsDown += sensors.filter(s => s.status === 5).length;
+                    totalSensorsWarning += sensors.filter(s => s.status === 4).length;
+                });
+
+                const healthPercent = totalDevices > 0 
+                    ? Math.round((deviceStats.up / totalDevices) * 100) 
+                    : 0;
+
+                const urgentItems = [];
+                if (deviceStats.down > 0) urgentItems.push(`${deviceStats.down} device${deviceStats.down !== 1 ? 's' : ''} down`);
+                if (totalSensorsDown > 0) urgentItems.push(`${totalSensorsDown} sensor${totalSensorsDown !== 1 ? 's' : ''} down`);
+                if (deviceStats.warning > 0) urgentItems.push(`${deviceStats.warning} warning${deviceStats.warning !== 1 ? 's' : ''}`);
+
+                statsHTML = `
+                    <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                        <div style="color: rgba(0, 255, 255, 0.9); font-weight: 600; margin-bottom: 8px;">${node.name}</div>
+                        <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; color: rgba(255, 255, 255, 0.7);">
+                            <span>Network Health:</span>
+                            <span style="color: ${healthPercent >= 80 ? '#22c55e' : healthPercent >= 50 ? '#fbbf24' : '#ef4444'}; font-weight: 600;">${healthPercent}%</span>
+                            
+                            <span>Devices:</span>
+                            <span>${totalDevices} total (${deviceStats.up} up, ${deviceStats.down} down)</span>
+                            
+                            <span>Sensors:</span>
+                            <span>${totalSensors} monitored</span>
+                            
+                            ${urgentItems.length > 0 ? `
+                                <span style="color: #ef4444; font-weight: 600;">🚨 Urgent:</span>
+                                <span style="color: #ef4444; font-weight: 600;">${urgentItems.join(', ')}</span>
+                            ` : `
+                                <span style="color: #22c55e;">✓ Status:</span>
+                                <span style="color: #22c55e; font-weight: 600;">All systems operational</span>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (statsHTML) {
+                statsContainer.innerHTML = statsHTML;
+                statsContainer.style.display = 'block';
+            }
+        }
+
         function showSensorPopup(deviceNode) {
             const device = deviceNode.data;
             
@@ -5103,6 +5231,12 @@
                         const loadingOverlay = document.getElementById('loading-overlay');
                         if (loadingOverlay) {
                             loadingOverlay.classList.remove('visible');
+                            // Clear stats
+                            const statsContainer = document.getElementById('loading-stats');
+                            if (statsContainer) {
+                                statsContainer.style.display = 'none';
+                                statsContainer.innerHTML = '';
+                            }
                         }
                     }
                 }
@@ -5136,6 +5270,12 @@
                         const loadingOverlay = document.getElementById('loading-overlay');
                         if (loadingOverlay) {
                             loadingOverlay.classList.remove('visible');
+                            // Clear stats
+                            const statsContainer = document.getElementById('loading-stats');
+                            if (statsContainer) {
+                                statsContainer.style.display = 'none';
+                                statsContainer.innerHTML = '';
+                            }
                         }
                     }
                 }
