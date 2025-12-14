@@ -497,7 +497,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v11.3.0</span></div>
+                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v12.0.2</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -3725,6 +3725,14 @@
 
         // Canvas click
         function onCanvasClick(event) {
+            // Visual feedback: Show click was registered even during animation
+            const wasAnimating = window.activeCameraAnimation !== null;
+            if (wasAnimating) {
+                console.log('🎯 Click during animation - cancelling and processing');
+                // Show brief flash effect at click location
+                showClickFeedback(event.clientX, event.clientY);
+            }
+            
             // Check if OrbitControls actually moved the camera (not just a simple click)
             if (window.orbitControlsWasUsed) {
                 console.log('🚫 Ignoring click - OrbitControls was used to move camera');
@@ -4215,11 +4223,11 @@
                 }
             }
             
-            // If clicking a sensor, zoom to it and show individual sensor details
+            // If clicking a sensor, show individual sensor details immediately, then zoom
             if (node.type === 'sensor') {
                 console.log(`Sensor clicked: ${node.name}`);
-                zoomToNode(node);  // Zoom directly to the sensor
-                showIndividualSensorPopup(node);
+                showIndividualSensorPopup(node);  // Show popup FIRST for immediate feedback
+                zoomToNode(node);  // Then animate camera
                 return;
             }
             
@@ -4258,11 +4266,11 @@
                 return;
             }
             
-            // If clicking a device node (spaceship), zoom directly to it and show sensor popup
+            // If clicking a device node (spaceship), show sensor popup immediately, then zoom
             if (node.type === 'device') {
                 console.log(`Device clicked: ${node.name}`);
-                zoomToNode(node);  // Zoom directly to the device
-                showSensorPopup(node);
+                showSensorPopup(node);  // Show popup FIRST for immediate feedback
+                zoomToNode(node);  // Then animate camera
                 return;
             }
 
