@@ -117,6 +117,46 @@
             width: 280px;
             z-index: 1000;
             backdrop-filter: blur(10px);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        
+        .controls-panel.hidden {
+            opacity: 0;
+            transform: translateX(320px);
+            pointer-events: none;
+        }
+        
+        .toggle-btn {
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            z-index: 1001;
+            font-size: 20px;
+        }
+        
+        .toggle-btn:hover {
+            background: rgba(40, 40, 40, 0.95);
+            border-color: #667eea;
+            transform: scale(1.1);
+        }
+        
+        #settings-toggle {
+            top: 80px;
+            right: 20px;
+        }
+        
+        #legend-toggle {
+            top: 80px;
+            left: 20px;
         }
 
         .control-group {
@@ -266,6 +306,40 @@
             background: rgba(239, 68, 68, 0.2);
             color: #ef4444;
         }
+        
+        /* Toggle Buttons */
+        .toggle-btn {
+            position: absolute;
+            width: 44px;
+            height: 44px;
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            z-index: 1001;
+            font-size: 20px;
+        }
+        
+        .toggle-btn:hover {
+            background: rgba(40, 40, 40, 0.95);
+            border-color: #667eea;
+            transform: scale(1.1);
+        }
+        
+        #settings-toggle {
+            top: 80px;
+            right: 20px;
+        }
+        
+        #legend-toggle {
+            top: 80px;
+            left: 20px;
+        }
 
         /* Legend */
         .legend {
@@ -278,6 +352,13 @@
             padding: 15px;
             z-index: 1000;
             backdrop-filter: blur(10px);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        
+        .legend.hidden {
+            opacity: 0;
+            transform: translateX(-280px);
+            pointer-events: none;
         }
 
         .legend-title {
@@ -443,8 +524,12 @@
             </div>
         </div>
 
+        <!-- Toggle Buttons -->
+        <div id="settings-toggle" class="toggle-btn" onclick="toggleSettings()" title="Settings">⚙️</div>
+        <div id="legend-toggle" class="toggle-btn" onclick="toggleLegend()" title="Legend & Controls">ℹ️</div>
+
         <!-- Legend -->
-        <div class="legend">
+        <div class="legend hidden" id="legend-panel">
             <div class="legend-title">Legend</div>
             <div class="legend-item">
                 <div class="legend-color" style="background: #667eea;"></div>
@@ -472,14 +557,17 @@
                     <div><strong style="color: #667eea;">W/A/S/D</strong> - Fly forward/left/back/right</div>
                     <div><strong style="color: #667eea;">Q/E</strong> - Fly up/down</div>
                     <div><strong style="color: #667eea;">Shift+W/S</strong> - Speed boost</div>
-                    <div><strong style="color: #667eea;">Mouse</strong> - Look around</div>
+                    <div><strong style="color: #667eea;">Left Click</strong> - Look around</div>
+                    <div><strong style="color: #667eea;">Right Click</strong> - Strafe left/right (x-axis), in/out (z-axis)</div>
+                    <div><strong style="color: #667eea;">Double Click</strong> - Hurry to clicked coordinates</div>
                     <div><strong style="color: #667eea;">Scroll</strong> - Zoom (limited)</div>
+                    <div><strong style="color: #667eea;">Arrow Keys</strong> - Step through devices left or right</div>
                 </div>
             </div>
         </div>
 
         <!-- Controls Panel -->
-        <div class="controls-panel">
+        <div class="controls-panel hidden" id="controls-panel">
             <div class="control-group">
                 <label class="control-label">
                     Node Size
@@ -522,7 +610,6 @@
             </div>
 
             <div class="control-buttons">
-                <button class="control-button" onclick="toggleLabels()">Toggle Labels</button>
                 <button class="control-button" onclick="expandAll()">Expand All</button>
                 <button class="control-button" onclick="collapseAll()">Collapse All</button>
             </div>
@@ -829,36 +916,60 @@
             
             const isMothership = shipSize > 10;
             
-            // Create converging status lights - angled toward the tip
-            const stripeLength = shipSize * (isMothership ? 0.75 : 0.85);
-            const stripeWidth = isMothership ? 0.6 : 0.5;
+            // Create LED strip effect - thin glowing lines along the hull edges
+            const stripLength = shipSize * (isMothership ? 0.6 : 0.65); // Shorter, contained
+            const stripWidth = 0.08; // Very thin like LED strip
             
-            // Position on hull surface
-            const topOfHull = shipSize * (isMothership ? 0.05 : 0.08);
-            const stripeOffsetX = shipSize * (isMothership ? 0.12 : 0.15);
-            const stripeOffsetZ = shipSize * (isMothership ? 0.0 : -0.05);
+            // Position along hull edges
+            const edgeOffset = shipSize * (isMothership ? 0.12 : 0.14); // Along the edge
+            const heightOffset = shipSize * 0.01; // Slightly raised from hull
+            const startZ = shipSize * (isMothership ? 0.25 : 0.2); // Start further back
             
-            // Create plane geometry
-            const stripeGeom = new THREE.PlaneGeometry(stripeWidth, stripeLength);
+            // Create thin strip geometry
+            const stripGeom = new THREE.PlaneGeometry(stripWidth, stripLength);
             
-            // BRIGHT glowing material
-            const glowMaterial = stripeMaterial.clone();
-            glowMaterial.transparent = true;
-            glowMaterial.opacity = 1.0;
-            glowMaterial.emissiveIntensity = 2.5;
-            glowMaterial.side = THREE.DoubleSide;
+            // Create glowing gradient material
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
             
-            // Left stripe - angled INWARD toward tip
-            const leftStripe = new THREE.Mesh(stripeGeom, glowMaterial);
-            leftStripe.position.set(-stripeOffsetX, topOfHull, stripeOffsetZ);
-            leftStripe.rotation.set(-Math.PI / 2, 0, Math.PI / 12); // Angled inward ~15°
+            // Get color from material
+            const color = stripeMaterial.color;
+            const colorHex = '#' + color.getHexString();
             
-            // Right stripe - angled INWARD toward tip
-            const rightStripe = new THREE.Mesh(stripeGeom, glowMaterial.clone());
-            rightStripe.position.set(stripeOffsetX, topOfHull, stripeOffsetZ);
-            rightStripe.rotation.set(-Math.PI / 2, 0, -Math.PI / 12); // Angled inward ~15°
+            // Create gradient - bright at front, fade to back
+            const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+            gradient.addColorStop(0, colorHex); // Bright at front
+            gradient.addColorStop(0.5, colorHex);
+            gradient.addColorStop(1, 'rgba(0,0,0,0)'); // Fade to transparent at back
             
-            return [leftStripe, rightStripe];
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 256);
+            
+            const stripTexture = new THREE.CanvasTexture(canvas);
+            
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                map: stripTexture,
+                transparent: true,
+                opacity: 0.9,
+                emissive: color,
+                emissiveIntensity: 3.5,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending // Extra glow
+            });
+            
+            // Left LED strip along edge
+            const leftStrip = new THREE.Mesh(stripGeom, glowMaterial);
+            leftStrip.position.set(-edgeOffset, heightOffset, startZ);
+            leftStrip.rotation.set(-Math.PI / 2, 0, 0);
+            
+            // Right LED strip along edge
+            const rightStrip = new THREE.Mesh(stripGeom, glowMaterial.clone());
+            rightStrip.position.set(edgeOffset, heightOffset, startZ);
+            rightStrip.rotation.set(-Math.PI / 2, 0, 0);
+            
+            return [leftStrip, rightStrip];
         }
         
         // Get or create gradient texture (cached by color)
@@ -1160,6 +1271,15 @@
         
         function updateTelemetryBeams() {
             const now = Date.now();
+            
+            // Safety limit: prevent beam pool from growing unbounded
+            if (telemetryBeams.length > 50) {
+                console.warn('⚠️ Too many telemetry beams (', telemetryBeams.length, ') - forcing cleanup');
+                // Force release oldest beams
+                const toRemove = telemetryBeams.splice(0, telemetryBeams.length - 25);
+                toRemove.forEach(beam => beamPool.release(beam));
+            }
+            
             for (let i = telemetryBeams.length - 1; i >= 0; i--) {
                 const beam = telemetryBeams[i];
                 const elapsed = now - beam.userData.startTime;
@@ -1210,9 +1330,148 @@
                 scene = new THREE.Scene();
                 console.log('✅ [STEP 2a] Scene created');
                 
-                scene.background = new THREE.Color(0x0a0a0a);
+                scene.background = new THREE.Color(0x000408); // Deep space blue-black
+                
+                // Create distant starfield
+                const starGeometry = new THREE.BufferGeometry();
+                const starCount = 10000;
+                const starPositions = new Float32Array(starCount * 3);
+                const starColors = new Float32Array(starCount * 3);
+                const starSizes = new Float32Array(starCount);
+                
+                for (let i = 0; i < starCount; i++) {
+                    // Random positions in a huge sphere (4000 unit radius)
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(Math.random() * 2 - 1);
+                    const radius = 3000 + Math.random() * 1500; // Far from action
+                    
+                    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                    starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                    starPositions[i * 3 + 2] = radius * Math.cos(phi);
+                    
+                    // Star colors - mix of white, blue-white, yellow-white
+                    const colorType = Math.random();
+                    if (colorType < 0.7) {
+                        // White stars
+                        starColors[i * 3] = 1;
+                        starColors[i * 3 + 1] = 1;
+                        starColors[i * 3 + 2] = 1;
+                    } else if (colorType < 0.9) {
+                        // Blue-white stars
+                        starColors[i * 3] = 0.8;
+                        starColors[i * 3 + 1] = 0.9;
+                        starColors[i * 3 + 2] = 1;
+                    } else {
+                        // Yellow-white stars
+                        starColors[i * 3] = 1;
+                        starColors[i * 3 + 1] = 0.95;
+                        starColors[i * 3 + 2] = 0.8;
+                    }
+                    
+                    // Varying star sizes for depth
+                    starSizes[i] = Math.random() * 2 + 0.5;
+                }
+                
+                starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+                starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+                starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
+                
+                const starMaterial = new THREE.PointsMaterial({
+                    size: 2,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.8,
+                    sizeAttenuation: true
+                });
+                
+                const stars = new THREE.Points(starGeometry, starMaterial);
+                scene.add(stars);
+                console.log('✨ [STEP 2b] Starfield created with', starCount, 'stars');
+                
+                // Initialize comet system
+                window.comets = [];
+                window.cometPool = {
+                    available: [],
+                    active: [],
+                    maxSize: 5 // Only 5 comets max at a time
+                };
+                
+                // Function to create a comet
+                window.createComet = function() {
+                    if (window.cometPool.active.length >= window.cometPool.maxSize) return;
+                    
+                    // Random starting position far from center
+                    const angle = Math.random() * Math.PI * 2;
+                    const startRadius = 2000 + Math.random() * 1000;
+                    const startPos = new THREE.Vector3(
+                        Math.cos(angle) * startRadius,
+                        (Math.random() - 0.5) * 1000,
+                        Math.sin(angle) * startRadius
+                    );
+                    
+                    // Direction toward/past center with some randomness
+                    const targetAngle = angle + Math.PI + (Math.random() - 0.5) * 0.5;
+                    const direction = new THREE.Vector3(
+                        Math.cos(targetAngle),
+                        (Math.random() - 0.5) * 0.3,
+                        Math.sin(targetAngle)
+                    ).normalize();
+                    
+                    // Create comet head (small glowing sphere)
+                    const cometGeometry = new THREE.SphereGeometry(2, 8, 8);
+                    const cometMaterial = new THREE.MeshBasicMaterial({
+                        color: 0xaaccff,
+                        emissive: 0xaaccff,
+                        emissiveIntensity: 2
+                    });
+                    const cometHead = new THREE.Mesh(cometGeometry, cometMaterial);
+                    cometHead.position.copy(startPos);
+                    
+                    // Create tail (line)
+                    const tailLength = 100 + Math.random() * 100;
+                    const tailGeometry = new THREE.BufferGeometry();
+                    const tailPositions = new Float32Array(6);
+                    tailPositions[0] = startPos.x;
+                    tailPositions[1] = startPos.y;
+                    tailPositions[2] = startPos.z;
+                    tailPositions[3] = startPos.x - direction.x * tailLength;
+                    tailPositions[4] = startPos.y - direction.y * tailLength;
+                    tailPositions[5] = startPos.z - direction.z * tailLength;
+                    tailGeometry.setAttribute('position', new THREE.BufferAttribute(tailPositions, 3));
+                    
+                    const tailMaterial = new THREE.LineBasicMaterial({
+                        color: 0x6699cc,
+                        transparent: true,
+                        opacity: 0.4
+                    });
+                    const tail = new THREE.Line(tailGeometry, tailMaterial);
+                    
+                    scene.add(cometHead);
+                    scene.add(tail);
+                    
+                    const comet = {
+                        head: cometHead,
+                        tail: tail,
+                        direction: direction,
+                        speed: 3 + Math.random() * 4,
+                        tailLength: tailLength,
+                        lifetime: 0,
+                        maxLifetime: 300 // ~5 seconds at 60fps
+                    };
+                    
+                    window.cometPool.active.push(comet);
+                    requestRender();
+                };
+                
+                // Spawn comets randomly (every 15-30 seconds)
+                setInterval(() => {
+                    if (Math.random() < 0.3 && window.isPageVisible && window.isPageVisible()) {
+                        window.createComet();
+                    }
+                }, 15000);
+                
                 // No fog - objects should stay visible at any distance
-                console.log('✅ [STEP 2b] Scene configured');
+                console.log('✅ [STEP 2c] Scene configured');
             } catch (error) {
                 console.error('❌ [INIT] Error during setup:', error);
                 loadingText.textContent = 'Error initializing: ' + error.message;
@@ -1295,9 +1554,8 @@
             pointLight.position.set(0, 50, 0);
             scene.add(pointLight);
 
-            // Add grid (stored globally for toggle)
-            gridHelper = new THREE.GridHelper(200, 20, 0x333333, 0x1a1a1a);
-            scene.add(gridHelper);
+            // No grid - clean space environment
+            gridHelper = null;
             
             // Initialize shared geometries and materials
             initSharedGeometries();
@@ -1328,6 +1586,23 @@
             window.isOrbitControlsActive = false;
             window.orbitControlsWasUsed = false; // Track if controls actually moved the camera
             
+            // Double-click tolerance tracking
+            window.lastClickTime = 0;
+            window.lastClickPos = null;
+            window.doubleClickTolerance = 20; // pixels - movement allowed between clicks for double-click
+            
+            // Camera animation tracking - allows interruption by user actions
+            window.activeCameraAnimation = null; // Stores animation frame ID
+            window.cancelCameraAnimation = function() {
+                if (window.activeCameraAnimation) {
+                    cancelAnimationFrame(window.activeCameraAnimation);
+                    window.activeCameraAnimation = null;
+                    console.log('⏹️ Camera animation cancelled by user action');
+                    return true;
+                }
+                return false;
+            };
+            
             // Track when OrbitControls start/stop (more reliable than just mousedown/up)
             controls.addEventListener('start', () => {
                 window.isOrbitControlsActive = true;
@@ -1349,11 +1624,45 @@
             
             canvas.addEventListener('mousedown', (e) => {
                 window.mouseDownPos = { x: e.clientX, y: e.clientY };
+                
+                // Cancel any active camera animation on user interaction
+                window.cancelCameraAnimation();
+                
+                // Track for double-click detection
+                const now = Date.now();
+                const timeSinceLastClick = now - window.lastClickTime;
+                
+                // If within double-click time window (300ms default) and close position
+                if (timeSinceLastClick < 300 && window.lastClickPos) {
+                    const distance = Math.sqrt(
+                        Math.pow(e.clientX - window.lastClickPos.x, 2) + 
+                        Math.pow(e.clientY - window.lastClickPos.y, 2)
+                    );
+                    
+                    // Scale tolerance based on camera distance
+                    const cameraDistance = camera.position.length();
+                    const scaledTolerance = window.doubleClickTolerance * Math.max(1, Math.min(5, cameraDistance / 200));
+                    
+                    if (distance <= scaledTolerance) {
+                        // Mark as potential double-click - ignore minor movement
+                        window.isPotentialDoubleClick = true;
+                        console.log(`✅ Potential double-click detected (${distance.toFixed(1)}px movement, tolerance: ${scaledTolerance.toFixed(1)}px)`);
+                    } else {
+                        window.isPotentialDoubleClick = false;
+                    }
+                } else {
+                    window.isPotentialDoubleClick = false;
+                }
             });
             
             canvas.addEventListener('mouseup', (e) => {
                 window.mouseUpPos = { x: e.clientX, y: e.clientY };
             });
+            
+            // Cancel camera animation on scroll/zoom
+            canvas.addEventListener('wheel', (e) => {
+                window.cancelCameraAnimation();
+            }, { passive: true });
 
             // Event listeners
             window.addEventListener('resize', onWindowResize);
@@ -1363,6 +1672,31 @@
 
             // Store keys object for animation loop
             window.cameraKeys = keys;
+            
+            // Prevent resource leaks on long-running sessions
+            // Cleanup when page is hidden (user switches tabs)
+            let isPageVisible = true;
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    isPageVisible = false;
+                    console.log('💤 Page hidden - pausing expensive operations');
+                    // Stop auto-rotate when hidden
+                    if (autoRotate) {
+                        window.wasAutoRotating = true;
+                        autoRotate = false;
+                    }
+                } else {
+                    isPageVisible = true;
+                    console.log('👁️ Page visible - resuming operations');
+                    // Resume auto-rotate if it was active
+                    if (window.wasAutoRotating) {
+                        autoRotate = true;
+                        window.wasAutoRotating = false;
+                    }
+                    requestRender();
+                }
+            });
+            window.isPageVisible = () => isPageVisible;
 
             // Don't hide loading here - loadNetworkData will handle it
         }
@@ -2387,9 +2721,9 @@
             scene.add(mothershipGroup);
             console.log('  ✅ Mothership added to scene. Scene children count:', scene.children.length);
             
-            // Add company name label as floating text sprite
+            // Add company name label as floating text sprite - positioned below ship
             const nameLabel = createCompanyNameLabel(name);
-            nameLabel.position.set(x, y + 30, z);
+            nameLabel.position.set(x, y - 35, z); // Below the ship
             scene.add(nameLabel);
             
             node.label = nameLabel;
@@ -2403,19 +2737,27 @@
             canvas.height = 128;
             const ctx = canvas.getContext('2d');
             
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            // Sci-fi background with glow
+            const gradient = ctx.createLinearGradient(0, 0, 512, 0);
+            gradient.addColorStop(0, 'rgba(0, 100, 200, 0)');
+            gradient.addColorStop(0.5, 'rgba(0, 100, 200, 0.6)');
+            gradient.addColorStop(1, 'rgba(0, 100, 200, 0)');
+            ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, 512, 128);
             
-            // Text
-            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-            ctx.lineWidth = 4;
-            ctx.font = 'bold 48px Arial';
+            // Sci-fi text with cyan glow
+            ctx.fillStyle = 'rgba(0, 255, 255, 1)'; // Cyan
+            ctx.strokeStyle = 'rgba(0, 180, 255, 0.8)'; // Bright blue glow
+            ctx.lineWidth = 3;
+            ctx.shadowColor = 'rgba(0, 200, 255, 0.8)';
+            ctx.shadowBlur = 15;
+            ctx.font = 'bold 42px "Orbitron", "Courier New", monospace'; // Sci-fi font
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
+            // Draw glow
             ctx.strokeText(name, 256, 64);
+            // Draw text
             ctx.fillText(name, 256, 64);
             
             const texture = new THREE.CanvasTexture(canvas);
@@ -2572,7 +2914,8 @@
                 visible: true,
                 targetQuaternion: targetQuaternion,
                 rotationComplete: false,
-                rotationProgress: 0
+                rotationProgress: 0,
+                initialPosition: { x: x, y: y, z: z }
             };
             
             // Store unique node reference in mesh userData BEFORE adding children
@@ -2742,6 +3085,21 @@
             const sphere = new THREE.Mesh(geometryCache.sensorSphere, materialCache.sensors[materialKey]);
             sphere.userData.nodeType = 'sensor'; // For raycaster identification
             
+            // Add holographic ring effect around sensor for cool visual
+            const ringGeometry = new THREE.RingGeometry(0.8, 1.2, 16);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: sensorColor,
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide,
+                emissive: sensorColor,
+                emissiveIntensity: 0.5
+            });
+            const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+            ring.rotation.x = Math.PI / 2;
+            sphere.add(ring);
+            sphere.userData.holoRing = ring;
+            
             // Evenly space sensors around device like beads on a necklace
             const angle = (sensorIndex / totalSensors) * Math.PI * 2;
             // Alarm sensors (red/yellow) positioned closer to front (smaller orbit)
@@ -2762,10 +3120,12 @@
                 orbit: {
                     center: { x: x, y: y, z: z },  // Device position (will be updated)
                     radius: distance,
+                    baseRadius: distance,
                     speed: 0.002,  // Uniform speed for all sensors
                     currentAngle: angle,  // Start at evenly spaced positions
                     angleOffset: angle    // Maintain even spacing throughout orbit
-                }
+                },
+                initialPosition: { x: x, y: y, z: z }
             };
             
             // Store unique node reference in mesh userData for raycaster
@@ -2813,6 +3173,9 @@
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
+            
+            // Skip expensive operations when page is hidden
+            const isVisible = window.isPageVisible ? window.isPageVisible() : true;
             
             const time = Date.now() * 0.001;
 
@@ -2870,6 +3233,29 @@
 
             // Update controls
             controls.update();
+            
+            // Soft boundary constraint - allow exploration but prevent getting completely lost
+            // Use very large boundary that feels limitless but prevents infinite travel
+            const softBoundary = 2000; // Very generous boundary
+            const cameraDistanceFromOrigin = camera.position.length();
+            
+            if (cameraDistanceFromOrigin > softBoundary) {
+                // Gentle pull back using lerp instead of hard clamp
+                const pullBackStrength = 0.02; // Very subtle
+                camera.position.lerp(
+                    camera.position.clone().normalize().multiplyScalar(softBoundary * 0.95),
+                    pullBackStrength
+                );
+            }
+            
+            // Also constrain target but even more generously
+            const targetDistance = controls.target.length();
+            if (targetDistance > softBoundary * 0.9) {
+                controls.target.lerp(
+                    controls.target.clone().normalize().multiplyScalar(softBoundary * 0.85),
+                    0.01
+                );
+            }
 
             // Auto rotate
             if (autoRotate) {
@@ -3189,6 +3575,48 @@
             // Update telemetry beams
             updateTelemetryBeams();
             
+            // Update comets
+            if (window.cometPool && window.cometPool.active.length > 0) {
+                for (let i = window.cometPool.active.length - 1; i >= 0; i--) {
+                    const comet = window.cometPool.active[i];
+                    comet.lifetime++;
+                    
+                    // Move comet
+                    comet.head.position.addScaledVector(comet.direction, comet.speed);
+                    
+                    // Update tail
+                    const tailPositions = comet.tail.geometry.attributes.position.array;
+                    tailPositions[0] = comet.head.position.x;
+                    tailPositions[1] = comet.head.position.y;
+                    tailPositions[2] = comet.head.position.z;
+                    tailPositions[3] = comet.head.position.x - comet.direction.x * comet.tailLength;
+                    tailPositions[4] = comet.head.position.y - comet.direction.y * comet.tailLength;
+                    tailPositions[5] = comet.head.position.z - comet.direction.z * comet.tailLength;
+                    comet.tail.geometry.attributes.position.needsUpdate = true;
+                    
+                    // Fade out near end of life
+                    const fadeStart = comet.maxLifetime * 0.8;
+                    if (comet.lifetime > fadeStart) {
+                        const fadeProgress = (comet.lifetime - fadeStart) / (comet.maxLifetime - fadeStart);
+                        comet.head.material.opacity = 1 - fadeProgress;
+                        comet.tail.material.opacity = 0.4 * (1 - fadeProgress);
+                    }
+                    
+                    // Remove if lifetime exceeded or too far from origin
+                    const distanceFromOrigin = comet.head.position.length();
+                    if (comet.lifetime >= comet.maxLifetime || distanceFromOrigin > 4000) {
+                        scene.remove(comet.head);
+                        scene.remove(comet.tail);
+                        comet.head.geometry.dispose();
+                        comet.head.material.dispose();
+                        comet.tail.geometry.dispose();
+                        comet.tail.material.dispose();
+                        window.cometPool.active.splice(i, 1);
+                        requestRender();
+                    }
+                }
+            }
+            
             // PASS 2: Update sensor positions (after devices have moved)
             // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
             nodes.forEach(node => {
@@ -3221,9 +3649,33 @@
                     // Check if sensor is in alarm state (down=5, warning=4)
                     const isAlarm = node.data.status === 5 || node.data.status === 4;
                     
-                    // Minimal animation - just glow pulsing for alarm sensors
+                    // Calculate distance from camera for LOD
+                    const distanceFromCamera = camera.position.distanceTo(node.mesh.position);
+                    const lodLevel = distanceFromCamera < 300 ? 'HIGH' : 
+                                    distanceFromCamera < 600 ? 'MEDIUM' : 'LOW';
+                    
+                    // Skip expensive animations for distant sensors
+                    if (lodLevel === 'LOW') {
+                        // Very far - hide completely to save rendering
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // Animate holographic ring (skip for MEDIUM LOD)
+                    if (node.mesh.userData.holoRing && lodLevel === 'HIGH') {
+                        node.mesh.userData.holoRing.rotation.z += 0.02; // Gentle rotation
+                        const ringPulse = 0.3 + Math.sin(time * 2) * 0.1;
+                        node.mesh.userData.holoRing.material.opacity = ringPulse;
+                        
+                        // Make ring more intense for alarms
+                        if (isAlarm) {
+                            node.mesh.userData.holoRing.material.opacity = 0.5 + Math.sin(time * 3) * 0.3;
+                        }
+                    }
+                    
+                    // Minimal animation - just glow pulsing for alarm sensors (only at HIGH LOD)
                     let yOffset = 0;
-                    if (isAlarm) {
+                    if (isAlarm && lodLevel === 'HIGH') {
                         // Gentle pulse for visibility without movement
                         const pulseSpeed = node.data.status === 5 ? 2.0 : 1.5;
                         const pulseScale = 1.0 + Math.sin(time * pulseSpeed) * 0.15; // Subtle pulse
@@ -3308,17 +3760,27 @@
                 }
             }
             
+            // Check if this is part of a double-click sequence
+            const now = Date.now();
+            const timeSinceLastClick = now - window.lastClickTime;
+            
+            // If potential double-click flagged, suppress this single click and let dblclick handle it
+            if (window.isPotentialDoubleClick && timeSinceLastClick < 300) {
+                console.log('⏭️ Suppressing click - part of double-click sequence');
+                window.lastClickTime = now;
+                window.lastClickPos = { x: event.clientX, y: event.clientY };
+                window.isPotentialDoubleClick = false;
+                return;
+            }
+            
             // Reset drag tracking
             window.mouseDownPos = null;
             window.mouseUpPos = null;
             
-            // Minimal debounce to prevent rapid duplicate clicks only
-            const clickDelay = 50; // 50ms minimal delay
-            if (window.lastClickTime && (Date.now() - window.lastClickTime) < clickDelay) {
-                console.log('🚫 Ignoring click - duplicate click detected');
-                return;
-            }
-            window.lastClickTime = Date.now();
+            // Update last click tracking for next potential double-click
+            window.lastClickTime = now;
+            window.lastClickPos = { x: event.clientX, y: event.clientY };
+            window.isPotentialDoubleClick = false;
             
             // Process click immediately without zoom-out check
             processClick(event);
@@ -3335,12 +3797,19 @@
 
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
-            // Higher threshold to compensate for no bounding boxes
-            raycaster.params.Points.threshold = 15;
-            raycaster.params.Line.threshold = 15;
+            
+            // Scale raycaster threshold based on camera distance for easier clicking when far away
+            const cameraDistance = camera.position.length();
+            const baseThreshold = 15;
+            const scaledThreshold = baseThreshold * Math.max(1, Math.min(3, cameraDistance / 300));
+            
+            raycaster.params.Points.threshold = scaledThreshold;
+            raycaster.params.Line.threshold = scaledThreshold;
             raycaster.params.Mesh = {};
             raycaster.near = 0.1;
             raycaster.far = 100000;
+            
+            console.log(`🎯 Raycaster threshold: ${scaledThreshold.toFixed(1)} (camera distance: ${cameraDistance.toFixed(1)})`);
 
             const meshes = nodes.map(n => n.mesh).filter(m => m); // Filter out null meshes
             const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for Groups
@@ -3424,34 +3893,65 @@
         function onCanvasDoubleClick(event) {
             console.log('🔍 Double-click detected - zooming to point');
             
+            // Cancel any ongoing camera animation immediately
+            window.cancelCameraAnimation();
+            
             const mouse = new THREE.Vector2();
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
+            
+            // Scale raycaster threshold based on camera distance
+            const cameraDistance = camera.position.length();
+            const baseThreshold = 15;
+            const scaledThreshold = baseThreshold * Math.max(1, Math.min(3, cameraDistance / 300));
+            raycaster.params.Points.threshold = scaledThreshold;
+            raycaster.params.Line.threshold = scaledThreshold;
+            
             raycaster.near = 0.1;
             raycaster.far = 100000;
 
             // Cast ray to find 3D point in space
-            // If hits an object, zoom to that object
+            // If hits a ship/device/sensor, do nothing (just confirms selection)
             // If hits nothing, zoom to a point along the ray
             const meshes = nodes.map(n => n.mesh).filter(m => m);
             const intersects = raycaster.intersectObjects(meshes, true);
 
-            let targetPoint;
+            // Check if we hit a ship, device, or sensor (but NOT labels/sprites)
+            let hitObject = false;
             if (intersects.length > 0) {
-                // Zoom to intersected object
-                targetPoint = intersects[0].point.clone();
-                console.log('🎯 Zooming to object at:', targetPoint);
-            } else {
-                // No object hit - zoom to a point along the ray at current camera distance
-                const currentDistance = camera.position.length();
-                targetPoint = raycaster.ray.origin.clone().add(
-                    raycaster.ray.direction.clone().multiplyScalar(currentDistance * 0.5)
-                );
-                console.log('🌌 Zooming to empty space at:', targetPoint);
+                // Check if any intersection is a game object (ship/device/sensor)
+                for (const intersect of intersects) {
+                    // Skip sprites (labels) - they shouldn't block zoom
+                    if (intersect.object instanceof THREE.Sprite) {
+                        console.log('🏷️ Hit label sprite - ignoring for double-click');
+                        continue;
+                    }
+                    
+                    const userData = intersect.object.userData || 
+                                   intersect.object.parent?.userData || 
+                                   intersect.object.parent?.parent?.userData;
+                    
+                    if (userData && (userData.nodeType === 'company' || 
+                                    userData.nodeType === 'device' || 
+                                    userData.nodeType === 'sensor' ||
+                                    userData.node)) {
+                        hitObject = true;
+                        console.log('🎯 Double-click on object - confirming selection only, no zoom');
+                        return; // Exit - don't zoom on ship/device/sensor
+                    }
+                }
             }
+
+            // Only zoom if we hit empty space (or just labels)
+            let targetPoint;
+            const currentDistance = camera.position.length();
+            targetPoint = raycaster.ray.origin.clone().add(
+                raycaster.ray.direction.clone().multiplyScalar(currentDistance * 0.5)
+            );
+            console.log('🌌 Double-click on empty space - zooming to:', targetPoint);
 
             // Smooth zoom animation
             const startPos = camera.position.clone();
@@ -3475,8 +3975,9 @@
                 controls.update();
                 
                 if (progress < 1) {
-                    requestAnimationFrame(animateZoom);
+                    window.activeCameraAnimation = requestAnimationFrame(animateZoom);
                 } else {
+                    window.activeCameraAnimation = null;
                     console.log('✅ Zoom animation complete');
                 }
             }
@@ -4442,6 +4943,9 @@
             
             console.log('📷 Camera: Behind ship at', targetPosition, '→ Position:', cameraTarget, '→ Looking at center');
 
+            // Cancel any existing camera animation before starting new one
+            window.cancelCameraAnimation();
+
             // Pause auto-rotate for 60 seconds when user clicks something
             if (autoRotate) {
                 autoRotate = false;
@@ -4520,8 +5024,9 @@
                     controls.update();
 
                     if (progress < 1) {
-                        requestAnimationFrame(updateCamera);
+                        window.activeCameraAnimation = requestAnimationFrame(updateCamera);
                     } else {
+                        window.activeCameraAnimation = null;
                         console.log('✅ Camera sweep complete');
                     }
                 }
@@ -4546,8 +5051,9 @@
                     controls.update();
 
                     if (progress < 1) {
-                        requestAnimationFrame(updateCamera);
+                        window.activeCameraAnimation = requestAnimationFrame(updateCamera);
                     } else {
+                        window.activeCameraAnimation = null;
                         console.log('✅ Camera orbital pan complete');
                     }
                 }
@@ -4568,21 +5074,68 @@
         function toggleAutoRotate() {
             autoRotate = !autoRotate;
         }
+        
+        function toggleSettings() {
+            const panel = document.getElementById('controls-panel');
+            panel.classList.toggle('hidden');
+        }
+        
+        function toggleLegend() {
+            const panel = document.getElementById('legend-panel');
+            panel.classList.toggle('hidden');
+        }
 
         function updateNodeSize(value) {
             nodeSizeMultiplier = parseFloat(value);
             document.getElementById('size-value').textContent = value;
-            // Rebuild topology
-            clearTopology();
-            loadNetworkData();
+            
+            // Update existing nodes without full reload
+            nodes.forEach(node => {
+                if (!node.mesh) return;
+                
+                if (node.type === 'company' && !node.isEarth) {
+                    // Mothership base size
+                    const baseSize = 12;
+                    const newScale = baseSize * nodeSizeMultiplier;
+                    node.mesh.scale.setScalar(newScale / 12); // Normalize to base
+                } else if (node.type === 'device') {
+                    // Device base size
+                    const baseSize = 2;
+                    const newScale = baseSize * nodeSizeMultiplier;
+                    node.mesh.scale.setScalar(newScale / 2); // Normalize to base
+                } else if (node.type === 'sensor') {
+                    // Sensor base size
+                    const baseSize = 1;
+                    const newScale = baseSize * nodeSizeMultiplier;
+                    node.mesh.scale.setScalar(newScale);
+                }
+            });
+            
+            requestRender();
         }
 
         function updateSpread(value) {
             spreadFactor = parseFloat(value);
             document.getElementById('spread-value').textContent = value;
-            // Rebuild topology
-            clearTopology();
-            loadNetworkData();
+            
+            // Update positions without full reload
+            nodes.forEach(node => {
+                if (!node.mesh || !node.initialPosition) return;
+                
+                // Scale position from center based on spread factor
+                const scaledX = node.initialPosition.x * spreadFactor;
+                const scaledY = node.initialPosition.y * spreadFactor;
+                const scaledZ = node.initialPosition.z * spreadFactor;
+                
+                node.mesh.position.set(scaledX, scaledY, scaledZ);
+                
+                // Update sensor orbit radius if applicable
+                if (node.type === 'sensor' && node.orbit) {
+                    node.orbit.radius = node.orbit.baseRadius * spreadFactor;
+                }
+            });
+            
+            requestRender();
         }
 
         function toggleLabels() {
