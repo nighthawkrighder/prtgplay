@@ -1,0 +1,5273 @@
+// Debug: Check if Three.js loaded
+        console.log('🔍 THREE.js loaded?', typeof THREE !== 'undefined');
+        if (typeof THREE !== 'undefined') {
+            console.log('✅ THREE.js version:', THREE.REVISION);
+        } else {
+            console.error('❌ THREE.js failed to load!');
+        }
+        
+        // Global variables
+        let scene, camera, renderer, controls;
+        let nodes = [];
+        let labels = [];
+        let selectedNode = null;
+        let networkData = null;
+        let nodeSizeMultiplier = 3; // Increased from 1 to 3 for better visibility
+        let spreadFactor = 1;
+        let showLabels = true;
+        let autoRotate = false;
+        let ws = null;
+        let reconnectInterval = null;
+        let deviceNodeMap = new Map(); // Map device objects to their 3D nodes
+        let telemetryBeams = []; // Global array for telemetry beam management
+        let gridHelper = null; // Reference to the grid helper for toggle
+        let particleSystems = []; // Array to hold all particle systems
+        
+        // Afterburner control
+        let afterburnersEnabled = true;
+        let afterburnerTimer = null;
+        
+        // Texture cache to avoid recreating textures
+        const cachedTextures = {
+            panelTexture: null,
+            hexTexture: null
+        };
+        
+        // Object pooling for telemetry beams to reduce GC pressure
+        const beamPool = {
+            available: [],
+            active: [],
+            maxSize: 50,
+            
+            acquire: function() {
+                if (this.available.length > 0) {
+                    const beam = this.available.pop();
+                    this.active.push(beam);
+                    return beam;
+                }
+                return null; // Create new if pool empty
+            },
+            
+            release: function(beam) {
+                const index = this.active.indexOf(beam);
+                if (index > -1) {
+                    this.active.splice(index, 1);
+                    if (this.available.length < this.maxSize) {
+                        beam.visible = false;
+                        this.available.push(beam);
+                    } else {
+                        // Pool full, dispose
+                        if (beam.geometry) beam.geometry.dispose();
+                        if (beam.material) beam.material.dispose();
+                        scene.remove(beam);
+                    }
+                }
+            }
+        };
+
+        // Shared geometry and material cache for performance
+        const geometryCache = {
+            box: null,
+            sphere: null,
+            circle: null,
+            // Ship geometries
+            mothership: null,
+            spaceship: null,
+            sensorSphere: null,
+            // Shared detail geometries
+            viewport: null,
+            navLight: null,
+            engineRing: null,
+            antenna: null,
+            dish: null,
+            canopy: null,
+            stripe: null,
+            panel: null
+        };
+        
+        const materialCache = {
+            up: null,
+            warning: null,
+            down: null,
+            company: null,
+            statusCircles: {},
+            // Ship materials (shared by all ships of same type)
+            shipHull: null,
+            shipEngine: null,
+            mothershipHull: null,
+            mothershipEngine: null,
+            // Detail materials
+            canopy: null,
+            viewport: null,
+            navLight: null,
+            antenna: null,
+            // Status-based materials
+            stripes: {},  // By status: red, yellow
+            panels: {},   // By status: up, warning, down
+            sensors: {}   // By status: up, warning, down, normal
+        };
+        
+        const textureCache = new Map(); // Cache gradient textures by color
+
+        // Colors
+        const COLORS = {
+            company: 0x667eea,
+            deviceUp: 0x22c55e,
+            deviceWarning: 0xfbbf24,
+            deviceDown: 0xef4444,
+            sensor: 0x8b5cf6,
+            connection: 0x444444,
+            selectedGlow: 0x00ffff
+        };
+        
+        // Initialize shared geometries (called once at startup)
+        function initSharedGeometries() {
+            // Companies (motherships), Devices (small ships), Sensors (tiny escorts)
+            const deviceSize = nodeSizeMultiplier * 2;
+            
+            // Mothership: Large elongated shape with irregular flattened hex cross-section
+            const mothershipSize = 12 * nodeSizeMultiplier;
+            geometryCache.mothership = new THREE.ConeGeometry(mothershipSize * 0.6, mothershipSize * 2, 6);
+            // Rotate 90 degrees to point forward (Z-axis) instead of up (Y-axis)
+            geometryCache.mothership.rotateX(Math.PI / 2);
+            // Irregular hex: flatten cross-section differently on X vs Y to break symmetry
+            // Keep length (Z), make wider (X) but much flatter (Y) for irregular hex
+            geometryCache.mothership.scale(0.6, 0.25, 1);
+            
+            // Set up geometry groups for per-face materials (hull vs engine)
+            geometryCache.mothership.clearGroups();
+            geometryCache.mothership.addGroup(0, 36, 0); // Sides use hull material
+            geometryCache.mothership.addGroup(36, 18, 1); // Back cap uses engine material
+            
+            // Small spaceship: Smaller cone with irregular flattened hex cross-section
+            geometryCache.spaceship = new THREE.ConeGeometry(deviceSize * 0.8, deviceSize * 2, 6);
+            // Rotate 90 degrees to point forward (Z-axis) instead of up (Y-axis)
+            geometryCache.spaceship.rotateX(Math.PI / 2);
+            // Irregular hex: flatten cross-section differently on X vs Y to break symmetry
+            // Keep length (Z), make wider (X) but much flatter (Y) for irregular hex
+            geometryCache.spaceship.scale(0.6, 0.25, 1);
+            
+            // Set up geometry groups for per-face materials (hull vs engine)
+            geometryCache.spaceship.clearGroups();
+            geometryCache.spaceship.addGroup(0, 36, 0); // Sides use hull material
+            geometryCache.spaceship.addGroup(36, 18, 1); // Back cap uses engine material
+            
+            // Sensor escort: Tiny sphere
+            geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
+            
+            // Mothership detail geometries (shared by all motherships)
+            geometryCache.viewport = new THREE.PlaneGeometry(8, 1.5);
+            geometryCache.navLight = new THREE.SphereGeometry(0.3, 8, 8);
+            geometryCache.engineRing = new THREE.TorusGeometry(8, 0.5, 8, 32);
+            geometryCache.antenna = new THREE.CylinderGeometry(0.3, 0.3, 8);
+            geometryCache.dish = new THREE.CylinderGeometry(3, 3, 0.5, 32);
+            
+            // Ship detail geometries
+            geometryCache.canopy = new THREE.PlaneGeometry(2, 0.8);
+            geometryCache.stripe = new THREE.PlaneGeometry(0.15, 2.4); // Will be scaled
+            geometryCache.panel = new THREE.PlaneGeometry(0.3, 3);
+            
+            console.log('🔹 Mothership geometry type:', geometryCache.mothership.type, 'parameters:', geometryCache.mothership.parameters);
+            console.log('🔹 Spaceship geometry type:', geometryCache.spaceship.type, 'parameters:', geometryCache.spaceship.parameters);
+            
+            // Status indicator circle
+            geometryCache.circle = new THREE.CircleGeometry(deviceSize * 0.3, 32);
+            
+            // Pre-create materials for common states
+            materialCache.company = new THREE.MeshBasicMaterial({ 
+                color: COLORS.company,
+                transparent: true,
+                opacity: 0.2
+            });
+            
+            materialCache.statusCircles.warning = new THREE.MeshBasicMaterial({ 
+                color: 0xfbbf24,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            materialCache.statusCircles.down = new THREE.MeshBasicMaterial({ 
+                color: 0xef4444,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            console.log('✅ Shared geometries and materials initialized');
+        }
+        
+        // Helper: Get or create cached stripe material by status
+        function getStripeMaterial(status) {
+            let materialKey = 'normal';
+            let stripeColor = 0xfbbf24;
+            
+            if (typeof status === 'number') {
+                if (status === 5) {
+                    materialKey = 'red';
+                    stripeColor = 0xef4444;
+                } else if (status === 4 || status === 10 || status === 1) {
+                    materialKey = 'yellow';
+                    stripeColor = 0xfbbf24;
+                } else {
+                    return null; // No stripes for normal status
+                }
+            } else if (typeof status === 'string') {
+                if (status === 'down') {
+                    materialKey = 'red';
+                    stripeColor = 0xef4444;
+                } else if (status === 'warning') {
+                    materialKey = 'yellow';
+                    stripeColor = 0xfbbf24;
+                } else {
+                    return null;
+                }
+            } else {
+                return null;
+            }
+            
+            // Return cached material if exists
+            if (materialCache.stripes[materialKey]) {
+                return materialCache.stripes[materialKey];
+            }
+            
+            // Create gradient texture for stripes with light reflection (once per color)
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Create vertical gradient with light reflection
+            const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+            const colorHex = '#' + stripeColor.toString(16).padStart(6, '0');
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)'); // Bright top
+            gradient.addColorStop(0.2, colorHex);
+            gradient.addColorStop(0.5, colorHex);
+            gradient.addColorStop(0.8, 'rgba(0, 0, 0, 0.6)'); // Dark bottom
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 64, 256);
+            
+            // Add horizontal light reflection
+            const reflectGrad = ctx.createLinearGradient(0, 0, 64, 0);
+            reflectGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            reflectGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.3)');
+            reflectGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = reflectGrad;
+            ctx.fillRect(0, 64, 64, 128);
+            
+            const stripeTexture = new THREE.CanvasTexture(canvas);
+            
+            // Cache the material for reuse - BRIGHTER for visibility
+            materialCache.stripes[materialKey] = new THREE.MeshBasicMaterial({
+                map: stripeTexture,
+                transparent: true,
+                opacity: 1.0,
+                side: THREE.DoubleSide,
+                emissive: stripeColor,
+                emissiveIntensity: 2.0, // Much brighter glow
+                color: stripeColor
+            });
+            
+            return materialCache.stripes[materialKey];
+        }
+        
+        // Helper: Create status stripes for troubled ships (using cached materials)
+        function createStatusStripes(shipSize, status) {
+            const stripeMaterial = getStripeMaterial(status);
+            if (!stripeMaterial) return null;
+            
+            const isMothership = shipSize > 10;
+            
+            // Create LED strip effect - thin glowing lines along the hull edges
+            const stripLength = shipSize * (isMothership ? 0.6 : 0.65); // Shorter, contained
+            const stripWidth = 0.08; // Very thin like LED strip
+            
+            // Position along hull edges
+            const edgeOffset = shipSize * (isMothership ? 0.12 : 0.14); // Along the edge
+            const heightOffset = shipSize * 0.01; // Slightly raised from hull
+            const startZ = shipSize * (isMothership ? 0.25 : 0.2); // Start further back
+            
+            // Create thin strip geometry
+            const stripGeom = new THREE.PlaneGeometry(stripWidth, stripLength);
+            
+            // Create glowing gradient material
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Get color from material
+            const color = stripeMaterial.color;
+            const colorHex = '#' + color.getHexString();
+            
+            // Create gradient - bright at front, fade to back
+            const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+            gradient.addColorStop(0, colorHex); // Bright at front
+            gradient.addColorStop(0.5, colorHex);
+            gradient.addColorStop(1, 'rgba(0,0,0,0)'); // Fade to transparent at back
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 256);
+            
+            const stripTexture = new THREE.CanvasTexture(canvas);
+            
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                map: stripTexture,
+                transparent: true,
+                opacity: 0.9,
+                emissive: color,
+                emissiveIntensity: 3.5,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending // Extra glow
+            });
+            
+            // Left LED strip along edge
+            const leftStrip = new THREE.Mesh(stripGeom, glowMaterial);
+            leftStrip.position.set(-edgeOffset, heightOffset, startZ);
+            leftStrip.rotation.set(-Math.PI / 2, 0, 0);
+            
+            // Right LED strip along edge
+            const rightStrip = new THREE.Mesh(stripGeom, glowMaterial.clone());
+            rightStrip.position.set(edgeOffset, heightOffset, startZ);
+            rightStrip.rotation.set(-Math.PI / 2, 0, 0);
+            
+            return [leftStrip, rightStrip];
+        }
+        
+        // Get or create gradient texture (cached by color)
+        function getGradientTexture(color, icon) {
+            const cacheKey = `${color}-${icon}`;
+            
+            if (textureCache.has(cacheKey)) {
+                return textureCache.get(cacheKey);
+            }
+            
+            // Create gradient texture
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Create gradient
+            const gradient = ctx.createLinearGradient(0, 0, 256, 256);
+            const colorHex = '#' + color.toString(16).padStart(6, '0');
+            gradient.addColorStop(0, colorHex);
+            gradient.addColorStop(1, '#000000');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 256, 256);
+            
+            // Draw icon on top
+            ctx.fillStyle = '#ffffff';
+            if (fontAwesomeLoaded) {
+                ctx.font = 'bold 120px "Font Awesome 6 Free"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(icon, 128, 128);
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            textureCache.set(cacheKey, texture);
+            
+            return texture;
+        }
+
+        // WebSocket for real-time updates
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                console.log('🔌 WebSocket connected - receiving live topology updates');
+                document.getElementById('ws-status-icon').textContent = '🟢';
+                document.getElementById('ws-status-text').textContent = 'Live';
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+                // Heartbeat every 30s
+                setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 30000);
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'sensor-update') {
+                        handleSensorUpdate(data);
+                    }
+                } catch (error) {
+                    console.error('WebSocket message error:', error);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                // Use warn instead of error to reduce console noise for connection issues
+                console.warn('WebSocket connection issue:', error);
+                document.getElementById('ws-status-icon').textContent = '🟡';
+                document.getElementById('ws-status-text').textContent = 'Error';
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                document.getElementById('ws-status-icon').textContent = '🔴';
+                document.getElementById('ws-status-text').textContent = 'Reconnecting...';
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(() => {
+                        if (!ws || ws.readyState === WebSocket.CLOSED) {
+                            connectWebSocket();
+                        }
+                    }, 5000);
+                }
+            };
+        }
+        
+        // Font Awesome loading flag
+        let fontAwesomeLoaded = false;
+        
+        // Check if Font Awesome is loaded
+        function checkFontAwesome() {
+            return new Promise((resolve) => {
+                if (document.fonts && document.fonts.check('1em "Font Awesome 6 Free"')) {
+                    fontAwesomeLoaded = true;
+                    resolve(true);
+                } else if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(() => {
+                        fontAwesomeLoaded = true;
+                        resolve(true);
+                    });
+                    // Timeout after 3 seconds
+                    setTimeout(() => {
+                        if (!fontAwesomeLoaded) {
+                            console.warn('Font Awesome loading timeout');
+                            resolve(false);
+                        }
+                    }, 3000);
+                } else {
+                    // Fallback if document.fonts not supported
+                    setTimeout(() => {
+                        fontAwesomeLoaded = false;
+                        resolve(false);
+                    }, 1000);
+                }
+            });
+        }
+
+        // Handle real-time sensor updates
+        function handleSensorUpdate(data) {
+            if (!data.sensors || !networkData) return;
+            
+            // Update stats in header
+            if (data.summary) {
+                const totalDevices = networkData.companies.reduce((sum, c) => 
+                    sum + c.devices.length, 0);
+                document.getElementById('stats-devices').textContent = totalDevices;
+                document.getElementById('stats-sensors').textContent = data.summary.total;
+            }
+            
+            // Group sensors by device and calculate worst status
+            const deviceStatusUpdates = new Map();
+            data.sensors.forEach(sensor => {
+                const deviceId = `${sensor.deviceHost}-${sensor.deviceName}`;
+                if (!deviceStatusUpdates.has(deviceId)) {
+                    deviceStatusUpdates.set(deviceId, {
+                        host: sensor.deviceHost,
+                        name: sensor.deviceName,
+                        worstStatus: sensor.status
+                    });
+                } else {
+                    const current = deviceStatusUpdates.get(deviceId);
+                    current.worstStatus = Math.max(current.worstStatus, sensor.status);
+                }
+            });
+            
+            // Update 3D nodes with new statuses
+            deviceStatusUpdates.forEach((update, deviceId) => {
+                updateDeviceNodeStatus(update.host, update.name, update.worstStatus);
+            });
+        }
+
+        // Update a device node's color based on status
+        function updateDeviceNodeStatus(host, name, statusCode) {
+            // Find the device in our data and its node
+            for (const company of networkData.companies) {
+                const device = company.devices.find(d => 
+                    d.host === host || d.name === name);
+                
+                if (device && deviceNodeMap.has(device)) {
+                    const box = deviceNodeMap.get(device);
+                    const oldStatus = device.status;
+                    
+                    // Safety check: ensure box and material exist
+                    if (!box || !box.material || !box.material.color) {
+                        // Skip devices without 3D mesh (still initializing or failed to create)
+                        continue;
+                    }
+                    
+                    // Find the node object to access status circle
+                    const node = nodes.find(n => n.type === 'device' && n.data === device);
+                    
+                    // Determine new box color based on status (metallic gray shades)
+                    let deviceColor;
+                    if (statusCode === 5 || statusCode === 'down') {
+                        deviceColor = 0x8A4A4A; // Red-tinted gray for down devices
+                    } else if (statusCode === 4 || statusCode === 10 || statusCode === 1 || statusCode === 'warning') {
+                        deviceColor = 0x8A8A4A; // Yellow-tinted gray for warning
+                    } else if (statusCode === 3 || statusCode === 'up') {
+                        deviceColor = 0x9AACB4; // Light blue-gray for healthy devices
+                    } else {
+                        deviceColor = 0x9AACB4; // Default light blue-gray
+                    }
+                    
+                    // Update box material color and emissive
+                    box.material.color.setHex(deviceColor);
+                    if (box.material.emissive) {
+                        box.material.emissive.setHex(deviceColor);
+                        box.material.emissiveIntensity = 0.5;
+                    }
+                    box.material.needsUpdate = true;
+                    
+                    // Update or create status circle
+                    if (node) {
+                        const boxSize = nodeSizeMultiplier * 2;
+                        const needsCircle = (statusCode === 4 || statusCode === 10 || statusCode === 5);
+                        
+                        if (needsCircle) {
+                            const statusType = (statusCode === 5) ? 'down' : 'warning';
+                            
+                            if (node.statusCircle) {
+                                // Update existing circle material
+                                node.statusCircle.material = materialCache.statusCircles[statusType];
+                            } else {
+                                // Create new circle
+                                node.statusCircle = new THREE.Mesh(
+                                    geometryCache.circle.clone(),
+                                    materialCache.statusCircles[statusType]
+                                );
+                                const pos = box.position;
+                                node.statusCircle.position.set(pos.x + boxSize * 0.6, pos.y + boxSize * 0.6, pos.z);
+                                scene.add(node.statusCircle);
+                            }
+                        } else if (node.statusCircle) {
+                            // Remove circle for healthy status
+                            scene.remove(node.statusCircle);
+                            node.statusCircle = null;
+                        }
+                    }
+                    
+                    // Update device status
+                    device.status = statusCode;
+                    device.effectiveStatus = statusCode;
+                    
+                    // Log status change
+                    if (oldStatus !== statusCode) {
+                        console.log(`🔄 Updated ${device.name}: ${oldStatus} → ${statusCode}`);
+                    }
+                    return;
+                }
+            }
+        }
+
+        // Animate node on status change (gentle pulse)
+        function animateStatusChange(sprite) {
+            const originalScale = sprite.scale.clone();
+            let phase = 0;
+            
+            const animate = () => {
+                phase += 0.1;
+                if (phase < Math.PI * 2) {
+                    const scale = 1 + Math.sin(phase) * 0.15; // Gentle 15% pulse
+                    sprite.scale.copy(originalScale).multiplyScalar(scale);
+                    requestAnimationFrame(animate);
+                } else {
+                    sprite.scale.copy(originalScale);
+                }
+            };
+            animate();
+        }
+
+        // Telemetry beam system - global functions with object pooling
+        function createTelemetryBeam(startPos, endPos) {
+            // Try to get beam from pool first
+            let beam = beamPool.acquire();
+            
+            if (beam) {
+                // Reuse existing beam
+                const positions = beam.geometry.attributes.position.array;
+                positions[0] = startPos.x; positions[1] = startPos.y; positions[2] = startPos.z;
+                positions[3] = endPos.x; positions[4] = endPos.y; positions[5] = endPos.z;
+                beam.geometry.attributes.position.needsUpdate = true;
+                beam.material.opacity = 0.6;
+                beam.visible = true;
+            } else {
+                // Create new beam if pool empty
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array([
+                    startPos.x, startPos.y, startPos.z,
+                    endPos.x, endPos.y, endPos.z
+                ]);
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                
+                const beamMaterial = new THREE.LineBasicMaterial({
+                    color: 0x00ffff,
+                    transparent: true,
+                    opacity: 0.6,
+                    linewidth: 2
+                });
+                
+                beam = new THREE.Line(geometry, beamMaterial);
+                scene.add(beam);
+                beamPool.active.push(beam);
+            }
+            
+            beam.userData.startTime = Date.now();
+            beam.userData.duration = 800; // 800ms beam lifetime
+            beam.userData.startPos = startPos.clone();
+            beam.userData.endPos = endPos.clone();
+            telemetryBeams.push(beam);
+            return beam;
+        }
+        
+        function updateTelemetryBeams() {
+            const now = Date.now();
+            
+            // Safety limit: prevent beam pool from growing unbounded
+            if (telemetryBeams.length > 50) {
+                console.warn('⚠️ Too many telemetry beams (', telemetryBeams.length, ') - forcing cleanup');
+                // Force release oldest beams
+                const toRemove = telemetryBeams.splice(0, telemetryBeams.length - 25);
+                toRemove.forEach(beam => beamPool.release(beam));
+            }
+            
+            for (let i = telemetryBeams.length - 1; i >= 0; i--) {
+                const beam = telemetryBeams[i];
+                const elapsed = now - beam.userData.startTime;
+                const progress = elapsed / beam.userData.duration;
+                
+                if (progress >= 1) {
+                    // Return beam to pool instead of disposing
+                    beamPool.release(beam);
+                    telemetryBeams.splice(i, 1);
+                } else {
+                    // Fade out beam
+                    beam.material.opacity = 0.6 * (1 - progress);
+                }
+            }
+        }
+        
+        function fireTelemetryBeam() {
+            // Pick a random company mothership
+            const companies = nodes.filter(n => n.type === 'company' && !n.isEarth && n.mesh);
+            if (companies.length > 0) {
+                const randomCompany = companies[Math.floor(Math.random() * companies.length)];
+                const startPos = randomCompany.mesh.position.clone();
+                const endPos = new THREE.Vector3(0, 0, 0); // Earth center
+                createTelemetryBeam(startPos, endPos);
+            }
+        }
+
+        // Request a render frame - used to trigger rendering only when needed
+        // This is a simple optimization to avoid rendering when nothing changes
+        // but for now we'll just make it a no-op since we have a continuous animation loop
+        function requestRender() {
+            // No-op since we have a continuous animation loop in animate()
+        }
+
+        // Initialize
+        async function init() {
+            const loadingText = document.querySelector('.loading-text');
+            try {
+                console.log('=== INIT START ===');
+                console.log('[STEP 1] Checking Font Awesome...');
+                loadingText.textContent = 'Loading fonts...';
+                
+                // Wait for Font Awesome to load
+                await checkFontAwesome();
+                if (fontAwesomeLoaded) {
+                    console.log('✅ [STEP 1] Font Awesome loaded');
+                } else {
+                    console.warn('⚠️ [STEP 1] Font Awesome not loaded, using fallback');
+                }
+                
+                console.log('[STEP 2] Creating Three.js scene...');
+                loadingText.textContent = 'Initializing 3D engine...';
+                
+                // Setup scene
+                scene = new THREE.Scene();
+                console.log('✅ [STEP 2a] Scene created');
+                
+                scene.background = new THREE.Color(0x000408); // Deep space blue-black
+                
+                // Create distant starfield
+                const starGeometry = new THREE.BufferGeometry();
+                const starCount = 10000;
+                const starPositions = new Float32Array(starCount * 3);
+                const starColors = new Float32Array(starCount * 3);
+                const starSizes = new Float32Array(starCount);
+                
+                for (let i = 0; i < starCount; i++) {
+                    // Random positions in a huge sphere (4000 unit radius)
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(Math.random() * 2 - 1);
+                    const radius = 3000 + Math.random() * 1500; // Far from action
+                    
+                    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                    starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                    starPositions[i * 3 + 2] = radius * Math.cos(phi);
+                    
+                    // Star colors - mix of white, blue-white, yellow-white
+                    const colorType = Math.random();
+                    if (colorType < 0.7) {
+                        // White stars
+                        starColors[i * 3] = 1;
+                        starColors[i * 3 + 1] = 1;
+                        starColors[i * 3 + 2] = 1;
+                    } else if (colorType < 0.9) {
+                        // Blue-white stars
+                        starColors[i * 3] = 0.8;
+                        starColors[i * 3 + 1] = 0.9;
+                        starColors[i * 3 + 2] = 1;
+                    } else {
+                        // Yellow-white stars
+                        starColors[i * 3] = 1;
+                        starColors[i * 3 + 1] = 0.95;
+                        starColors[i * 3 + 2] = 0.8;
+                    }
+                    
+                    // Varying star sizes for depth
+                    starSizes[i] = Math.random() * 2 + 0.5;
+                }
+                
+                starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+                starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+                starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
+                
+                const starMaterial = new THREE.PointsMaterial({
+                    size: 2,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.8,
+                    sizeAttenuation: true
+                });
+                
+                const stars = new THREE.Points(starGeometry, starMaterial);
+                scene.add(stars);
+                console.log('✨ [STEP 2b] Starfield created with', starCount, 'stars');
+                
+                // Initialize comet system
+                window.comets = [];
+                window.cometPool = {
+                    available: [],
+                    active: [],
+                    maxSize: 5 // Only 5 comets max at a time
+                };
+                
+                // Function to create a comet
+                window.createComet = function() {
+                    if (window.cometPool.active.length >= window.cometPool.maxSize) return;
+                    
+                    // Random starting position far from center
+                    const angle = Math.random() * Math.PI * 2;
+                    const startRadius = 2000 + Math.random() * 1000;
+                    const startPos = new THREE.Vector3(
+                        Math.cos(angle) * startRadius,
+                        (Math.random() - 0.5) * 1000,
+                        Math.sin(angle) * startRadius
+                    );
+                    
+                    // Direction toward/past center with some randomness
+                    const targetAngle = angle + Math.PI + (Math.random() - 0.5) * 0.5;
+                    const direction = new THREE.Vector3(
+                        Math.cos(targetAngle),
+                        (Math.random() - 0.5) * 0.3,
+                        Math.sin(targetAngle)
+                    ).normalize();
+                    
+                    // Create comet head (small glowing sphere)
+                    const cometGeometry = new THREE.SphereGeometry(2, 8, 8);
+                    const cometMaterial = new THREE.MeshBasicMaterial({
+                        color: 0xaaccff,
+                        emissive: 0xaaccff,
+                        emissiveIntensity: 2
+                    });
+                    const cometHead = new THREE.Mesh(cometGeometry, cometMaterial);
+                    cometHead.position.copy(startPos);
+                    
+                    // Create tail (line)
+                    const tailLength = 100 + Math.random() * 100;
+                    const tailGeometry = new THREE.BufferGeometry();
+                    const tailPositions = new Float32Array(6);
+                    tailPositions[0] = startPos.x;
+                    tailPositions[1] = startPos.y;
+                    tailPositions[2] = startPos.z;
+                    tailPositions[3] = startPos.x - direction.x * tailLength;
+                    tailPositions[4] = startPos.y - direction.y * tailLength;
+                    tailPositions[5] = startPos.z - direction.z * tailLength;
+                    tailGeometry.setAttribute('position', new THREE.BufferAttribute(tailPositions, 3));
+                    
+                    const tailMaterial = new THREE.LineBasicMaterial({
+                        color: 0x6699cc,
+                        transparent: true,
+                        opacity: 0.4
+                    });
+                    const tail = new THREE.Line(tailGeometry, tailMaterial);
+                    
+                    scene.add(cometHead);
+                    scene.add(tail);
+                    
+                    const comet = {
+                        head: cometHead,
+                        tail: tail,
+                        direction: direction,
+                        speed: 3 + Math.random() * 4,
+                        tailLength: tailLength,
+                        lifetime: 0,
+                        maxLifetime: 300 // ~5 seconds at 60fps
+                    };
+                    
+                    window.cometPool.active.push(comet);
+                    requestRender();
+                };
+                
+                // Spawn comets randomly (every 15-30 seconds)
+                setInterval(() => {
+                    if (Math.random() < 0.3 && window.isPageVisible && window.isPageVisible()) {
+                        window.createComet();
+                    }
+                }, 15000);
+                
+                // No fog - objects should stay visible at any distance
+                console.log('✅ [STEP 2c] Scene configured');
+            } catch (error) {
+                console.error('❌ [INIT] Error during setup:', error);
+                loadingText.textContent = 'Error initializing: ' + error.message;
+                loadingText.style.color = '#ef4444';
+                throw error;
+            }
+
+            // Setup camera
+            camera = new THREE.PerspectiveCamera(
+                60,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                5000  // Increased from 1000 to render at much greater distances
+            );
+            // Position camera at an angle to see motherships and Earth from side view
+            // Angled view: back, up, and to the side for dramatic perspective
+            camera.position.set(800, 500, 600);
+
+            // Setup renderer with performance optimizations
+            const canvas = document.getElementById('canvas');
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: canvas,
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance', // Use dedicated GPU if available
+                precision: 'highp', // High precision for better quality
+                logarithmicDepthBuffer: false, // Disable if not needed (performance gain)
+                stencil: false // Disable stencil buffer (not used, saves memory)
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            // Limit pixel ratio to 2 for performance (no visible difference beyond 2x)
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            
+            // Enable render optimizations
+            renderer.sortObjects = true; // Sort objects for optimal rendering
+            renderer.shadowMap.enabled = false; // Shadows disabled (not used)
+            renderer.physicallyCorrectLights = false; // Faster lighting calculations
+
+            // Setup controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.15;  // Increased for more responsive feel
+            controls.minDistance = 5;  // Allow zooming much closer
+            controls.maxDistance = 1200; // Allow zooming much further out for large topologies
+            controls.maxPolarAngle = Math.PI / 2 + 0.5;
+            
+            // Look at true center
+            controls.target.set(0, 0, 0);
+            camera.lookAt(0, 0, 0);
+            
+            // Zoom settings - make zoom more responsive and linear
+            controls.zoomSpeed = 1.5;  // Faster zoom response
+            controls.enableZoom = true;
+            controls.screenSpacePanning = false;  // Keep panning in world space
+            controls.keyPanSpeed = 10;
+
+            // Lighting system
+            // Increased lighting for MeshStandardMaterial sensors
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight.position.set(50, 100, 50);
+            scene.add(directionalLight);
+            
+            // Fire telemetry beams every 3 seconds from random motherships to Earth
+            setInterval(() => {
+                const beamCount = Math.floor(Math.random() * 3) + 1; // 1-3 beams at once
+                for (let i = 0; i < beamCount; i++) {
+                    setTimeout(() => fireTelemetryBeam(), i * 200); // Stagger slightly
+                }
+            }, 3000); // Every 3 seconds
+            
+            // Add secondary light for better sensor visibility
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight2.position.set(-50, 80, -50);
+            scene.add(directionalLight2);
+
+            const pointLight = new THREE.PointLight(0x667eea, 0.5, 200);
+            pointLight.position.set(0, 50, 0);
+            scene.add(pointLight);
+
+            // No grid - clean space environment
+            gridHelper = null;
+            
+            // Initialize shared geometries and materials
+            initSharedGeometries();
+
+            // Load data
+            await loadNetworkData();
+
+            // Start animation
+            animate();
+
+            // Keyboard movement setup
+            const keys = {};
+            window.addEventListener('keydown', (e) => { 
+                keys[e.key.toLowerCase()] = true;
+                
+                // Arrow key navigation through selected devices/companies
+                if (selectedNode && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                    e.preventDefault(); // Prevent page scrolling
+                    navigateToAdjacentNode(e.key);
+                }
+            });
+            window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+            // Drag detection to prevent clicks during panning - use window scope so onCanvasClick can access
+            window.mouseDownPos = null;
+            window.mouseUpPos = null;
+            window.dragThreshold = 10; // pixels - if mouse moves more than this, it's a drag not a click (increased for better detection)
+            window.isOrbitControlsActive = false;
+            window.orbitControlsWasUsed = false; // Track if controls actually moved the camera
+            
+            // Double-click tolerance tracking
+            window.lastClickTime = 0;
+            window.lastClickPos = null;
+            window.doubleClickTolerance = 20; // pixels - movement allowed between clicks for double-click
+            
+            // Camera animation tracking - allows interruption by user actions
+            window.activeCameraAnimation = null; // Stores animation frame ID
+            window.cancelCameraAnimation = function() {
+                if (window.activeCameraAnimation) {
+                    cancelAnimationFrame(window.activeCameraAnimation);
+                    window.activeCameraAnimation = null;
+                    console.log('⏹️ Camera animation cancelled by user action');
+                    
+                    // Hide loading overlay when animation is cancelled
+                    const loadingOverlay = document.getElementById('loading-overlay');
+                    if (loadingOverlay) {
+                        loadingOverlay.classList.remove('visible');
+                        // Clear stats
+                        const statsContainer = document.getElementById('loading-stats');
+                        if (statsContainer) {
+                            statsContainer.style.display = 'none';
+                            statsContainer.innerHTML = '';
+                        }
+                    }
+                    
+                    return true;
+                }
+                return false;
+            };
+            
+            // Track when OrbitControls start/stop (more reliable than just mousedown/up)
+            controls.addEventListener('start', () => {
+                window.isOrbitControlsActive = true;
+                window.orbitControlsWasUsed = false; // Reset on start
+                console.log('🎮 OrbitControls started');
+            });
+            
+            controls.addEventListener('change', () => {
+                // Camera is actually moving
+                if (window.isOrbitControlsActive) {
+                    window.orbitControlsWasUsed = true;
+                }
+            });
+            
+            controls.addEventListener('end', () => {
+                window.isOrbitControlsActive = false;
+                console.log('🎮 OrbitControls ended - was used:', window.orbitControlsWasUsed);
+            });
+            
+            canvas.addEventListener('mousedown', (e) => {
+                window.mouseDownPos = { x: e.clientX, y: e.clientY };
+                
+                // Cancel any active camera animation on user interaction
+                window.cancelCameraAnimation();
+                
+                // Track for double-click detection
+                const now = Date.now();
+                const timeSinceLastClick = now - window.lastClickTime;
+                
+                // If within double-click time window (300ms default) and close position
+                if (timeSinceLastClick < 300 && window.lastClickPos) {
+                    const distance = Math.sqrt(
+                        Math.pow(e.clientX - window.lastClickPos.x, 2) + 
+                        Math.pow(e.clientY - window.lastClickPos.y, 2)
+                    );
+                    
+                    // Scale tolerance based on camera distance
+                    const cameraDistance = camera.position.length();
+                    const scaledTolerance = window.doubleClickTolerance * Math.max(1, Math.min(5, cameraDistance / 200));
+                    
+                    if (distance <= scaledTolerance) {
+                        // Mark as potential double-click - ignore minor movement
+                        window.isPotentialDoubleClick = true;
+                        console.log(`✅ Potential double-click detected (${distance.toFixed(1)}px movement, tolerance: ${scaledTolerance.toFixed(1)}px)`);
+                    } else {
+                        window.isPotentialDoubleClick = false;
+                    }
+                } else {
+                    window.isPotentialDoubleClick = false;
+                }
+            });
+            
+            canvas.addEventListener('mouseup', (e) => {
+                window.mouseUpPos = { x: e.clientX, y: e.clientY };
+            });
+            
+            // Cancel camera animation on scroll/zoom
+            canvas.addEventListener('wheel', (e) => {
+                window.cancelCameraAnimation();
+            }, { passive: true });
+
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            canvas.addEventListener('click', onCanvasClick);
+            canvas.addEventListener('dblclick', onCanvasDoubleClick);
+            canvas.addEventListener('mousemove', onCanvasMouseMove);
+
+            // Store keys object for animation loop
+            window.cameraKeys = keys;
+            
+            // Prevent resource leaks on long-running sessions
+            // Cleanup when page is hidden (user switches tabs)
+            let isPageVisible = true;
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    isPageVisible = false;
+                    console.log('💤 Page hidden - pausing expensive operations');
+                    // Stop auto-rotate when hidden
+                    if (autoRotate) {
+                        window.wasAutoRotating = true;
+                        autoRotate = false;
+                    }
+                } else {
+                    isPageVisible = true;
+                    console.log('👁️ Page visible - resuming operations');
+                    // Resume auto-rotate if it was active
+                    if (window.wasAutoRotating) {
+                        autoRotate = true;
+                        window.wasAutoRotating = false;
+                    }
+                    requestRender();
+                }
+            });
+            window.isPageVisible = () => isPageVisible;
+
+            // Don't hide loading here - loadNetworkData will handle it
+        }
+
+        // Load network data from API with retry logic
+        async function loadNetworkData(retryCount = 0) {
+            const loadingText = document.querySelector('.loading-text');
+            const startTime = Date.now();
+            const maxRetries = 3;
+            
+            try {
+                console.log(`=== LOAD NETWORK DATA START (attempt ${retryCount + 1}/${maxRetries + 1}) ===`);
+                console.log('[FETCH 1] Starting fetch request...');
+                
+                loadingText.textContent = retryCount > 0 ? `Retrying (${retryCount}/${maxRetries})...` : 'Connecting to server...';
+                
+                // Create abort controller with 30 second timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => {
+                    console.warn(`⚠️ [FETCH TIMEOUT] Request exceeded 30 seconds (attempt ${retryCount + 1})`);
+                    controller.abort();
+                }, 30000);
+                
+                console.log('[FETCH 2] Sending request to /devices/enhanced...');
+                const fetchStart = Date.now();
+                
+                // Apache proxies /devices/enhanced to Node.js backend (strips /api prefix for protected folder)
+                // Use same endpoint as dashboard but without /api prefix since we're in /protected folder
+                const response = await fetch(`/devices/enhanced?all=true&_t=${Date.now()}`, {
+                    credentials: 'same-origin',  // Include session cookie
+                    signal: controller.signal,
+                    cache: 'no-cache',  // Prevent stale data
+                    headers: {
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                const fetchTime = Date.now() - fetchStart;
+                clearTimeout(timeoutId);
+                
+                console.log(`✅ [FETCH 3] Response received in ${fetchTime}ms, status: ${response.status}`);
+                
+                // Handle transient errors with retry
+                if (!response.ok) {
+                    if ((response.status === 502 || response.status === 503 || response.status === 504) && retryCount < maxRetries) {
+                        const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
+                        console.warn(`⚠️ [RETRY] Server error ${response.status}, retrying in ${retryDelay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
+                        return loadNetworkData(retryCount + 1);
+                    }
+                    
+                    console.error('❌ [FETCH 5] HTTP Error:', response.status, response.statusText);
+                    const responseText = await response.text();
+                    console.error('[FETCH 5b] Response body:', responseText.substring(0, 500));
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                console.log('[PARSE 1] Parsing JSON response...');
+                loadingText.textContent = 'Processing data...';
+                
+                const parseStart = Date.now();
+                const apiResponse = await response.json();
+                const parseTime = Date.now() - parseStart;
+                
+                console.log(`✅ [PARSE 2] JSON parsed in ${parseTime}ms`);
+                console.log('[PARSE 3] API Response structure:', {
+                    hasDevices: !!apiResponse.devices,
+                    deviceCount: apiResponse.devices?.length || 0,
+                    hasPagination: !!apiResponse.pagination,
+                    keys: Object.keys(apiResponse)
+                });
+                
+                loadingText.textContent = 'Building 3D scene...';
+                
+                // Extract devices array - API returns {devices: [...], pagination: {...}}
+                const devices = apiResponse.devices || [];
+                
+                console.log('[DATA 1] Validating device data...');
+                console.log('[DATA 2] Device array type:', Array.isArray(devices) ? 'array' : typeof devices);
+                console.log('[DATA 3] Device count:', devices.length);
+                
+                if (!Array.isArray(devices)) {
+                    console.error('❌ [DATA 4] Expected array of devices, got:', typeof devices, devices);
+                    throw new Error('Invalid data format from API');
+                }
+                
+                if (devices.length === 0) {
+                    console.warn('⚠️ [DATA 5] No devices returned from API');
+                    document.querySelector('.loading-text').textContent = 'No devices found';
+                    return;
+                }
+                
+                console.log(`✅ [DATA 6] Loaded ${devices.length} devices`);
+                console.log('[DATA 7] Sample device:', devices[0]);
+                
+                // Store for WebSocket updates
+                networkData = { companies: [], devices: devices, sensors: [] };
+
+                console.log('[GROUP 1] Grouping devices by company...');
+                
+                // Group devices by company
+                const companies = {};
+                let unknownCount = 0;
+                devices.forEach((device, index) => {
+                    // Try multiple fields to find company name
+                    const company = device.companyName || 
+                                   device.metadata?.company_name || 
+                                   device.metadata?.company_code ||
+                                   device.companyCode || 
+                                   'Unknown';
+                    
+                    if (company === 'Unknown') unknownCount++;
+                    
+                    if (!companies[company]) {
+                        companies[company] = {
+                            name: company,
+                            devices: []
+                        };
+                    }
+                    companies[company].devices.push(device);
+                    if (index < 5) {
+                        console.log(`[GROUP 2] Device ${index}: ${device.name} -> Company: ${company}`);
+                    }
+                });
+                
+                if (unknownCount > 0) {
+                    console.warn(`⚠️ ${unknownCount} devices have no company assignment (grouped as 'Unknown')`);
+                }
+                
+                const companyCount = Object.keys(companies).length;
+                console.log(`✅ [GROUP 3] Grouped into ${companyCount} companies:`, Object.keys(companies));
+
+                console.log('[STATS 1] Updating statistics...');
+                
+                // Update stats
+                document.getElementById('stat-companies').textContent = companyCount;
+                document.getElementById('stats-devices').textContent = devices.length;
+                
+                let totalSensors = 0;
+                devices.forEach(device => {
+                    if (device.sensorStats) {
+                        totalSensors += device.sensorStats.total || 0;
+                    }
+                });
+                document.getElementById('stats-sensors').textContent = totalSensors;
+                console.log(`✅ [STATS 2] Statistics updated: ${companyCount} companies, ${devices.length} devices, ${totalSensors} sensors`);
+
+                console.log('[RENDER 1] Starting topology creation...');
+                const renderStart = Date.now();
+                
+                // Create 3D topology
+                loadingText.textContent = 'Rendering topology...';
+                createTopology(companies);
+                
+                const renderTime = Date.now() - renderStart;
+                console.log(`✅ [RENDER 2] Topology created in ${renderTime}ms`);
+                console.log(`[RENDER 3] Total nodes created: ${nodes.length}`);
+                
+                // Small delay to ensure rendering completes
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                const totalTime = Date.now() - startTime;
+                console.log(`=== LOAD COMPLETE in ${totalTime}ms ===`);
+                
+                // Hide loading
+                loadingText.textContent = 'Complete!';
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                    console.log('✅ Loading screen hidden');
+                    
+                    // Auto-expand all sensors after load (unless openDevice param exists)
+                    const urlParams = new URLSearchParams(window.location.search);
+                    if (!urlParams.get('openDevice')) {
+                        console.log('🔄 Auto-expanding all sensors...');
+                        setTimeout(() => {
+                            expandAll();
+                        }, 500);
+                    }
+                }, 300);
+
+            } catch (error) {
+                const totalTime = Date.now() - startTime;
+                
+                // Reduce log spam for transient/expected errors
+                if (error.name === 'AbortError' || retryCount > 0) {
+                    console.warn(`⚠️ [TRANSIENT] Network load failed after ${totalTime}ms (attempt ${retryCount + 1}):`, error.message);
+                } else {
+                    console.error('❌ [ERROR] Network data load failed after', totalTime, 'ms');
+                    console.error('[ERROR] Error name:', error.name);
+                    console.error('[ERROR] Error message:', error.message);
+                    console.error('[ERROR] Error stack:', error.stack);
+                }
+                
+                // Auto-retry for transient errors
+                if ((error.name === 'AbortError' || error.message.includes('Failed to fetch')) && retryCount < maxRetries) {
+                    const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000);
+                    console.log(`🔄 [AUTO-RETRY] Retrying in ${retryDelay}ms... (${retryCount + 1}/${maxRetries})`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    return loadNetworkData(retryCount + 1);
+                }
+                
+                const errorMsg = error.name === 'AbortError' 
+                    ? 'Request timed out. Server may be processing large dataset.'
+                    : error.message.includes('Failed to fetch')
+                    ? 'Network connection interrupted. Please check your connection.'
+                    : error.message;
+                    
+                console.error('[ERROR] Final user-facing message:', errorMsg);
+                document.querySelector('.loading-text').textContent = 'Error: ' + errorMsg;
+                document.querySelector('.loading-text').style.color = '#ef4444';
+                
+                // Add retry button
+                const loadingContainer = document.querySelector('.loading-container');
+                if (loadingContainer && !loadingContainer.querySelector('button')) {
+                    console.log('[ERROR] Adding retry button');
+                    const retryBtn = document.createElement('button');
+                    retryBtn.textContent = 'Retry';
+                    retryBtn.style.cssText = 'margin-top: 20px; padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;';
+                    retryBtn.onclick = () => {
+                        console.log('[RETRY] User clicked retry');
+                        document.getElementById('loading').style.display = 'flex';
+                        document.querySelector('.loading-text').style.color = '#ffffff';
+                        retryBtn.remove();
+                        loadNetworkData(0);
+                    };
+                    loadingContainer.appendChild(retryBtn);
+                }
+            }
+        }
+
+        // Create 3D topology
+        function createTopology(companies) {
+            console.log('🎨 Creating topology with companies:', Object.keys(companies));
+            
+            const companyNames = Object.keys(companies);
+            const companyCount = companyNames.length;
+            
+            if (companyCount === 0) {
+                console.warn('⚠️ No companies found!');
+                return;
+            }
+            
+            // COLLISION AVOIDANCE: Increase spacing to prevent orbital overlap
+            // Scale radius based on company count to accommodate all companies
+            // Base 100 units + 12 units per company for proper spacing
+            const radius = Math.max(100, companyCount * 12) * spreadFactor;
+
+            // Store companies in networkData for WebSocket updates
+            networkData.companies = companyNames.map(name => companies[name]);
+
+            // Position all companies in a circle around the Earth center
+            companyNames.forEach((companyName, index) => {
+                const angle = (index / companyNames.length) * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const y = 0;
+
+                console.log(`  🏢 ${companyName} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) - radius: ${radius.toFixed(1)}`);
+
+                const companyNode = createCompanyNode(companyName, x, y, z);
+                nodes.push(companyNode);
+
+                // Create device nodes for this company
+                const companyData = companies[companyName];
+                const devices = companyData.devices || companyData || [];
+                
+                if (!Array.isArray(devices)) {
+                    console.error(`❌ Invalid devices for ${companyName}:`, devices);
+                    return;
+                }
+                
+                createDevicesForCompany(companyNode, devices, x, y, z);
+            });
+            
+            console.log(`✅ Created ${nodes.length} total nodes`);
+            
+            // Afterburners stay enabled permanently - removed auto-disable timer
+            // Users can now enjoy the colorful radioactive particle trails continuously
+            console.log('🔥 Radioactive afterburners ENABLED permanently');
+            
+            // Calculate actual center of mass to verify positioning
+            let sumX = 0, sumZ = 0, numCompanies = 0;
+            nodes.forEach(node => {
+                if (node.type === 'company' && node.mesh) {
+                    sumX += node.mesh.position.x;
+                    sumZ += node.mesh.position.z;
+                    numCompanies++;
+                }
+            });
+            if (numCompanies > 0) {
+                const centerX = sumX / numCompanies;
+                const centerZ = sumZ / numCompanies;
+                console.log(`📍 Galaxy center of mass: (${centerX.toFixed(2)}, 0, ${centerZ.toFixed(2)})`);
+                console.log(`📍 Expected center: (0, 0, 0)`);
+            }
+            
+            // Create Earth at center as LANAIR SOC visual centerpiece (after all companies so it renders on top)
+            console.log('🌍 Creating Earth planet at center (0, 0, 0) as LANAIR SOC');
+            const earthNode = createEarthNode('LANAIR SOC', 0, 0, 0);
+            nodes.push(earthNode);
+            console.log(`✅ Earth node created and added. Total nodes now: ${nodes.length}`);
+        }
+        
+        // Helper function to create devices for a company
+        // Helper function to check if device position intersects mothership
+        function checkMothershipCollision(deviceX, deviceY, deviceZ, mothershipX, mothershipY, mothershipZ) {
+            // Use simple spherical collision with large radius
+            // Mothership size is 12 * 3 = 36 base, length is 24*3 = 72
+            const mothershipSize = 12 * nodeSizeMultiplier;
+            const mothershipRadius = mothershipSize * 2; // Full length radius ~72
+            
+            // Device size
+            const deviceSize = nodeSizeMultiplier * 2;
+            const deviceRadius = deviceSize * 2; // ~12
+            
+            // Calculate 3D distance between ship centers
+            const dx = deviceX - mothershipX;
+            const dy = deviceY - mothershipY;
+            const dz = deviceZ - mothershipZ;
+            const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            
+            // Safety margin - 1.2x the combined radii for clearance
+            const minDistance = (mothershipRadius + deviceRadius) * 1.2;
+            
+            return distance < minDistance;
+        }
+        
+        function createDevicesForCompany(companyNode, devices, x, y, z) {
+                // COLLISION AVOIDANCE: Device orbit radius ensures spacing
+                // Device width ~4 + sensor orbit 6*2 = ~16 units needed per device
+                // At radius 35, circumference = 220 units = 13.75 units per device (10 devices)
+                // Increased to 35 to ensure adequate spacing with sensors
+                const deviceRadius = 35 * spreadFactor;  // Increased from 25 to prevent overlap
+                
+                console.log(`    💻 ${devices.length} devices for ${companyNode.name}`);
+                
+                // Separate trouble devices from normal devices
+                const troubleDevices = [];
+                const normalDevices = [];
+                devices.forEach(device => {
+                    const deviceStatus = device.effectiveStatus || device.status;
+                    if (deviceStatus === 5 || deviceStatus === 4) {
+                        troubleDevices.push(device);
+                    } else {
+                        normalDevices.push(device);
+                    }
+                });
+                
+                // Arrange devices serially along radial spokes
+                const devicesPerSpoke = Math.ceil(Math.sqrt(normalDevices.length)); // Distribute evenly
+                const numSpokes = Math.ceil(normalDevices.length / devicesPerSpoke);
+                const deviceSpacing = 25 * spreadFactor; // More spacing to prevent bunching
+                
+                // Track trouble device index for circular arrangement
+                let troubleIndex = 0;
+                
+                devices.forEach((device, deviceIndex) => {
+                    // Vertical column arrangement - devices stack vertically like beads
+                    // Each company has a vertical column at their position
+                    const companyAngle = Math.atan2(z, x);
+                    
+                    // Base position at company location
+                    const baseX = x;
+                    const baseZ = z;
+                    
+                    // Vertical spacing between devices (stack them vertically)
+                    const verticalSpacing = 15 * spreadFactor;
+                    
+                    // Calculate column dimensions based on device count
+                    const devicesPerColumn = 8; // Devices per vertical column
+                    const columnIndex = Math.floor(deviceIndex / devicesPerColumn);
+                    const positionInColumn = deviceIndex % devicesPerColumn;
+                    
+                    // For multiple columns, arrange them in a small rectangular grid around company
+                    const columnsPerRow = Math.ceil(Math.sqrt(Math.ceil(normalDevices.length / devicesPerColumn)));
+                    const columnRow = Math.floor(columnIndex / columnsPerRow);
+                    const columnCol = columnIndex % columnsPerRow;
+                    
+                    // Start at safe distance from mothership (outside collision zone)
+                    const mothershipSize = 12 * nodeSizeMultiplier;
+                    const mothershipRadius = mothershipSize * 2;
+                    const deviceSize = nodeSizeMultiplier * 2;
+                    const deviceRadius = deviceSize * 2;
+                    const minSafeDistance = (mothershipRadius + deviceRadius) * 1.5; // Extra margin
+                    
+                    // Offset columns in a tight grid pattern (25 units apart)
+                    const columnSpacing = 25 * spreadFactor;
+                    
+                    // Calculate offsets relative to mothership:
+                    // - columnOffsetTangent: offset perpendicular to radial (left/right from mothership's perspective)
+                    // - Start at minSafeDistance PLUS column row offset
+                    const columnOffsetTangent = (columnCol - (columnsPerRow - 1) / 2) * columnSpacing;
+                    const baseRadialDistance = minSafeDistance + (columnRow * columnSpacing);
+                    
+                    // Position device at baseRadialDistance from mothership, offset tangentially
+                    // Use the same companyAngle to stay aligned with parent
+                    const radialX = Math.cos(companyAngle) * baseRadialDistance;
+                    const radialZ = Math.sin(companyAngle) * baseRadialDistance;
+                    
+                    // Add tangential offset (perpendicular to radial)
+                    const tangentAngle = companyAngle + Math.PI / 2;
+                    const tangentX = Math.cos(tangentAngle) * columnOffsetTangent;
+                    const tangentZ = Math.sin(tangentAngle) * columnOffsetTangent;
+                    
+                    // Final position: mothership base + radial distance + tangential offset
+                    let dx = baseX + radialX + tangentX;
+                    let dz = baseZ + radialZ + tangentZ;
+                    let dy = y + (positionInColumn * verticalSpacing) - (devicesPerColumn * verticalSpacing / 2);
+
+                    // Position trouble devices in concentric circles at mothership tip
+                    const deviceStatus = device.effectiveStatus || device.status;
+                    if (deviceStatus === 5 || deviceStatus === 4) {
+                        // Mothership tip is at y + 30 (cone height/2)
+                        const mothershipTipY = y + 30;
+                        
+                        // Arrange in concentric circles: 4 per ring (fewer devices per ring for more space)
+                        const devicesPerRing = 4;
+                        const ringIndex = Math.floor(troubleIndex / devicesPerRing);
+                        const posInRing = troubleIndex % devicesPerRing;
+                        
+                        // Start further out to keep tip visible, with wider spacing
+                        const ringRadius = 15 + (ringIndex * 10); // First ring at radius 15, then 25, 35, etc.
+                        const angleInRing = (posInRing / devicesPerRing) * Math.PI * 2;
+                        
+                        // Stagger the Y position by ring to create depth and avoid blocking tip
+                        const yOffset = ringIndex * 5; // Each ring slightly lower
+                        
+                        // Position around the tip in XZ plane
+                        dx = baseX + Math.cos(angleInRing) * ringRadius;
+                        dz = baseZ + Math.sin(angleInRing) * ringRadius;
+                        dy = mothershipTipY - yOffset; // Outer rings lower
+                        
+                        troubleIndex++;
+                    }
+
+                    const deviceNode = createDeviceNode(device, dx, dy, dz, companyNode);
+                    
+                    // Store spoke data (static position, no orbiting)
+                    deviceNode.spoke = {
+                        center: { x: 0, y: 0, z: 0 }, // Galaxy center
+                        angle: companyAngle,
+                        distance: Math.sqrt(dx * dx + dz * dz),
+                        position: deviceIndex,
+                        baseY: dy
+                    };
+                    
+                    nodes.push(deviceNode);
+
+                    // Create sensor nodes (collapsed by default)
+                    if (device.sensorStats && device.sensorStats.total > 0) {
+                        const sensorCount = Math.min(device.sensorStats.total, 10); // Limit for performance
+                        const sensors = device.sensors || [];
+                        for (let i = 0; i < sensorCount; i++) {
+                            // Pass individual sensor data if available, otherwise use device as fallback
+                            const sensorData = sensors[i] || device;
+                            const sensorNode = createSensorNode(device, dx, dy, dz, deviceNode, i, sensorCount, sensorData);
+                            sensorNode.visible = false; // Hidden by default
+                            nodes.push(sensorNode);
+                        }
+                    }
+                });
+        }
+
+        // Create icon sprite for nodes
+        function createIconSprite(icon, color, scale = 1) {
+            try {
+                const canvas = document.createElement('canvas');
+                const size = 256;
+                canvas.width = size;
+                canvas.height = size;
+                const context = canvas.getContext('2d');
+                
+                // Draw circular background
+                context.fillStyle = typeof color === 'number' ? '#' + color.toString(16).padStart(6, '0') : color;
+                context.beginPath();
+                context.arc(size/2, size/2, size/2 - 10, 0, Math.PI * 2);
+                context.fill();
+                
+                // Draw icon (Font Awesome style or fallback)
+                context.fillStyle = '#ffffff';
+                if (fontAwesomeLoaded) {
+                    context.font = 'bold 140px "Font Awesome 6 Free"';
+                    context.textAlign = 'center';
+                    context.textBaseline = 'middle';
+                    context.fillText(icon, size/2, size/2);
+                } else {
+                    // Fallback: draw simple geometric shape
+                    context.beginPath();
+                    context.arc(size/2, size/2, 60, 0, Math.PI * 2);
+                    context.fill();
+                }
+            
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ 
+                    map: texture,
+                    transparent: true
+                });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(scale * 4, scale * 4, 1);
+                return sprite;
+            } catch (error) {
+                console.error('Error creating icon sprite:', error);
+                // Return simple colored sprite as fallback
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = typeof color === 'number' ? '#' + color.toString(16).padStart(6, '0') : color;
+                ctx.fillRect(0, 0, 64, 64);
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(scale * 4, scale * 4, 1);
+                return sprite;
+            }
+        }
+
+        // Create office building texture with windows (some lit, some dark)
+        function createBuildingTexture(buildingColor, companyName = '') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 512; // Taller for office building
+            const ctx = canvas.getContext('2d');
+            
+            // Draw building base color
+            ctx.fillStyle = '#' + buildingColor.toString(16).padStart(6, '0');
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Add office windows in a grid pattern
+            const windowWidth = 16;
+            const windowHeight = 20;
+            const windowSpacingX = 24;
+            const windowSpacingY = 28;
+            const startX = 16;
+            const startY = 20;
+            
+            // Draw windows (some lit, some dark)
+            for (let floor = 0; floor < 16; floor++) {
+                for (let col = 0; col < 8; col++) {
+                    const wx = startX + col * windowSpacingX;
+                    const wy = startY + floor * windowSpacingY;
+                    
+                    // Random chance of window being lit (60% lit, 40% dark)
+                    const isLit = Math.random() > 0.4;
+                    
+                    if (isLit) {
+                        // Lit window - warm yellow/orange glow
+                        const brightness = 0.7 + Math.random() * 0.3; // Vary brightness
+                        ctx.fillStyle = `rgba(255, 230, 180, ${brightness})`;
+                    } else {
+                        // Dark/unlit window
+                        ctx.fillStyle = 'rgba(20, 30, 40, 0.8)';
+                    }
+                    
+                    ctx.fillRect(wx, wy, windowWidth, windowHeight);
+                    
+                    // Add window frame
+                    ctx.strokeStyle = 'rgba(80, 80, 80, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(wx, wy, windowWidth, windowHeight);
+                }
+            }
+            
+            // Add company name at the top (for roof texture)
+            if (companyName) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.lineWidth = 3;
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                
+                // Draw text with stroke for better visibility
+                ctx.strokeText(companyName, 128, 10);
+                ctx.fillText(companyName, 128, 10);
+                ctx.restore();
+            }
+            
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // Create company node (mothership)
+        // Create Earth node for LANAIR Group at center with realistic continents and oceans
+        function createEarthNode(name, x, y, z) {
+            console.log(`🌍 Creating Earth planet for ${name} at (${x}, ${y}, ${z})`);
+            
+            // Create Earth sphere (much larger to be visible as central planet)
+            const earthRadius = 40;
+            const earthGeometry = new THREE.SphereGeometry(earthRadius, 64, 64);
+            console.log('  📐 Earth geometry created:', earthGeometry);
+            
+            // Create realistic Earth texture with continents and oceans
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            
+            // Ocean base - deep blue
+            ctx.fillStyle = '#1a4d7a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Add subtle ocean depth variations
+            const oceanGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            oceanGradient.addColorStop(0, 'rgba(20, 60, 100, 0.3)');
+            oceanGradient.addColorStop(0.5, 'rgba(26, 77, 122, 0)');
+            oceanGradient.addColorStop(1, 'rgba(15, 50, 85, 0.4)');
+            ctx.fillStyle = oceanGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw simplified continents (approximate shapes for visual effect)
+            ctx.fillStyle = '#2d5a2d'; // Land green
+            
+            // North America
+            ctx.beginPath();
+            ctx.ellipse(400, 350, 180, 200, -0.2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // South America
+            ctx.beginPath();
+            ctx.ellipse(500, 650, 100, 180, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Europe
+            ctx.beginPath();
+            ctx.ellipse(1100, 300, 120, 100, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Africa
+            ctx.beginPath();
+            ctx.ellipse(1150, 500, 150, 220, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Asia
+            ctx.beginPath();
+            ctx.ellipse(1500, 350, 300, 200, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Australia
+            ctx.beginPath();
+            ctx.ellipse(1700, 700, 120, 100, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Add mountain ranges (darker green)
+            ctx.fillStyle = '#1a3d1a';
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.ellipse(1400, 380, 180, 40, 0.5, 0, Math.PI * 2); // Himalayas
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(420, 380, 100, 30, -0.5, 0, Math.PI * 2); // Rockies
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+            
+            // Add polar ice caps
+            ctx.fillStyle = '#e8f4f8';
+            ctx.beginPath();
+            ctx.ellipse(1024, 50, 600, 80, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(1024, 974, 600, 80, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Create texture from canvas
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            
+            // Create Earth material with realistic texture
+            const earthMaterial = new THREE.MeshPhongMaterial({
+                map: texture,
+                specular: 0x333333,   // Subtle ocean reflection
+                shininess: 15,
+                emissive: 0x112244,   // Slight blue glow
+                emissiveIntensity: 0.2
+            });
+            console.log('  🎨 Earth material with realistic continents and oceans created');
+            
+            const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
+            earthMesh.position.set(x, y, z);
+            console.log('  🌐 Earth mesh created at:', earthMesh.position);
+            
+            // Add atmospheric glow effect
+            const glowGeometry = new THREE.SphereGeometry(earthRadius * 1.15, 64, 64);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x4499ff,
+                transparent: true,
+                opacity: 0.25,
+                side: THREE.BackSide
+            });
+            const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+            glowMesh.position.set(x, y, z);
+            scene.add(glowMesh);
+            console.log('  ✨ Glow mesh added to scene');
+            
+            // Create node object first
+            const node = {
+                type: 'company',
+                name: name,
+                mesh: earthMesh,
+                glowMesh: glowMesh,
+                label: null,
+                data: { name: name },
+                connections: [],
+                expanded: false,
+                isEarth: true,
+                earthRadius: earthRadius
+            };
+            
+            // Store unique node reference in mesh userData for raycaster
+            earthMesh.userData.node = node;
+            earthMesh.userData.nodeType = 'company';
+            earthMesh.userData.isEarth = true;
+            
+            // Also set on glow mesh for consistency
+            glowMesh.userData.node = node;
+            glowMesh.userData.nodeType = 'company';
+            glowMesh.userData.isEarth = true;
+            
+            scene.add(earthMesh);
+            console.log('  ✅ Earth planet added to scene. Total scene children:', scene.children.length);
+            
+            // Add "LANAIR SOC" label
+            const nameLabel = createEarthLabel('LANAIR SOC');
+            nameLabel.position.set(x, y + earthRadius + 15, z);
+            scene.add(nameLabel);
+            
+            node.label = nameLabel;
+            return node;
+        }
+        
+        // Create Earth label with distinctive styling
+        function createEarthLabel(text) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw text with glow effect
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Outer glow
+            ctx.shadowColor = '#4488ff';
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            // Inner text
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                opacity: 1.0
+            });
+            
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(40, 10, 1);
+            
+            return sprite;
+        }
+        
+        // Geometry disposal for memory management
+        function disposeNode(node) {
+            if (node.mesh) {
+                if (node.mesh.geometry) node.mesh.geometry.dispose();
+                if (node.mesh.material) {
+                    if (Array.isArray(node.mesh.material)) {
+                        node.mesh.material.forEach(mat => mat.dispose());
+                    } else {
+                        node.mesh.material.dispose();
+                    }
+                }
+                scene.remove(node.mesh);
+            }
+        }
+        
+        // Simple glowing engine effect - clean and performant
+
+        
+        function createCompanyNode(name, x, y, z) {
+            // Special handling for LANAIR - create Earth at center (case-insensitive)
+            if (name.toLowerCase().includes('lanair')) {
+                console.log(`🌍 createCompanyNode detected LANAIR: "${name}" - creating Earth`);
+                return createEarthNode(name, 0, 0, 0);
+            }
+            
+            // Dark Millennium Falcon-style gunmetal
+            const shipColor = 0x3A3A3A; // Dark gray base
+            
+            console.log(`🚀 Creating mothership for ${name} at (${x}, ${y}, ${z})`);
+            
+            // Create mothership group (main hull + details)
+            const mothershipGroup = new THREE.Group();
+            
+            // Create shared materials if not already cached
+            if (!materialCache.mothershipHull) {
+                materialCache.mothershipHull = new THREE.MeshPhongMaterial({
+                    color: 0x4A4A4A, // Dark gunmetal gray (platinum-ish)
+                    emissive: 0x000000,
+                    emissiveIntensity: 0,
+                    specular: 0x888888,
+                    shininess: 30,
+                    flatShading: false,
+                    metalness: 0.7
+                });
+            }
+            
+            // Create engine glow texture with gradient for back face
+            if (!cachedTextures.engineGlowTexture) {
+                const engineCanvas = document.createElement('canvas');
+                engineCanvas.width = 256;
+                engineCanvas.height = 256;
+                const engineCtx = engineCanvas.getContext('2d');
+                
+                // Create radial gradient from bright center to darker edges
+                const engineGradient = engineCtx.createRadialGradient(128, 128, 0, 128, 128, 128);
+                engineGradient.addColorStop(0, '#ffffff'); // Bright white center
+                engineGradient.addColorStop(0.2, '#88ddff'); // Light cyan
+                engineGradient.addColorStop(0.5, '#00aaff'); // Cyan
+                engineGradient.addColorStop(0.8, '#0066aa'); // Dark cyan
+                engineGradient.addColorStop(1, '#003355'); // Very dark blue
+                
+                engineCtx.fillStyle = engineGradient;
+                engineCtx.fillRect(0, 0, 256, 256);
+                
+                // Add some radial light rays
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 * i) / 8;
+                    const rayGradient = engineCtx.createLinearGradient(
+                        128, 128,
+                        128 + Math.cos(angle) * 128, 128 + Math.sin(angle) * 128
+                    );
+                    rayGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+                    rayGradient.addColorStop(0.5, 'rgba(136, 221, 255, 0.1)');
+                    rayGradient.addColorStop(1, 'rgba(0, 170, 255, 0)');
+                    
+                    engineCtx.fillStyle = rayGradient;
+                    engineCtx.beginPath();
+                    engineCtx.moveTo(128, 128);
+                    engineCtx.arc(128, 128, 128, angle - 0.15, angle + 0.15);
+                    engineCtx.closePath();
+                    engineCtx.fill();
+                }
+                
+                cachedTextures.engineGlowTexture = new THREE.CanvasTexture(engineCanvas);
+            }
+            
+            // Create shared engine material if not cached
+            if (!materialCache.mothershipEngine) {
+                materialCache.mothershipEngine = new THREE.MeshPhongMaterial({
+                    map: cachedTextures.engineGlowTexture,
+                    color: 0xffffff,
+                    emissive: 0x00aaff,
+                    emissiveIntensity: 0.8,
+                    transparent: true,
+                    opacity: 0.95,
+                    specular: 0x88ddff,
+                    shininess: 30
+                });
+            }
+            
+            // Create node object early so we can reference it in userData
+            const node = {
+                type: 'company',
+                name: name,
+                mesh: mothershipGroup,
+                label: null,
+                data: { name: name },
+                connections: [],
+                expanded: false,
+                targetQuaternion: null, // Will be set later
+                rotationComplete: false,
+                rotationProgress: 0
+            };
+            
+            // Store unique node reference in group userData FIRST
+            mothershipGroup.userData.node = node;
+            mothershipGroup.userData.nodeType = 'company';
+            
+            // Clone engine material for this specific ship (so each can have different colors)
+            const instanceEngineMaterial = materialCache.mothershipEngine.clone();
+            mothershipGroup.userData.backFaceMaterial = instanceEngineMaterial;
+            
+            // Use shared geometry and shared hull material, but individual engine material
+            const materials = [materialCache.mothershipHull, instanceEngineMaterial];
+            const hull = new THREE.Mesh(geometryCache.mothership, materials);
+            hull.userData.parentGroup = mothershipGroup; // For raycaster identification
+            hull.userData.node = node; // Direct node reference on hull mesh itself
+            mothershipGroup.add(hull);
+            
+            // Use cached panel texture or create once
+            if (!cachedTextures.panelTexture) {
+                const panelCanvas = document.createElement('canvas');
+                panelCanvas.width = 256;
+                panelCanvas.height = 256;
+                const panelCtx = panelCanvas.getContext('2d');
+                
+                // Panel pattern - metallic plates (neutral gray, colored by material)
+                panelCtx.fillStyle = '#888888';
+                panelCtx.fillRect(0, 0, 256, 256);
+                
+                // Draw panel lines
+                panelCtx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                panelCtx.lineWidth = 2;
+                for (let i = 0; i < 256; i += 32) {
+                    panelCtx.beginPath();
+                    panelCtx.moveTo(i, 0);
+                    panelCtx.lineTo(i, 256);
+                    panelCtx.stroke();
+                    panelCtx.beginPath();
+                    panelCtx.moveTo(0, i);
+                    panelCtx.lineTo(256, i);
+                    panelCtx.stroke();
+                }
+                
+                // Add rivets
+                panelCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                for (let i = 16; i < 256; i += 32) {
+                    for (let j = 16; j < 256; j += 32) {
+                        panelCtx.beginPath();
+                        panelCtx.arc(i, j, 2, 0, Math.PI * 2);
+                        panelCtx.fill();
+                    }
+                }
+                
+                cachedTextures.panelTexture = new THREE.CanvasTexture(panelCanvas);
+            }
+            // Apply panel texture to hull material only (not back face emissive material)
+            if (cachedTextures.panelTexture) {
+                materialCache.mothershipHull.map = cachedTextures.panelTexture;
+                materialCache.mothershipHull.needsUpdate = true;
+            }
+            
+            // Create shared detail materials if not cached
+            if (!materialCache.viewport) {
+                materialCache.viewport = new THREE.MeshBasicMaterial({
+                    color: 0x4488ff,
+                    transparent: true,
+                    opacity: 0.6,
+                    emissive: 0x3366ff,
+                    emissiveIntensity: 0.3
+                });
+            }
+            if (!materialCache.navLight) {
+                materialCache.navLight = new THREE.MeshBasicMaterial({
+                    color: 0x4488ff,
+                    emissive: 0x3366ff,
+                    emissiveIntensity: 1.0
+                });
+            }
+            if (!materialCache.antenna) {
+                materialCache.antenna = new THREE.MeshPhongMaterial({
+                    color: 0xcccccc,
+                    emissive: 0x3366ff,
+                    emissiveIntensity: 0.5
+                });
+            }
+            
+            // Use shared geometries and materials
+            const bridgeViewport = new THREE.Mesh(geometryCache.viewport, materialCache.viewport);
+            bridgeViewport.position.set(0, 0, 12);
+            mothershipGroup.add(bridgeViewport);
+            
+            const navLight1 = new THREE.Mesh(geometryCache.navLight, materialCache.navLight);
+            navLight1.position.set(7, 0, 8);
+            mothershipGroup.add(navLight1);
+            
+            const navLight2 = new THREE.Mesh(geometryCache.navLight, materialCache.navLight);
+            navLight2.position.set(-7, 0, 8);
+            mothershipGroup.add(navLight2);
+            
+            // Engine ring with shared geometry
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: shipColor,
+                emissive: shipColor,
+                emissiveIntensity: 1.0
+            });
+            const engineRing = new THREE.Mesh(geometryCache.engineRing, ringMaterial);
+            engineRing.position.set(0, -18, 0);
+            engineRing.rotation.x = Math.PI / 2;
+            mothershipGroup.add(engineRing);
+            
+            const antenna = new THREE.Mesh(geometryCache.antenna, materialCache.antenna);
+            antenna.position.set(0, 18, 0);
+            mothershipGroup.add(antenna);
+            
+            const dish = new THREE.Mesh(geometryCache.dish, materialCache.antenna);
+            dish.position.set(0, 22, 0);
+            mothershipGroup.add(dish);
+            
+            // Add status light stripes on mothership hull using helper
+            // Note: Company nodes don't have status data here - stripes added later when data is available
+            mothershipGroup.userData.statusStripesNeeded = true;
+            
+            mothershipGroup.position.set(x, y, z);
+            console.log('  ✅ Mothership with details created at:', mothershipGroup.position);
+            
+            // Orient ship to point toward center while staying flat on XZ plane
+            // Project target direction onto XZ plane (ignore Y) to keep ships level
+            const targetPos = new THREE.Vector3(0, y, 0); // Keep at same Y height
+            mothershipGroup.lookAt(targetPos);
+            
+            // Store target quaternion for smooth rotation animation
+            const targetQuaternion = mothershipGroup.quaternion.clone();
+            node.targetQuaternion = targetQuaternion;
+            
+            // Start with random rotation for animation effect
+            mothershipGroup.rotation.y = Math.random() * Math.PI * 2;
+            
+            scene.add(mothershipGroup);
+            console.log('  ✅ Mothership added to scene. Scene children count:', scene.children.length);
+            
+            // Add company name label as floating text sprite - positioned below ship
+            const nameLabel = createCompanyNameLabel(name);
+            nameLabel.position.set(x, y - 35, z); // Below the ship
+            scene.add(nameLabel);
+            
+            node.label = nameLabel;
+            return node;
+        }
+        
+        // Create company name label
+        function createCompanyNameLabel(name) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            
+            // Sci-fi background with glow
+            const gradient = ctx.createLinearGradient(0, 0, 512, 0);
+            gradient.addColorStop(0, 'rgba(0, 100, 200, 0)');
+            gradient.addColorStop(0.5, 'rgba(0, 100, 200, 0.6)');
+            gradient.addColorStop(1, 'rgba(0, 100, 200, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 128);
+            
+            // Sci-fi text with cyan glow
+            ctx.fillStyle = 'rgba(0, 255, 255, 1)'; // Cyan
+            ctx.strokeStyle = 'rgba(0, 180, 255, 0.8)'; // Bright blue glow
+            ctx.lineWidth = 3;
+            ctx.shadowColor = 'rgba(0, 200, 255, 0.8)';
+            ctx.shadowBlur = 15;
+            ctx.font = 'bold 42px "Orbitron", "Courier New", monospace'; // Sci-fi font
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Draw glow
+            ctx.strokeText(name, 256, 64);
+            // Draw text
+            ctx.fillText(name, 256, 64);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(40, 10, 1);
+            
+            return sprite;
+        }
+
+        // Create device node
+        function createDeviceNode(device, x, y, z, parent) {
+            try {
+                // Map numeric status to color
+                let color = COLORS.deviceUp;
+                const status = device.effectiveStatus || device.status;
+            
+            if (typeof status === 'number') {
+                // PRTG status codes: 3=up, 4=warning, 5=down
+                if (status === 5) {
+                    color = COLORS.deviceDown;
+                } else if (status === 4 || status === 10 || status === 1) {
+                    color = COLORS.deviceWarning;
+                } else {
+                    color = COLORS.deviceUp;
+                }
+            } else if (typeof status === 'string') {
+                // String status
+                if (status === 'down') color = COLORS.deviceDown;
+                else if (status === 'warning') color = COLORS.deviceWarning;
+                else color = COLORS.deviceUp;
+            }
+
+            // Choose icon based on device type/category
+            let icon = '\uf233'; // server icon (default)
+            const deviceName = (device.name || '').toLowerCase();
+            if (deviceName.includes('router') || deviceName.includes('gateway')) {
+                icon = '\uf6ff'; // router icon
+            } else if (deviceName.includes('switch')) {
+                icon = '\uf0e8'; // network icon
+            } else if (deviceName.includes('firewall')) {
+                icon = '\uf132'; // shield icon
+            } else if (deviceName.includes('desktop') || deviceName.includes('pc')) {
+                icon = '\uf108'; // desktop icon
+            } else if (deviceName.includes('printer')) {
+                icon = '\uf02f'; // print icon
+            }
+            
+            // Dark Millennium Falcon-style gunmetal for all device ships
+            const deviceColor = 0x3A3A3A; // Dark gunmetal gray
+            
+            // Create detailed device ship group
+            const shipGroup = new THREE.Group();
+            
+            // Use cached hex texture or create once
+            if (!cachedTextures.hexTexture) {
+                const hullCanvas = document.createElement('canvas');
+                hullCanvas.width = 128;
+                hullCanvas.height = 128;
+                const hullCtx = hullCanvas.getContext('2d');
+                
+                // Create gradient base with darker gunmetal tones
+                const gradient = hullCtx.createRadialGradient(64, 64, 0, 64, 64, 90);
+                gradient.addColorStop(0, '#9a9a9a'); // Lighter center
+                gradient.addColorStop(0.5, '#6a6a6a'); // Mid gray
+                gradient.addColorStop(1, '#3a3a3a'); // Darker edges
+                hullCtx.fillStyle = gradient;
+                hullCtx.fillRect(0, 0, 128, 128);
+                
+                // Add hexagonal panel pattern with varying opacity for depth
+                const hexSize = 12;
+                for (let row = 0; row < 12; row++) {
+                    for (let col = 0; col < 12; col++) {
+                        const hexX = col * hexSize + (row % 2) * (hexSize / 2);
+                        const hexY = row * hexSize * 0.866;
+                        
+                        // Calculate distance from center for gradient effect
+                        const dx = hexX - 64;
+                        const dy = hexY - 64;
+                        const dist = Math.sqrt(dx * dx + dy * dy) / 90;
+                        const opacity = 0.3 + dist * 0.3;
+                        
+                        hullCtx.strokeStyle = `rgba(0, 0, 0, ${opacity})`;
+                        hullCtx.lineWidth = 1;
+                        hullCtx.beginPath();
+                        for (let i = 0; i < 6; i++) {
+                            const angle = (Math.PI / 3) * i;
+                            const x = hexX + hexSize * 0.5 * Math.cos(angle);
+                            const y = hexY + hexSize * 0.5 * Math.sin(angle);
+                            if (i === 0) hullCtx.moveTo(x, y);
+                            else hullCtx.lineTo(x, y);
+                        }
+                        hullCtx.closePath();
+                        hullCtx.stroke();
+                        
+                        // Add subtle highlight to each hex
+                        hullCtx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (1 - dist)})`;
+                        hullCtx.lineWidth = 0.5;
+                        hullCtx.stroke();
+                    }
+                }
+                
+                cachedTextures.hexTexture = new THREE.CanvasTexture(hullCanvas);
+            }
+            
+            // Create shared device ship materials if not cached
+            if (!materialCache.shipHull) {
+                materialCache.shipHull = new THREE.MeshPhongMaterial({
+                    color: 0x3A3A3A, // Dark gunmetal gray (platinum-ish)
+                    map: cachedTextures.hexTexture,
+                    emissive: 0x000000,
+                    emissiveIntensity: 0,
+                    specular: 0x666666,
+                    shininess: 25,
+                    flatShading: false,
+                    transparent: false,
+                    opacity: 1.0,
+                    metalness: 0.6
+                });
+            }
+            
+            // Reuse engine material created for mothership (already cached)
+            if (!materialCache.shipEngine) {
+                materialCache.shipEngine = materialCache.mothershipEngine;
+            }
+            
+            // Main ship body - use shared geometry and materials (no clone!)
+            const deviceSize = nodeSizeMultiplier * 2;
+            
+            // Set position FIRST before calculating lookAt orientation
+            shipGroup.position.set(x, y, z);
+            
+            // Point ship towards center (0, 0, 0)
+            const targetPos = new THREE.Vector3(0, 0, 0);
+            shipGroup.lookAt(targetPos);
+            const targetQuaternion = shipGroup.quaternion.clone();
+            
+            // Start with random rotation for animation effect
+            shipGroup.rotation.y = Math.random() * Math.PI * 2;
+            
+            // Start with random rotation for animation effect
+            shipGroup.rotation.y = Math.random() * Math.PI * 2;
+            
+            const node = {
+                type: 'device',
+                name: device.name,
+                mesh: shipGroup,
+                label: null,
+                statusCircle: null,
+                data: device,
+                parent: parent,
+                connections: [],
+                expanded: false,
+                visible: true,
+                targetQuaternion: targetQuaternion,
+                rotationComplete: false,
+                rotationProgress: 0,
+                initialPosition: { x: x, y: y, z: z }
+            };
+            
+            // Store unique node reference in mesh userData BEFORE adding children
+            shipGroup.userData.node = node;
+            shipGroup.userData.nodeType = 'device';
+            
+            // Clone engine material for this specific ship (so each can have different colors)
+            const instanceEngineMaterial = materialCache.shipEngine.clone();
+            shipGroup.userData.backFaceMaterial = instanceEngineMaterial;
+            
+            const materials = [materialCache.shipHull, instanceEngineMaterial];
+            const ship = new THREE.Mesh(geometryCache.spaceship, materials);
+            ship.userData.parentGroup = shipGroup; // For raycaster identification
+            ship.userData.node = node; // Direct node reference on ship mesh itself
+            shipGroup.add(ship);
+            
+            // Add status light stripes on hull using helper
+            const stripes = createStatusStripes(deviceSize, device.effectiveStatus || device.status);
+            if (stripes) {
+                stripes.forEach(stripe => {
+                    // Position stripes relative to ship's local coordinate system
+                    shipGroup.add(stripe);
+                });
+                shipGroup.userData.statusStripes = stripes;
+            }
+            
+            // Add integrated cockpit canopy (flush with hull) - use shared material
+            if (!materialCache.canopy) {
+                materialCache.canopy = new THREE.MeshBasicMaterial({
+                    color: 0x3366ff,
+                    transparent: true,
+                    opacity: 0.5,
+                    emissive: 0x2255dd,
+                    emissiveIntensity: 0.2
+                });
+            }
+            const canopy = new THREE.Mesh(geometryCache.canopy, materialCache.canopy);
+            canopy.position.set(0, 0, 4);
+            shipGroup.add(canopy);
+            
+            // Add integrated hull panel accents - use cached material by status
+            const panelStatusKey = status === 5 || status === 'down' ? 'down' : 
+                                   status === 4 || status === 10 || status === 1 || status === 'warning' ? 'warning' : 'up';
+            
+            if (!materialCache.panels[panelStatusKey]) {
+                const panelColor = panelStatusKey === 'down' ? 0xff0000 : 
+                                   panelStatusKey === 'warning' ? 0xffaa00 : 0x4488ff;
+                
+                // Create gradient texture for panels once per status
+                const panelCanvas = document.createElement('canvas');
+                panelCanvas.width = 64;
+                panelCanvas.height = 256;
+                const panelCtx = panelCanvas.getContext('2d');
+                
+                // Create vertical gradient with light reflection
+                const panelGradient = panelCtx.createLinearGradient(0, 0, 0, 256);
+                const panelColorHex = '#' + panelColor.toString(16).padStart(6, '0');
+                panelGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                panelGradient.addColorStop(0.2, panelColorHex);
+                panelGradient.addColorStop(0.5, panelColorHex);
+                panelGradient.addColorStop(0.8, 'rgba(0, 0, 0, 0.6)');
+                panelGradient.addColorStop(1, 'rgba(0, 0, 0, 0.9)');
+                
+                panelCtx.fillStyle = panelGradient;
+                panelCtx.fillRect(0, 0, 64, 256);
+                
+                // Add horizontal light reflection
+                const panelReflectGrad = panelCtx.createLinearGradient(0, 0, 64, 0);
+                panelReflectGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+                panelReflectGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.4)');
+                panelReflectGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                panelCtx.fillStyle = panelReflectGrad;
+                panelCtx.fillRect(0, 64, 64, 128);
+                
+                const panelTexture = new THREE.CanvasTexture(panelCanvas);
+                
+                materialCache.panels[panelStatusKey] = new THREE.MeshBasicMaterial({
+                    map: panelTexture,
+                    transparent: true,
+                    opacity: 0.9,
+                    side: THREE.DoubleSide,
+                    emissive: panelColor,
+                    emissiveIntensity: 0.7
+                });
+            }
+            
+            // Use shared panel geometry and cached material
+            const panel1 = new THREE.Mesh(geometryCache.panel, materialCache.panels[panelStatusKey]);
+            panel1.position.set(3, 0, 1);
+            panel1.rotation.y = Math.PI / 2;
+            shipGroup.add(panel1);
+            
+            const panel2 = new THREE.Mesh(geometryCache.panel, materialCache.panels[panelStatusKey]);
+            panel2.position.set(-3, 0, 1);
+            panel2.rotation.y = -Math.PI / 2;
+            shipGroup.add(panel2);
+            
+            // Position was already set earlier before lookAt calculation
+            
+            scene.add(shipGroup);
+            
+            // Register node for real-time updates
+            deviceNodeMap.set(device, shipGroup);
+            
+            return node;
+            } catch (error) {
+                console.error('Error creating device node:', device.name, error);
+                // Return minimal fallback node
+                return {
+                    type: 'device',
+                    name: device.name || 'Unknown',
+                    mesh: null,
+                    label: null,
+                    data: device,
+                    parent: parent,
+                    connections: [],
+                    expanded: false
+                };
+            }
+        }
+
+        // Create sensor node
+        function createSensorNode(device, x, y, z, parent, sensorIndex, totalSensors, sensorData) {
+            // Use individual sensor status if available, otherwise fall back to device status
+            const sensorStatus = sensorData?.status || device.status;
+            const isDown = sensorStatus === 5;
+            const isWarning = sensorStatus === 4;
+            const isNormal = sensorStatus === 3;
+            
+            // Determine material key based on status
+            let materialKey = 'normal';
+            let sensorColor = COLORS.sensor;
+            let emissiveIntensity = 0.4;
+            let opacity = 0.9;
+            
+            if (isDown) {
+                materialKey = 'down';
+                sensorColor = 0xff4444;
+                emissiveIntensity = 0.8;
+                opacity = 1.0;
+            } else if (isWarning) {
+                materialKey = 'warning';
+                sensorColor = 0xffaa44;
+                emissiveIntensity = 0.5;
+                opacity = 1.0;
+            } else if (isNormal) {
+                materialKey = 'up';
+                sensorColor = COLORS.sensor;
+                emissiveIntensity = 0.4;
+                opacity = 0.9;
+            }
+            
+            // Create or reuse cached sensor material
+            if (!materialCache.sensors[materialKey]) {
+                materialCache.sensors[materialKey] = new THREE.MeshStandardMaterial({ 
+                    color: sensorColor,
+                    transparent: true,
+                    opacity: opacity,
+                    emissive: sensorColor,
+                    emissiveIntensity: emissiveIntensity,
+                    metalness: 0.3,
+                    roughness: 0.7
+                });
+            }
+            
+            // Use shared geometry and cached material (no clone!)
+            const sphere = new THREE.Mesh(geometryCache.sensorSphere, materialCache.sensors[materialKey]);
+            sphere.userData.nodeType = 'sensor'; // For raycaster identification
+            
+            // Add holographic ring effect around sensor for cool visual
+            const ringGeometry = new THREE.RingGeometry(0.8, 1.2, 16);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: sensorColor,
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide,
+                emissive: sensorColor,
+                emissiveIntensity: 0.5
+            });
+            const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+            ring.rotation.x = Math.PI / 2;
+            sphere.add(ring);
+            sphere.userData.holoRing = ring;
+            
+            // Evenly space sensors around device like beads on a necklace
+            const angle = (sensorIndex / totalSensors) * Math.PI * 2;
+            // Alarm sensors (red/yellow) positioned closer to front (smaller orbit)
+            // Normal sensors (purple) positioned at normal distance
+            const distance = (isDown || isWarning) ? 4 * spreadFactor : 6 * spreadFactor;
+            const node = {
+                type: 'sensor',
+                name: sensorData?.name || device.name || 'Sensor',  // Use sensor name if available
+                mesh: sphere,
+                label: null,
+                data: device,  // Keep device reference
+                sensorData: sensorData,  // Store individual sensor data
+                sensorIndex: sensorIndex,  // Store sensor index
+                parent: parent,
+                connections: [],
+                visible: false,
+                isAlarmSensor: isDown || isWarning,  // Track if this is an alarm sensor
+                orbit: {
+                    center: { x: x, y: y, z: z },  // Device position (will be updated)
+                    radius: distance,
+                    baseRadius: distance,
+                    speed: 0.002,  // Uniform speed for all sensors
+                    currentAngle: angle,  // Start at evenly spaced positions
+                    angleOffset: angle    // Maintain even spacing throughout orbit
+                },
+                initialPosition: { x: x, y: y, z: z }
+            };
+            
+            // Store unique node reference in mesh userData for raycaster
+            sphere.userData.node = node;
+            sphere.userData.nodeType = 'sensor';
+            
+            sphere.position.set(
+                x + Math.cos(angle) * distance,
+                y,
+                z + Math.sin(angle) * distance
+            );
+            scene.add(sphere);
+            
+            return node;
+        }
+
+        // Connection lines removed for cleaner visualization
+
+        // Create label (sprite)
+        function createLabel(text, x, y, z) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 64;
+            
+            context.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            context.font = 'Bold 20px Arial';
+            context.textAlign = 'center';
+            context.fillText(text, 128, 35);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ 
+                map: texture,
+                transparent: true
+            });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.position.set(x, y, z);
+            sprite.scale.set(10, 2.5, 1);
+            scene.add(sprite);
+
+            labels.push(sprite);
+            return sprite;
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Skip expensive operations when page is hidden
+            const isVisible = window.isPageVisible ? window.isPageVisible() : true;
+            
+            const time = Date.now() * 0.001;
+
+            // Keyboard camera movement - fly through the scene
+            const keys = window.cameraKeys || {};
+            const moveSpeed = 2.0;  // Units per frame
+            const direction = new THREE.Vector3();
+            
+            camera.getWorldDirection(direction);
+            const right = new THREE.Vector3();
+            right.crossVectors(camera.up, direction).normalize();
+            
+            // W/S - Move forward/backward in the direction camera is facing
+            if (keys['w']) {
+                camera.position.addScaledVector(direction, moveSpeed);
+                controls.target.addScaledVector(direction, moveSpeed);
+            }
+            if (keys['s']) {
+                camera.position.addScaledVector(direction, -moveSpeed);
+                controls.target.addScaledVector(direction, -moveSpeed);
+            }
+            
+            // A/D - Strafe left/right
+            if (keys['a']) {
+                camera.position.addScaledVector(right, moveSpeed);
+                controls.target.addScaledVector(right, moveSpeed);
+            }
+            if (keys['d']) {
+                camera.position.addScaledVector(right, -moveSpeed);
+                controls.target.addScaledVector(right, -moveSpeed);
+            }
+            
+            // Q/E - Move up/down
+            if (keys['q']) {
+                camera.position.y += moveSpeed;
+                controls.target.y += moveSpeed;
+            }
+            if (keys['e']) {
+                camera.position.y -= moveSpeed;
+                controls.target.y -= moveSpeed;
+            }
+            
+            // Shift - Speed boost
+            if (keys['shift']) {
+                const boostSpeed = 4.0;
+                if (keys['w']) {
+                    camera.position.addScaledVector(direction, boostSpeed);
+                    controls.target.addScaledVector(direction, boostSpeed);
+                }
+                if (keys['s']) {
+                    camera.position.addScaledVector(direction, -boostSpeed);
+                    controls.target.addScaledVector(direction, -boostSpeed);
+                }
+            }
+
+            // Update controls
+            controls.update();
+            
+            // Soft boundary constraint - allow exploration but prevent getting completely lost
+            // Use very large boundary that feels limitless but prevents infinite travel
+            const softBoundary = 2000; // Very generous boundary
+            const cameraDistanceFromOrigin = camera.position.length();
+            
+            if (cameraDistanceFromOrigin > softBoundary) {
+                // Gentle pull back using lerp instead of hard clamp
+                const pullBackStrength = 0.02; // Very subtle
+                camera.position.lerp(
+                    camera.position.clone().normalize().multiplyScalar(softBoundary * 0.95),
+                    pullBackStrength
+                );
+            }
+            
+            // Also constrain target but even more generously
+            const targetDistance = controls.target.length();
+            if (targetDistance > softBoundary * 0.9) {
+                controls.target.lerp(
+                    controls.target.clone().normalize().multiplyScalar(softBoundary * 0.85),
+                    0.01
+                );
+            }
+
+            // Auto rotate
+            if (autoRotate) {
+                scene.rotation.y += 0.001;
+            }
+
+            // Animate devices first, then sensors (so sensors follow updated device positions)
+            
+            // PASS 0: Rotate Earth if present
+            const earthNode = nodes.find(node => node.type === 'company' && node.isEarth && node.mesh);
+            if (earthNode) {
+                // Rotate Earth slowly on its axis
+                earthNode.mesh.rotation.y += 0.005; // Increased from 0.001 for more visible rotation
+                // Also rotate the glow
+                if (earthNode.glowMesh) {
+                    earthNode.glowMesh.rotation.y += 0.005;
+                }
+            }
+            
+            // Helper function to calculate average status from child devices
+            function getNodeEffectiveStatus(node) {
+                // For devices, return their own status
+                if (node.type === 'device') {
+                    return node.data?.effectiveStatus || node.data?.status;
+                }
+                
+                // For companies (motherships), calculate from VISIBLE children only
+                if (node.type === 'company') {
+                    const childDevices = nodes.filter(n => 
+                        n.type === 'device' && 
+                        n.parent === node && 
+                        n.mesh && 
+                        n.mesh.visible
+                    );
+                    
+                    if (childDevices.length === 0) {
+                        return node.data?.effectiveStatus || node.data?.status || 3; // Default to up
+                    }
+                    
+                    // Count status types from visible children only
+                    const downCount = childDevices.filter(d => {
+                        const s = d.data?.effectiveStatus || d.data?.status;
+                        return s === 5 || s === 'down';
+                    }).length;
+                    
+                    const warningCount = childDevices.filter(d => {
+                        const s = d.data?.effectiveStatus || d.data?.status;
+                        return s === 4 || s === 10 || s === 1 || s === 'warning' || s === 'unusual' || s === 'unknown';
+                    }).length;
+                    
+                    // Priority: if any down, return down; if any warning, return warning; else up
+                    if (downCount > 0) return 5; // down
+                    if (warningCount > 0) return 4; // warning
+                    return 3; // up
+                }
+                
+                return 3; // Default to up
+            }
+            
+            // PASS 0.5: Animate ship engine glow (emissive color on back face only)
+            nodes.forEach(node => {
+                if ((node.type === 'device' || node.type === 'company') && node.mesh) {
+                    if (!node.mesh.visible) return;
+                    
+                    // Get the hull mesh (child of the Group)
+                    const hullMesh = node.mesh.children?.find(child => 
+                        child.geometry === geometryCache.spaceship || 
+                        child.geometry === geometryCache.mothership
+                    );
+                    
+                    if (!hullMesh || !Array.isArray(hullMesh.material) || hullMesh.material.length < 2) {
+                        return; // Skip if no hull mesh or no material array
+                    }
+                    
+                    // Engine material is at index 1 in the material array
+                    const backFaceMaterial = hullMesh.material[1];
+                    if (!backFaceMaterial) return;
+                    
+                    const time = Date.now() * 0.001;
+                    
+                    // Get effective status (for motherships, this is average of children)
+                    const status = getNodeEffectiveStatus(node);
+                    
+                    // Determine glow color and intensity based on status
+                    let glowColor = 0x00aaff; // Default cyan-blue (healthy)
+                    let pulseSpeed = 2;
+                    let intensityRange = 0.3;
+                    let intensityBase = 0.5;
+                    let inTrouble = false;
+                    
+                    if (typeof status === 'number') {
+                        // PRTG status codes: 1=unknown, 3=up, 4=warning, 5=down, 10=unusual
+                        if (status === 5) {
+                            // Down - bright red with intense pulse
+                            glowColor = 0xff0000;
+                            pulseSpeed = 3;
+                            intensityRange = 0.6;
+                            intensityBase = 0.8;
+                            inTrouble = true;
+                        } else if (status === 4 || status === 10 || status === 1) {
+                            // Warning/Unusual/Unknown - orange with faster pulse
+                            glowColor = 0xff6600;
+                            pulseSpeed = 2.5;
+                            intensityRange = 0.5;
+                            intensityBase = 0.7;
+                            inTrouble = true;
+                        }
+                        // status 3 (up) uses default cyan-blue
+                    } else if (typeof status === 'string') {
+                        // String status
+                        if (status === 'down') {
+                            glowColor = 0xff0000;
+                            pulseSpeed = 3;
+                            intensityRange = 0.6;
+                            intensityBase = 0.8;
+                            inTrouble = true;
+                        } else if (status === 'warning') {
+                            glowColor = 0xff6600;
+                            pulseSpeed = 2.5;
+                            intensityRange = 0.5;
+                            intensityBase = 0.7;
+                            inTrouble = true;
+                        }
+                        // 'up' uses default cyan-blue
+                    }
+                    
+                    // Verify material exists before accessing
+                    if (!backFaceMaterial) {
+                        return; // Skip nodes without proper material setup
+                    }
+                    
+                    // Animate back face emissive color and intensity based on status
+                    backFaceMaterial.color.setHex(glowColor);
+                    backFaceMaterial.emissive.setHex(glowColor);
+                    
+                    // Motherships (companies) in trouble blink SOS morse code
+                    if (node.type === 'company' && inTrouble) {
+                        // SOS morse: dot dot dot / dash dash dash / dot dot dot
+                        const sosPattern = 7.2; // Full SOS cycle duration
+                        const t = (time % sosPattern);
+                        
+                        let intensity = 0;
+                        
+                        // S (dot dot dot): 0.0-1.0s
+                        if (t < 0.2) intensity = 1.5; // dot 1
+                        else if (t < 0.4) intensity = 0; // gap
+                        else if (t < 0.6) intensity = 1.5; // dot 2
+                        else if (t < 0.8) intensity = 0; // gap
+                        else if (t < 1.0) intensity = 1.5; // dot 3
+                        // Letter gap: 1.0-1.6s
+                        else if (t < 1.6) intensity = 0;
+                        // O (dash dash dash): 1.6-4.2s
+                        else if (t < 2.2) intensity = 1.5; // dash 1
+                        else if (t < 2.4) intensity = 0; // gap
+                        else if (t < 3.0) intensity = 1.5; // dash 2
+                        else if (t < 3.2) intensity = 0; // gap
+                        else if (t < 3.8) intensity = 1.5; // dash 3
+                        // Letter gap: 3.8-4.4s
+                        else if (t < 4.4) intensity = 0;
+                        // S (dot dot dot): 4.4-5.4s
+                        else if (t < 4.6) intensity = 1.5; // dot 1
+                        else if (t < 4.8) intensity = 0; // gap
+                        else if (t < 5.0) intensity = 1.5; // dot 2
+                        else if (t < 5.2) intensity = 0; // gap
+                        else if (t < 5.4) intensity = 1.5; // dot 3
+                        // Word gap: 5.4-7.2s
+                        else intensity = 0;
+                        
+                        backFaceMaterial.emissiveIntensity = intensity;
+                    } else {
+                        // Normal animated pulse for devices and healthy motherships
+                        const pulse = Math.sin(time * pulseSpeed) * intensityRange + intensityBase;
+                        backFaceMaterial.emissiveIntensity = pulse;
+                    }
+                }
+            });
+            
+            // PASS 0.6: Create and animate status stripes on ship hulls
+            nodes.forEach(node => {
+                if ((node.type === 'device' || node.type === 'company') && node.mesh) {
+                    if (!node.mesh.visible) return;
+                    
+                    const status = getNodeEffectiveStatus(node);
+                    const time = Date.now() * 0.001;
+                    
+                    // Create stripes if needed and not already created
+                    if (node.mesh.userData.statusStripesNeeded && !node.mesh.userData.statusStripes && status) {
+                        const shipSize = node.type === 'company' ? 12 * nodeSizeMultiplier : nodeSizeMultiplier * 2;
+                        const stripes = createStatusStripes(shipSize, status);
+                        if (stripes) {
+                            stripes.forEach(stripe => {
+                                // Add to parent group, not mesh, so stripes follow ship orientation
+                                node.mesh.add(stripe);
+                            });
+                            node.mesh.userData.statusStripes = stripes;
+                            node.mesh.userData.statusStripesNeeded = false;
+                        }
+                    }
+                    
+                    // Animate existing stripes with BEEP BEEP bright pulsing
+                    if (node.mesh.userData.statusStripes) {
+                        const stripes = node.mesh.userData.statusStripes;
+                        
+                        // Emergency beacon style pulsing based on severity
+                        let pulseSpeed = 2;
+                        let intensityBase = 2.0;
+                        let intensityRange = 1.5;
+                        
+                        if (status === 5 || status === 'down') {
+                            pulseSpeed = 6; // Fast beeping for critical
+                            intensityBase = 2.5;
+                            intensityRange = 2.0; // Strong pulse
+                        } else if (status === 4 || status === 10 || status === 1 || status === 'warning') {
+                            pulseSpeed = 4; // Medium beeping for warning
+                            intensityBase = 2.0;
+                            intensityRange = 1.5;
+                        }
+                        
+                        // Sharp sine wave for beep-beep effect
+                        const pulse = Math.sin(time * pulseSpeed) * 0.5 + 0.5; // 0.0 to 1.0
+                        const sharpPulse = Math.pow(pulse, 2); // Sharper peaks
+                        
+                        stripes.forEach(stripe => {
+                            // Full opacity always
+                            stripe.material.opacity = 1.0;
+                            
+                            // BRIGHT pulsing emissive intensity
+                            stripe.material.emissiveIntensity = intensityBase + (sharpPulse * intensityRange);
+                            
+                            // Scale pulse for beacon effect
+                            const scalePulse = 1.0 + (sharpPulse * 0.2);
+                            stripe.scale.set(1.0, scalePulse, 1.0);
+                        });
+                    }
+                }
+            });
+            
+            // PASS 1: Update device positions (static on spokes with status effects)
+            nodes.forEach(node => {
+                if (node.type === 'device' && node.mesh && node.spoke) {
+                    // Skip animation if this device is being hovered
+                    if (window.hoveredDevice === node) {
+                        return; // Keep it frozen at current position
+                    }
+                    
+                    const status = node.data.status;
+                    const spoke = node.spoke;
+                    
+                    // Calculate static position on spoke
+                    const baseX = spoke.center.x + Math.cos(spoke.angle) * spoke.distance;
+                    const baseZ = spoke.center.z + Math.sin(spoke.angle) * spoke.distance;
+                    
+                    // Green devices - subtle pulse only
+                    if (status === 3 || status === 'up') {
+                        const pulse = Math.sin(time * 2) * 0.5;
+                        node.mesh.position.set(baseX, spoke.baseY + pulse, baseZ);
+                        
+                        // Update label position if exists
+                        if (node.label) {
+                            node.label.position.set(baseX, spoke.baseY + pulse + 3, baseZ);
+                        }
+                    }
+                    // Red devices - violent shake and pulse (stay on spoke)
+                    else if (status === 5 || status === 'down') {
+                        const shake = Math.sin(time * 10) * 0.5 + Math.cos(time * 7) * 0.3;
+                        const pulse = 1 + Math.sin(time * 3) * 0.3;
+                        node.mesh.position.x = baseX + shake;
+                        node.mesh.position.y = spoke.baseY + shake;
+                        node.mesh.position.z = baseZ + shake;
+                        node.mesh.scale.set(pulse, pulse, pulse);
+                        
+                        // Rotate erratically
+                        node.mesh.rotation.x = Math.sin(time * 2) * 0.5;
+                        node.mesh.rotation.y = Math.cos(time * 3) * 0.5;
+                        node.mesh.rotation.z = Math.sin(time * 4) * 0.3;
+                    }
+                    // Yellow devices - slow bounce and glow pulse (stay on spoke)
+                    else if (status === 4 || status === 10 || status === 'warning') {
+                        const bounce = Math.abs(Math.sin(time * 0.8)) * 5;
+                        const pulse = 1 + Math.sin(time * 2) * 0.15;
+                        node.mesh.position.x = baseX;
+                        node.mesh.position.y = spoke.baseY + bounce;
+                        node.mesh.position.z = baseZ;
+                        node.mesh.scale.set(pulse, pulse, pulse);
+                        
+                        // Gentle rotation
+                        node.mesh.rotation.y = time * 0.5;
+                    }
+                }
+            });
+            
+            // PASS 1.5: Animate ship rotation toward center (lock-on effect)
+            nodes.forEach(node => {
+                if ((node.type === 'company' || node.type === 'device') && !node.rotationComplete && node.targetQuaternion) {
+                    // Smooth rotation animation over 2 seconds
+                    const rotationSpeed = 0.02; // Adjust speed (higher = faster)
+                    node.rotationProgress = Math.min(node.rotationProgress + rotationSpeed, 1);
+                    
+                    // Smooth easing
+                    const eased = node.rotationProgress < 0.5 
+                        ? 2 * node.rotationProgress * node.rotationProgress 
+                        : -1 + (4 - 2 * node.rotationProgress) * node.rotationProgress;
+                    
+                    // Interpolate quaternion
+                    node.mesh.quaternion.slerp(node.targetQuaternion, eased);
+                    
+                    // Mark as complete when done
+                    if (node.rotationProgress >= 1) {
+                        node.rotationComplete = true;
+                        node.mesh.quaternion.copy(node.targetQuaternion);
+                    }
+                }
+            });
+            
+            // Note: Ships rotate to orient toward center, then lock in place
+            
+            // Update telemetry beams
+            updateTelemetryBeams();
+            
+            // Update comets
+            if (window.cometPool && window.cometPool.active.length > 0) {
+                for (let i = window.cometPool.active.length - 1; i >= 0; i--) {
+                    const comet = window.cometPool.active[i];
+                    comet.lifetime++;
+                    
+                    // Move comet
+                    comet.head.position.addScaledVector(comet.direction, comet.speed);
+                    
+                    // Update tail
+                    const tailPositions = comet.tail.geometry.attributes.position.array;
+                    tailPositions[0] = comet.head.position.x;
+                    tailPositions[1] = comet.head.position.y;
+                    tailPositions[2] = comet.head.position.z;
+                    tailPositions[3] = comet.head.position.x - comet.direction.x * comet.tailLength;
+                    tailPositions[4] = comet.head.position.y - comet.direction.y * comet.tailLength;
+                    tailPositions[5] = comet.head.position.z - comet.direction.z * comet.tailLength;
+                    comet.tail.geometry.attributes.position.needsUpdate = true;
+                    
+                    // Fade out near end of life
+                    const fadeStart = comet.maxLifetime * 0.8;
+                    if (comet.lifetime > fadeStart) {
+                        const fadeProgress = (comet.lifetime - fadeStart) / (comet.maxLifetime - fadeStart);
+                        comet.head.material.opacity = 1 - fadeProgress;
+                        comet.tail.material.opacity = 0.4 * (1 - fadeProgress);
+                    }
+                    
+                    // Remove if lifetime exceeded or too far from origin
+                    const distanceFromOrigin = comet.head.position.length();
+                    if (comet.lifetime >= comet.maxLifetime || distanceFromOrigin > 4000) {
+                        scene.remove(comet.head);
+                        scene.remove(comet.tail);
+                        comet.head.geometry.dispose();
+                        comet.head.material.dispose();
+                        comet.tail.geometry.dispose();
+                        comet.tail.material.dispose();
+                        window.cometPool.active.splice(i, 1);
+                        requestRender();
+                    }
+                }
+            }
+            
+            // PASS 2: Update sensor positions (after devices have moved)
+            // Sensors orbit parent devices in a flat horizontal plane, evenly spaced like beads on a necklace
+            nodes.forEach(node => {
+                if (node.type === 'sensor' && node.mesh && node.orbit && node.parent && node.parent.mesh) {
+                    // Only animate sensors if parent device is visible
+                    if (!node.parent.mesh.visible || !node.parent.visible) {
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // Only show sensor if node.visible is true (controlled by expand/collapse)
+                    if (!node.visible) {
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // If we reach here, sensor should be visible
+                    node.mesh.visible = true;
+                    
+                    // Use parent device's CURRENT position (sensors follow devices)
+                    const parentPos = node.parent.mesh.position;
+                    
+                    // Sensors stay in fixed positions (no orbiting) for easier clicking
+                    // node.orbit.currentAngle += node.orbit.speed;
+                    
+                    // Use initial angle for fixed position
+                    const x = Math.cos(node.orbit.angle) * node.orbit.radius;
+                    const z = Math.sin(node.orbit.angle) * node.orbit.radius;
+                    
+                    // Check if sensor is in alarm state (down=5, warning=4)
+                    const isAlarm = node.data.status === 5 || node.data.status === 4;
+                    
+                    // Calculate distance from camera for LOD
+                    const distanceFromCamera = camera.position.distanceTo(node.mesh.position);
+                    const lodLevel = distanceFromCamera < 300 ? 'HIGH' : 
+                                    distanceFromCamera < 600 ? 'MEDIUM' : 'LOW';
+                    
+                    // Skip expensive animations for distant sensors
+                    if (lodLevel === 'LOW') {
+                        // Very far - hide completely to save rendering
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // Animate holographic ring (skip for MEDIUM LOD)
+                    if (node.mesh.userData.holoRing && lodLevel === 'HIGH') {
+                        node.mesh.userData.holoRing.rotation.z += 0.02; // Gentle rotation
+                        const ringPulse = 0.3 + Math.sin(time * 2) * 0.1;
+                        node.mesh.userData.holoRing.material.opacity = ringPulse;
+                        
+                        // Make ring more intense for alarms
+                        if (isAlarm) {
+                            node.mesh.userData.holoRing.material.opacity = 0.5 + Math.sin(time * 3) * 0.3;
+                        }
+                    }
+                    
+                    // Minimal animation - just glow pulsing for alarm sensors (only at HIGH LOD)
+                    let yOffset = 0;
+                    if (isAlarm && lodLevel === 'HIGH') {
+                        // Gentle pulse for visibility without movement
+                        const pulseSpeed = node.data.status === 5 ? 2.0 : 1.5;
+                        const pulseScale = 1.0 + Math.sin(time * pulseSpeed) * 0.15; // Subtle pulse
+                        node.mesh.scale.set(pulseScale, pulseScale, pulseScale);
+                        
+                        // Update emissive intensity for glow effect
+                        if (node.mesh.material) {
+                            const glowIntensity = 0.3 + Math.sin(time * pulseSpeed) * 0.2;
+                            node.mesh.material.emissiveIntensity = glowIntensity;
+                        }
+                    } else {
+                        // Reset scale for non-alarm sensors
+                        node.mesh.scale.set(1, 1, 1);
+                        if (node.mesh.material && node.mesh.material.emissiveIntensity !== undefined) {
+                            node.mesh.material.emissiveIntensity = 0.2;
+                        }
+                    }
+                    
+                    // Set final position relative to parent device's CURRENT position
+                    // Keep Y constant for flat horizontal orbit, add bounce for alarms
+                    node.mesh.position.set(
+                        parentPos.x + x,
+                        parentPos.y + yOffset,
+                        parentPos.z + z
+                    );
+                }
+            });
+
+            // Only render if something changed (optimized rendering)
+            // Always render for now since we have continuous animations
+            renderer.render(scene, camera);
+        }
+
+        // Optimized window resize with debouncing
+        let resizeTimeout;
+        function onWindowResize() {
+            // Debounce resize events to avoid excessive recalculations
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                // Limit pixel ratio on resize too
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            }, 100);
+        }
+
+        // Canvas click
+        function onCanvasClick(event) {
+            // Block clicks during camera animation
+            if (window.activeCameraAnimation !== null) {
+                console.log('🚫 Click blocked - camera animation in progress');
+                return; // Don't process clicks during animation
+            }
+            
+            // Check if OrbitControls actually moved the camera (not just a simple click)
+            if (window.orbitControlsWasUsed) {
+                console.log('🚫 Ignoring click - OrbitControls was used to move camera');
+                window.orbitControlsWasUsed = false; // Reset flag
+                return;
+            }
+            
+            // Check if this was a drag operation (mouse moved significantly between down and up)
+            // Use current click position if mouseUp hasn't fired yet
+            const currentPos = { x: event.clientX, y: event.clientY };
+            
+            if (window.mouseDownPos) {
+                const dragDistance = Math.sqrt(
+                    Math.pow(currentPos.x - window.mouseDownPos.x, 2) + 
+                    Math.pow(currentPos.y - window.mouseDownPos.y, 2)
+                );
+                
+                // Scale drag threshold based on camera distance from center
+                // Close camera = MUCH more forgiving (larger threshold)
+                // Far camera = stricter (smaller threshold)
+                const cameraDistance = camera.position.length();
+                const baseDragThreshold = window.dragThreshold || 40; // Increased to 40px (approx ship width) to allow clicking while moving
+                // Scale: at 100 units = 5x threshold, at 1000 units = 1x threshold
+                const scaledThreshold = baseDragThreshold * Math.max(1, Math.min(5, 1000 / cameraDistance));
+                
+                console.log(`📏 Drag distance: ${dragDistance.toFixed(1)}px (threshold: ${scaledThreshold.toFixed(1)}px, camera: ${cameraDistance.toFixed(1)})`);
+                
+                if (dragDistance > scaledThreshold) {
+                    console.log(`🚫 Ignoring click - detected drag (${dragDistance.toFixed(1)}px movement)`);
+                    window.mouseDownPos = null;
+                    window.mouseUpPos = null;
+                    return; // This was a drag, not a click
+                }
+            }
+            
+            // Check if this is part of a double-click sequence
+            const now = Date.now();
+            const timeSinceLastClick = now - window.lastClickTime;
+            
+            // If potential double-click flagged, suppress this single click and let dblclick handle it
+            if (window.isPotentialDoubleClick && timeSinceLastClick < 300) {
+                console.log('⏭️ Suppressing click - part of double-click sequence');
+                window.lastClickTime = now;
+                window.lastClickPos = { x: event.clientX, y: event.clientY };
+                window.isPotentialDoubleClick = false;
+                return;
+            }
+            
+            // Reset drag tracking
+            window.mouseDownPos = null;
+            window.mouseUpPos = null;
+            
+            // Update last click tracking for next potential double-click
+            window.lastClickTime = now;
+            window.lastClickPos = { x: event.clientX, y: event.clientY };
+            window.isPotentialDoubleClick = false;
+            
+            // Process click immediately without zoom-out check
+            processClick(event);
+        }
+        
+        function processClick(event) {
+            // Set flag to prevent click-outside listener from interfering
+            isProcessingCanvasClick = true;
+            console.log('🔒 Canvas click started - flag set');
+            
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Scale raycaster threshold based on camera distance for easier clicking when far away
+            const cameraDistance = camera.position.length();
+            const baseThreshold = 15;
+            const scaledThreshold = baseThreshold * Math.max(1, Math.min(3, cameraDistance / 300));
+            
+            raycaster.params.Points.threshold = scaledThreshold;
+            raycaster.params.Line.threshold = scaledThreshold;
+            raycaster.params.Mesh = {};
+            raycaster.near = 0.1;
+            raycaster.far = 100000;
+            
+            console.log(`🎯 Raycaster threshold: ${scaledThreshold.toFixed(1)} (camera distance: ${cameraDistance.toFixed(1)})`);
+
+            const meshes = nodes.map(n => n.mesh).filter(m => m); // Filter out null meshes
+            const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for Groups
+            
+            // Sort by distance (closest first)
+            intersects.sort((a, b) => a.distance - b.distance);
+            
+            console.log('🎯 Click detected - intersects:', intersects.length);
+            if (intersects.length > 0) {
+                console.log('🔍 First intersection:', intersects[0].object.type, intersects[0].object.userData);
+            }
+
+            if (intersects.length > 0) {
+                // Prioritize device/company clicks over sensor clicks
+                // If both are hit, prefer the device over its orbiting sensors
+                let clickedNode = null;
+                
+                // First, try to find a device or company in the intersections
+                for (const intersect of intersects) {
+                    let node = null;
+                    
+                    // Strategy 1: Check userData.node directly on intersected object
+                    if (intersect.object.userData?.node) {
+                        node = intersect.object.userData.node;
+                        console.log('✅ Found node via userData.node:', node.name, node.type);
+                    }
+                    
+                    // Strategy 2: Check if this is a child mesh with parentGroup reference
+                    else if (intersect.object.userData?.parentGroup?.userData?.node) {
+                        node = intersect.object.userData.parentGroup.userData.node;
+                        console.log('✅ Found node via parentGroup:', node.name, node.type);
+                    }
+                    
+                    // Strategy 3: Traverse up the parent hierarchy
+                    else if (intersect.object.parent) {
+                        let parent = intersect.object.parent;
+                        while (parent && !node) {
+                            if (parent.userData?.node) {
+                                node = parent.userData.node;
+                                console.log('✅ Found node via parent traversal:', node.name, node.type);
+                                break;
+                            }
+                            parent = parent.parent;
+                        }
+                    }
+                    
+                    if (node && (node.type === 'device' || node.type === 'company')) {
+                        clickedNode = node;
+                        break;
+                    } else if (node) {
+                        // Store sensor node but keep looking for device/company
+                        if (!clickedNode) clickedNode = node;
+                    }
+                }
+                
+                if (clickedNode) {
+                    console.log('🎯 Selecting node:', clickedNode.name, clickedNode.type);
+                    selectNode(clickedNode);
+                } else {
+                    console.warn('⚠️ No node found for intersected object');
+                }
+            } else {
+                // Clicked on empty space - reset any rotated company and close popup
+                if (lastHoveredCompany) {
+                    resetCompanyRotation(lastHoveredCompany);
+                    lastHoveredCompany = null;
+                }
+                // Close sensor popup when clicking empty space
+                closeSensorPopup();
+                console.log('🌌 Clicked empty space - popup closed, state reset');
+            }
+            
+            // Reset flag after processing (delay longer to ensure popup updates complete)
+            setTimeout(() => {
+                isProcessingCanvasClick = false;
+                console.log('🔓 Canvas click processing complete - flag reset');
+            }, 50); // Increased from 0 to 50ms to ensure popup fully updates
+        }
+
+        // Canvas double-click - zoom to point
+        function onCanvasDoubleClick(event) {
+            console.log('🔍 Double-click detected - zooming to point');
+            
+            // Cancel any ongoing camera animation immediately
+            window.cancelCameraAnimation();
+            
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Scale raycaster threshold based on camera distance
+            const cameraDistance = camera.position.length();
+            const baseThreshold = 15;
+            const scaledThreshold = baseThreshold * Math.max(1, Math.min(3, cameraDistance / 300));
+            raycaster.params.Points.threshold = scaledThreshold;
+            raycaster.params.Line.threshold = scaledThreshold;
+            
+            raycaster.near = 0.1;
+            raycaster.far = 100000;
+
+            // Cast ray to find 3D point in space
+            // If hits a ship/device/sensor, do nothing (just confirms selection)
+            // If hits nothing, zoom to a point along the ray
+            const meshes = nodes.map(n => n.mesh).filter(m => m);
+            const intersects = raycaster.intersectObjects(meshes, true);
+
+            // Check if we hit a ship, device, or sensor (but NOT labels/sprites)
+            let hitObject = false;
+            if (intersects.length > 0) {
+                // Check if any intersection is a game object (ship/device/sensor)
+                for (const intersect of intersects) {
+                    // Skip sprites (labels) - they shouldn't block zoom
+                    if (intersect.object instanceof THREE.Sprite) {
+                        console.log('🏷️ Hit label sprite - ignoring for double-click');
+                        continue;
+                    }
+                    
+                    const userData = intersect.object.userData || 
+                                   intersect.object.parent?.userData || 
+                                   intersect.object.parent?.parent?.userData;
+                    
+                    if (userData && (userData.nodeType === 'company' || 
+                                    userData.nodeType === 'device' || 
+                                    userData.nodeType === 'sensor' ||
+                                    userData.node)) {
+                        hitObject = true;
+                        console.log('🎯 Double-click on object - confirming selection only, no zoom');
+                        return; // Exit - don't zoom on ship/device/sensor
+                    }
+                }
+            }
+
+            // Only zoom if we hit empty space (or just labels)
+            let targetPoint;
+            const currentDistance = camera.position.length();
+            targetPoint = raycaster.ray.origin.clone().add(
+                raycaster.ray.direction.clone().multiplyScalar(currentDistance * 0.5)
+            );
+            console.log('🌌 Double-click on empty space - zooming to:', targetPoint);
+
+            // Smooth zoom animation
+            const startPos = camera.position.clone();
+            const startTarget = controls.target.clone();
+            
+            // Calculate new camera position - zoom in to 150 units from target point
+            const zoomDistance = 150;
+            const direction = camera.position.clone().sub(targetPoint).normalize();
+            const endPos = targetPoint.clone().add(direction.multiplyScalar(zoomDistance));
+            
+            const duration = 500; // 500ms animation
+            const startTime = Date.now();
+            
+            function animateZoom() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+                
+                camera.position.lerpVectors(startPos, endPos, eased);
+                controls.target.lerpVectors(startTarget, targetPoint, eased);
+                controls.update();
+                
+                if (progress < 1) {
+                    window.activeCameraAnimation = requestAnimationFrame(animateZoom);
+                } else {
+                    window.activeCameraAnimation = null;
+                    console.log('✅ Zoom animation complete');
+                    
+                    // Hide loading overlay
+                    const loadingOverlay = document.getElementById('loading-overlay');
+                    if (loadingOverlay) {
+                        loadingOverlay.classList.remove('visible');
+                        // Clear stats
+                        const statsContainer = document.getElementById('loading-stats');
+                        if (statsContainer) {
+                            statsContainer.style.display = 'none';
+                            statsContainer.innerHTML = '';
+                        }
+                    }
+                }
+            }
+            
+            animateZoom();
+        }
+
+        // Canvas mouse move
+        let lastHoveredCompany = null;
+        const companyOriginalRotations = new Map();
+        
+        function onCanvasMouseMove(event) {
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            // Moderate threshold for hover detection
+            raycaster.params.Points.threshold = 5;
+            raycaster.params.Line.threshold = 5;
+            raycaster.params.Mesh = {}; // Ensure Mesh params exist
+            raycaster.near = 0.1;
+            raycaster.far = 100000;
+
+            const meshes = nodes.map(n => n.mesh).filter(m => m);
+            const intersects = raycaster.intersectObjects(meshes, true); // recursive = true for groups
+
+            // Update cursor and show tooltip for sensors/devices, rotate companies
+            if (intersects.length > 0) {
+                const hoveredMesh = intersects[0].object;
+                // Use direct node reference from userData
+                const hoveredNode = hoveredMesh.userData.node || 
+                                   hoveredMesh.userData.parentGroup?.userData.node ||
+                                   hoveredMesh.parent?.userData?.node;
+                
+                if (hoveredNode && hoveredNode.type === 'sensor') {
+                    document.body.style.cursor = 'pointer';
+                    
+                    // Show device name and company
+                    let tooltipText = hoveredNode.name || 'Sensor';
+                    if (hoveredNode.parent && hoveredNode.parent.parent) {
+                        tooltipText += ` (${hoveredNode.parent.parent.name})`;
+                    }
+                    
+                    showTooltip(event.clientX, event.clientY, tooltipText);
+                    
+                    // Reset any previously hovered company
+                    if (lastHoveredCompany) {
+                        resetCompanyRotation(lastHoveredCompany);
+                        lastHoveredCompany = null;
+                    }
+                } else if (hoveredNode && hoveredNode.type === 'device') {
+                    document.body.style.cursor = 'pointer';
+                    
+                    // Show device name
+                    showTooltip(event.clientX, event.clientY, hoveredNode.name || 'Device');
+                    
+                    // Track hovered device to pause animation
+                    window.hoveredDevice = hoveredNode;
+                    
+                    // Reset any previously hovered company
+                    if (lastHoveredCompany) {
+                        resetCompanyRotation(lastHoveredCompany);
+                        lastHoveredCompany = null;
+                    }
+                } else if (hoveredNode && hoveredNode.type === 'company') {
+                    document.body.style.cursor = 'pointer';
+                    
+                    // Show company name in tooltip
+                    showTooltip(event.clientX, event.clientY, hoveredNode.name);
+                    
+                    // Optional: gentle rotation animation for mothership on hover
+                    if (lastHoveredCompany !== hoveredNode) {
+                        // Reset previous company
+                        if (lastHoveredCompany) {
+                            resetCompanyRotation(lastHoveredCompany);
+                        }
+                        
+                        lastHoveredCompany = hoveredNode;
+                    }
+                } else {
+                    document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+                    hideTooltip();
+                    
+                    // Reset company rotation
+                    if (lastHoveredCompany) {
+                        resetCompanyRotation(lastHoveredCompany);
+                        lastHoveredCompany = null;
+                    }
+                }
+            } else {
+                document.body.style.cursor = 'default';
+                hideTooltip();
+                
+                // Clear hovered device
+                window.hoveredDevice = null;
+                
+                // Reset company rotation
+                if (lastHoveredCompany) {
+                    resetCompanyRotation(lastHoveredCompany);
+                    lastHoveredCompany = null;
+                }
+            }
+        }
+        
+        function resetCompanyRotation(companyNode) {
+            if (companyOriginalRotations.has(companyNode)) {
+                const original = companyOriginalRotations.get(companyNode);
+                companyNode.mesh.rotation.x = original.x;
+                companyNode.mesh.rotation.y = original.y;
+                companyNode.mesh.rotation.z = original.z;
+            }
+        }
+        
+        // Tooltip functions
+        let tooltipElement = null;
+        
+        function showTooltip(x, y, text) {
+            if (!tooltipElement) {
+                tooltipElement = document.createElement('div');
+                tooltipElement.style.position = 'fixed';
+                tooltipElement.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                tooltipElement.style.color = 'white';
+                tooltipElement.style.padding = '8px 12px';
+                tooltipElement.style.borderRadius = '4px';
+                tooltipElement.style.fontSize = '14px';
+                tooltipElement.style.pointerEvents = 'none';
+                tooltipElement.style.zIndex = '10000';
+                tooltipElement.style.whiteSpace = 'nowrap';
+                document.body.appendChild(tooltipElement);
+            }
+            
+            tooltipElement.textContent = text;
+            tooltipElement.style.left = (x + 15) + 'px';
+            tooltipElement.style.top = (y + 15) + 'px';
+            tooltipElement.style.display = 'block';
+        }
+        
+        function hideTooltip() {
+            if (tooltipElement) {
+                tooltipElement.style.display = 'none';
+            }
+        }
+
+        // Select node
+        function selectNode(node) {
+            console.log('🎯 selectNode called for:', node.name, '(type:', node.type + ')');
+            console.log('📌 Current selectedNode:', selectedNode ? selectedNode.name : 'null');
+            
+            // Deselect previous - restore original material (only if different node)
+            if (selectedNode && selectedNode !== node && selectedNode.mesh) {
+                console.log('❌ Deselecting previous node:', selectedNode.name);
+                // Restore original material/color
+                if (selectedNode.originalMaterial) {
+                    // For Groups (ships), get the hull child mesh
+                    const targetMesh = selectedNode.mesh.type === 'Group' ? 
+                        selectedNode.mesh.children.find(child => child.geometry === geometryCache.spaceship || child.geometry === geometryCache.mothership) : 
+                        selectedNode.mesh;
+                    
+                    if (targetMesh) {
+                        targetMesh.material = selectedNode.originalMaterial;
+                    }
+                    selectedNode.originalMaterial = null;
+                }
+                
+                // Only reset scale for non-animated devices
+                const status = selectedNode.data?.status;
+                if (!status || (status !== 5 && status !== 'down' && status !== 4 && status !== 10 && status !== 'warning')) {
+                    selectedNode.mesh.scale.set(1, 1, 1);
+                }
+            }
+
+            selectedNode = node;
+            console.log('✨ selectedNode set to:', selectedNode.name, '(type:', selectedNode.type + ')');
+            
+            // Highlight the newly selected node with cyan glow
+            if (node && node.mesh) {
+                // For Groups (ships), get the hull child mesh; for direct meshes (sensors, earth), use mesh directly
+                const targetMesh = node.mesh.type === 'Group' ? node.mesh.children.find(child => child.geometry === geometryCache.spaceship || child.geometry === geometryCache.mothership) : node.mesh;
+                
+                if (targetMesh && targetMesh.material) {
+                    // Store original material if not already stored
+                    if (!node.originalMaterial) {
+                        node.originalMaterial = Array.isArray(targetMesh.material) ? targetMesh.material.map(m => m.clone()) : targetMesh.material.clone();
+                    }
+                    
+                    // Create highlighted material based on node type
+                    if (node.type === 'sensor') {
+                        // Sensor: Bright cyan glow
+                        const highlightMaterial = new THREE.MeshStandardMaterial({
+                            color: 0x00ffff,
+                            emissive: 0x00ffff,
+                            emissiveIntensity: 1.2,
+                            metalness: 0.8,
+                            roughness: 0.2,
+                            transparent: true,
+                            opacity: 1.0
+                        });
+                        targetMesh.material = highlightMaterial;
+                    } else if (node.type === 'device' || (node.type === 'company' && !node.isEarth)) {
+                        // Device/Mothership: Apply cyan glow to hull material (first in array)
+                        const hullHighlight = new THREE.MeshPhongMaterial({
+                            color: 0x00ffff,
+                            emissive: 0x00ffff,
+                            emissiveIntensity: 0.8,
+                            specular: 0xffffff,
+                            shininess: 120,
+                            transparent: false,
+                            opacity: 1.0
+                        });
+                        
+                        if (Array.isArray(targetMesh.material)) {
+                            // Keep engine material, replace hull material
+                            targetMesh.material = [hullHighlight, targetMesh.material[1]];
+                        } else {
+                            targetMesh.material = hullHighlight;
+                        }
+                        console.log('💎 Ship cyan material applied to:', node.name);
+                    } else if (node.type === 'company' && node.isEarth) {
+                        // Earth: Preserve texture and just increase emissive glow
+                        const originalMat = Array.isArray(node.originalMaterial) ? node.originalMaterial[0] : node.originalMaterial;
+                        const highlightMaterial = new THREE.MeshPhongMaterial({
+                            map: originalMat.map,  // Preserve the Earth texture
+                            color: 0xffffff,  // Keep original color
+                            emissive: 0x00ddff,  // Add cyan glow
+                            emissiveIntensity: 0.5,  // Moderate glow
+                            specular: 0x333333,
+                            shininess: 15
+                        });
+                        targetMesh.material = highlightMaterial;
+                    }
+                    
+                    console.log(`✨ Selected ${node.type}: ${node.name} - highlighted with cyan`);
+                }
+            }
+            
+            // If clicking a sensor, show individual sensor details immediately, then zoom
+            if (node.type === 'sensor') {
+                console.log(`Sensor clicked: ${node.name}`);
+                showIndividualSensorPopup(node);  // Show popup FIRST for immediate feedback
+                zoomToNode(node);  // Then animate camera
+                return;
+            }
+            
+            // If clicking a company node, zoom to it and show all devices
+            if (node.type === 'company') {
+                // Special handling for Earth - toggle grid
+                if (node.isEarth && gridHelper) {
+                    gridHelper.visible = !gridHelper.visible;
+                    console.log('🌍 Earth clicked - grid ' + (gridHelper.visible ? 'shown' : 'hidden'));
+                    return;
+                }
+                
+                // Close any open sensor popup and reset state
+                closeSensorPopup();
+                console.log('🏢 Company clicked - popup closed, state reset');
+                
+                populateLoadingStats(node);  // Populate loading overlay with company stats
+                zoomToNode(node);
+                
+                // Highlight devices of this company
+                nodes.forEach(n => {
+                    if (n.type === 'device' && n.parent === node) {
+                        // Brief highlight pulse
+                        if (n.mesh) {
+                            const originalScale = n.mesh.scale.x;
+                            n.mesh.scale.set(1.5, 1.5, 1.5);
+                            setTimeout(() => {
+                                const currentStatus = n.data?.status;
+                                // Don't reset scale if it's an animated status
+                                if (currentStatus !== 5 && currentStatus !== 'down' && currentStatus !== 4 && currentStatus !== 10 && currentStatus !== 'warning') {
+                                    if (n.mesh) n.mesh.scale.set(1, 1, 1);
+                                }
+                            }, 500);
+                        }
+                    }
+                });
+                return;
+            }
+            
+            // If clicking a device node (spaceship), show sensor popup immediately, then zoom
+            if (node.type === 'device') {
+                console.log(`Device clicked: ${node.name}`);
+                showSensorPopup(node);  // Show popup FIRST for immediate feedback
+                populateLoadingStats(node);  // Populate loading overlay with device stats
+                zoomToNode(node);  // Then animate camera
+                return;
+            }
+
+            // Show info panel
+            const infoPanel = document.getElementById('info-panel');
+            infoPanel.classList.add('visible');
+
+            const infoTitle = document.getElementById('info-title');
+            const infoSubtitle = document.getElementById('info-subtitle');
+            const infoDetails = document.getElementById('info-details');
+
+            infoTitle.textContent = node.name;
+            infoSubtitle.textContent = node.type.toUpperCase();
+
+            let detailsHTML = '';
+
+            if (node.type === 'company') {
+                const devices = nodes.filter(n => n.type === 'device' && n.parent === node);
+                const upDevices = devices.filter(d => d.data?.status === 3 || d.data?.effectiveStatus === 'up').length;
+                const downDevices = devices.filter(d => d.data?.status === 5 || d.data?.effectiveStatus === 'down').length;
+                const warningDevices = devices.filter(d => d.data?.status === 4 || d.data?.effectiveStatus === 'warning').length;
+                
+                detailsHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Total Devices</span>
+                        <span class="info-value">${devices.length}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Online</span>
+                        <span class="info-value" style="color: #22c55e;">${upDevices}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Warning</span>
+                        <span class="info-value" style="color: #fbbf24;">${warningDevices}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Down</span>
+                        <span class="info-value" style="color: #ef4444;">${downDevices}</span>
+                    </div>
+                    <div class="info-row" style="margin-top: 1rem;">
+                        <a href="/?company=${encodeURIComponent(node.name)}" target="_blank" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem;">📊 View in Dashboard</a>
+                    </div>
+                `;
+            } else if (node.type === 'device') {
+                const status = node.data.effectiveStatus || 'up';
+                const statusClass = status === 'up' ? 'status-up' : status === 'warning' ? 'status-warning' : 'status-down';
+                
+                detailsHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Status</span>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Company</span>
+                        <span class="info-value">${node.data.company || 'N/A'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">IP Address</span>
+                        <span class="info-value">${node.data.host || 'N/A'}</span>
+                    </div>
+                `;
+
+                if (node.data.sensorStats) {
+                    detailsHTML += `
+                        <div class="info-row">
+                            <span class="info-label">Total Sensors</span>
+                            <span class="info-value">${node.data.sensorStats.total || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Online</span>
+                            <span class="info-value" style="color: #22c55e;">${node.data.sensorStats.up || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Warning</span>
+                            <span class="info-value" style="color: #fbbf24;">${node.data.sensorStats.warning || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Down</span>
+                            <span class="info-value" style="color: #ef4444;">${node.data.sensorStats.down || 0}</span>
+                        </div>
+                    `;
+                }
+                
+                detailsHTML += `
+                    <div class="info-row" style="margin-top: 1rem;">
+                        <a href="javascript:void(0);" onclick="window.open('/?openDevice=${node.data.id}', '_blank');" style="display: inline-block; padding: 0.5rem 1rem; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer;">📊 View in Dashboard</a>
+                    </div>
+                `;
+            }
+
+            infoDetails.innerHTML = detailsHTML;
+
+            // Zoom to node
+            zoomToNode(node);
+        }
+
+        // Navigate to adjacent node using arrow keys
+        function navigateToAdjacentNode(arrowKey) {
+            if (!selectedNode) return;
+            
+            // Filter nodes based on selected node type
+            let navigableNodes;
+            if (selectedNode.type === 'company') {
+                // Navigate only through companies (excluding Earth)
+                navigableNodes = nodes.filter(n => n.type === 'company' && !n.isEarth);
+            } else if (selectedNode.type === 'device') {
+                // Navigate only through devices
+                navigableNodes = nodes.filter(n => n.type === 'device');
+            } else {
+                // Sensors - don't navigate
+                return;
+            }
+            
+            if (navigableNodes.length === 0) return;
+            
+            // Get current index
+            const currentIndex = navigableNodes.findIndex(n => n === selectedNode);
+            if (currentIndex === -1) return;
+            
+            let nextNode;
+            
+            if (arrowKey === 'ArrowRight' || arrowKey === 'ArrowDown') {
+                // Next node (wrap around to start)
+                const nextIndex = (currentIndex + 1) % navigableNodes.length;
+                nextNode = navigableNodes[nextIndex];
+            } else if (arrowKey === 'ArrowLeft' || arrowKey === 'ArrowUp') {
+                // Previous node (wrap around to end)
+                const prevIndex = (currentIndex - 1 + navigableNodes.length) % navigableNodes.length;
+                nextNode = navigableNodes[prevIndex];
+            }
+            
+            if (nextNode) {
+                console.log(`⬅️➡️ Navigating from ${selectedNode.name} to ${nextNode.name}`);
+                selectNode(nextNode);
+            }
+        }
+
+        // Helper function to fetch with exponential backoff
+        async function fetchWithRetry(url, options = {}, retries = 3, backoff = 5000) {
+            // Add cache busting to ensure fresh data
+            const cacheBuster = `_t=${Date.now()}`;
+            const separator = url.includes('?') ? '&' : '?';
+            const freshUrl = `${url}${separator}${cacheBuster}`;
+            
+            // Force no-cache in fetch options
+            const freshOptions = { 
+                ...options, 
+                cache: 'no-store',
+                headers: {
+                    ...options.headers,
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                }
+            };
+
+            try {
+                // console.log(`🔄 Fetching fresh data from: ${freshUrl}`);
+                const response = await fetch(freshUrl, freshOptions);
+                
+                // Don't retry on 404 (Not Found) - resource doesn't exist
+                if (response.status === 404) {
+                    throw new Error(`HTTP 404`);
+                }
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response;
+            } catch (error) {
+                // Stop retrying if it's a 404
+                if (error.message.includes('HTTP 404')) {
+                    throw error;
+                }
+
+                if (retries > 0) {
+                    console.log(`⚠️ Fetch failed for ${url} (${error.message}), retrying in ${backoff/1000}s... (${retries} attempts left)`);
+                    
+                    // Update loading text if visible
+                    const statsContainer = document.getElementById('loading-stats');
+                    if (statsContainer && statsContainer.style.display !== 'none') {
+                        statsContainer.innerHTML = `<div style="text-align: center; color: rgba(255, 255, 0, 0.8);">⚠️ Retrieving Data from Server, Please Wait. .. ...</div>`;
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, backoff));
+                    
+                    // Restore loading text before next attempt
+                    if (statsContainer && statsContainer.style.display !== 'none') {
+                        statsContainer.innerHTML = '<div style="text-align: center; color: rgba(0, 255, 255, 0.7);">📊 Loading statistics...</div>';
+                    }
+                    
+                    return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                }
+                throw error;
+            }
+        }
+
+        // Show sensor popup with real-time data
+        async function populateLoadingStats(node) {
+            const statsContainer = document.getElementById('loading-stats');
+            if (!statsContainer) return;
+
+            // Show loading indicator
+            statsContainer.innerHTML = '<div style="text-align: center; color: rgba(0, 255, 255, 0.7);">📊 Loading statistics...</div>';
+            statsContainer.style.display = 'block';
+            
+            // Flag that stats are loading - prevents overlay from closing if animation finishes early
+            window.isStatsLoading = true;
+
+            try {
+                let apiUrl = '';
+                let statsData = null;
+
+                if (node.type === 'device') {
+                    // Fetch device statistics from API
+                    const deviceId = node.data?.id;
+                    if (!deviceId) {
+                        throw new Error('Device ID not found');
+                    }
+                    
+                    const response = await fetchWithRetry(`/api/topology-stats/device/${deviceId}/stats`);
+                    statsData = await response.json();
+                    
+                    const current = statsData.current;
+                    const trend24h = statsData.trend24h;
+                    const urgentSensors = statsData.urgentSensors || [];
+                    const tempTrends = statsData.temperatureTrends || [];
+                    const anomalies = statsData.anomalies || [];
+                    const sensorAnomalies = statsData.sensorAnomalies || [];
+                    
+                    const healthPercent = parseFloat(current.healthPercentage || 0);
+                    const healthDelta = trend24h?.healthDelta || 0;
+                    const healthTrend = healthDelta > 0 ? '📈' : healthDelta < 0 ? '📉' : '➡️';
+                    
+                    let statsHTML = `
+                        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                            <div style="color: rgba(0, 255, 255, 0.9); font-weight: 600; margin-bottom: 8px;">${statsData.device.name}</div>
+                    `;
+                    
+                    // ANOMALIES SECTION - Show prominently at top if any exist
+                    const allAnomalies = [...anomalies, ...sensorAnomalies];
+                    if (allAnomalies.length > 0) {
+                        statsHTML += `
+                            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; padding: 8px; margin-bottom: 10px;">
+                                <div style="color: #fbbf24; font-weight: 600; margin-bottom: 6px;">⚠️ ANOMALIES DETECTED</div>
+                        `;
+                        
+                        allAnomalies.forEach(anomaly => {
+                            const severityColor = anomaly.severity === 'critical' ? '#ef4444' : anomaly.severity === 'warning' ? '#fbbf24' : '#60a5fa';
+                            const severityIcon = anomaly.severity === 'critical' ? '🔴' : anomaly.severity === 'warning' ? '⚠️' : 'ℹ️';
+                            
+                            statsHTML += `
+                                <div style="margin: 4px 0; color: ${severityColor}; font-size: 12px; line-height: 1.4;">
+                                    ${severityIcon} ${anomaly.message}
+                                </div>
+                            `;
+                        });
+                        
+                        statsHTML += `</div>`;
+                    }
+                    
+                    // Regular stats grid
+                    statsHTML += `
+                            <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; color: rgba(255, 255, 255, 0.7);">
+                                <span>Health:</span>
+                                <span style="color: ${healthPercent >= 80 ? '#22c55e' : healthPercent >= 50 ? '#fbbf24' : '#ef4444'}; font-weight: 600;">
+                                    ${healthPercent}% ${trend24h?.hasHistoricalData ? `${healthTrend} ${healthDelta > 0 ? '+' : ''}${healthDelta.toFixed(1)}%` : ''}
+                                </span>
+                                
+                                <span>Sensors:</span>
+                                <span>${current.totalSensors} total (${current.sensorsUp} up)</span>
+                    `;
+                    
+                    // Urgent items
+                    if (current.sensorsDown > 0 || current.sensorsWarning > 0) {
+                        statsHTML += `
+                                <span style="color: #ef4444; font-weight: 600;">🚨 Urgent:</span>
+                                <span style="color: #ef4444; font-weight: 600;">
+                                    ${current.sensorsDown > 0 ? `${current.sensorsDown} down` : ''}
+                                    ${current.sensorsDown > 0 && current.sensorsWarning > 0 ? ', ' : ''}
+                                    ${current.sensorsWarning > 0 ? `${current.sensorsWarning} warning` : ''}
+                                </span>
+                        `;
+                    }
+                    
+                    // All systems nominal
+                    if (current.sensorsDown === 0 && current.sensorsWarning === 0 && allAnomalies.length === 0) {
+                        statsHTML += `
+                                <span style="color: #22c55e;">✓ Status:</span>
+                                <span style="color: #22c55e; font-weight: 600;">All systems nominal</span>
+                        `;
+                    }
+                    
+                    statsHTML += `
+                            </div>
+                        </div>
+                    `;
+                    
+                    statsContainer.innerHTML = statsHTML;
+                    
+                    // Update main loading text to indicate success
+                    const loadingText = document.querySelector('.loading-text');
+                    if (loadingText) loadingText.textContent = '✅ Data Loaded';
+                    
+                } else if (node.type === 'company') {
+                    // Fetch company statistics from API
+                    const companyName = encodeURIComponent(node.name);
+                    
+                    const response = await fetchWithRetry(`/api/topology-stats/company/${companyName}/stats`);
+                    statsData = await response.json();
+                    
+                    const current = statsData.current;
+                    const trend24h = statsData.trend24h;
+                    const criticalDevices = statsData.criticalDevices || [];
+                    const recentAlerts = statsData.recentAlerts || [];
+                    const anomalies = statsData.anomalies || [];
+                    
+                    const healthPercent = parseFloat(current.healthPercentage || 0);
+                    const healthDelta = trend24h?.healthDelta || 0;
+                    const healthTrend = healthDelta > 0 ? '📈' : healthDelta < 0 ? '📉' : '➡️';
+                    
+                    const urgentItems = [];
+                    if (current.devicesDown > 0) urgentItems.push(`${current.devicesDown} device${current.devicesDown !== 1 ? 's' : ''} down`);
+                    if (current.sensorsDown > 0) urgentItems.push(`${current.sensorsDown} sensor${current.sensorsDown !== 1 ? 's' : ''} down`);
+                    if (current.sensorsWarning > 0) urgentItems.push(`${current.sensorsWarning} warning${current.sensorsWarning !== 1 ? 's' : ''}`);
+                    
+                    let statsHTML = `
+                        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                            <div style="color: rgba(0, 255, 255, 0.9); font-weight: 600; margin-bottom: 8px;">${statsData.company.name}</div>
+                    `;
+                    
+                    // ANOMALIES SECTION - Show prominently at top if any exist
+                    if (anomalies.length > 0) {
+                        statsHTML += `
+                            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; padding: 8px; margin-bottom: 10px;">
+                                <div style="color: #fbbf24; font-weight: 600; margin-bottom: 6px;">⚠️ NETWORK ANOMALIES</div>
+                        `;
+                        
+                        anomalies.forEach(anomaly => {
+                            const severityColor = anomaly.severity === 'critical' ? '#ef4444' : anomaly.severity === 'warning' ? '#fbbf24' : '#60a5fa';
+                            const severityIcon = anomaly.severity === 'critical' ? '🔴' : anomaly.severity === 'warning' ? '⚠️' : 'ℹ️';
+                            
+                            statsHTML += `
+                                <div style="margin: 4px 0; color: ${severityColor}; font-size: 12px; line-height: 1.4;">
+                                    ${severityIcon} ${anomaly.message}
+                                </div>
+                            `;
+                        });
+                        
+                        statsHTML += `</div>`;
+                    }
+                    
+                    // Regular stats grid
+                    statsHTML += `
+                            <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; color: rgba(255, 255, 255, 0.7);">
+                                <span>Network Health:</span>
+                                <span style="color: ${healthPercent >= 80 ? '#22c55e' : healthPercent >= 50 ? '#fbbf24' : '#ef4444'}; font-weight: 600;">
+                                    ${healthPercent}% ${trend24h?.hasHistoricalData ? `${healthTrend} ${healthDelta > 0 ? '+' : ''}${healthDelta.toFixed(1)}%` : ''}
+                                </span>
+                                
+                                <span>Devices:</span>
+                                <span>${current.totalDevices} total (${current.devicesUp} up, ${current.devicesDown} down)</span>
+                                
+                                <span>Sensors:</span>
+                                <span>${current.totalSensors} monitored</span>
+                                
+                                ${urgentItems.length > 0 ? `
+                                    <span style="color: #ef4444; font-weight: 600;">🚨 Urgent:</span>
+                                    <span style="color: #ef4444; font-weight: 600;">${urgentItems.join(', ')}</span>
+                                ` : anomalies.length === 0 ? `
+                                    <span style="color: #22c55e;">✓ Status:</span>
+                                    <span style="color: #22c55e; font-weight: 600;">All systems operational</span>
+                                ` : ''}
+                                
+                                ${recentAlerts.length > 0 && trend24h?.hasHistoricalData ? `
+                                    <span style="color: #9ca3af;">📊 24h Alerts:</span>
+                                    <span style="color: #9ca3af;">${recentAlerts.length} event${recentAlerts.length !== 1 ? 's' : ''}</span>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                    
+                    statsContainer.innerHTML = statsHTML;
+                    
+                    // Update main loading text to indicate success
+                    const loadingText = document.querySelector('.loading-text');
+                    if (loadingText) loadingText.textContent = '✅ Data Loaded';
+                }
+                
+            } catch (error) {
+                // Only log real errors, not 404s which are expected for new/unknown entities
+                if (!error.message.includes('HTTP 404')) {
+                    console.error('Error loading stats:', error);
+                } else {
+                    console.log('ℹ️ No stats available for this entity (404)');
+                }
+                
+                // Fallback to local data if API fails
+                // console.log('📊 Falling back to local statistics calculation...');
+                populateLoadingStatsLocal(node);
+            } finally {
+                window.isStatsLoading = false;
+                
+                // If animation finished while we were loading, close the overlay now
+                // (with a small delay so user can see the result)
+                if (!window.activeCameraAnimation) {
+                    // Increase delay to 4 seconds to ensure user has time to read stats
+                    // especially if they waited a long time for the fetch
+                    setTimeout(() => {
+                        const loadingOverlay = document.getElementById('loading-overlay');
+                        // Check again if animation is still inactive (user didn't click something else)
+                        if (loadingOverlay && !window.activeCameraAnimation) {
+                            loadingOverlay.classList.remove('visible');
+                            const statsContainer = document.getElementById('loading-stats');
+                            if (statsContainer) {
+                                statsContainer.style.display = 'none';
+                                statsContainer.innerHTML = '';
+                            }
+                        }
+                    }, 4000);
+                }
+            }
+        }
+
+        // Fallback function using local data (original implementation)
+        function populateLoadingStatsLocal(node) {
+            const statsContainer = document.getElementById('loading-stats');
+            if (!statsContainer) return;
+            
+            // Update loading text to indicate fallback
+            const loadingText = document.querySelector('.loading-text');
+            if (loadingText) loadingText.textContent = '⚠️ Using Cached Data';
+
+            let statsHTML = '';
+
+            if (node.type === 'device') {
+                // Device statistics
+                const device = node.data;
+                const sensors = device.sensors || [];
+                
+                const sensorStats = {
+                    total: sensors.length,
+                    up: sensors.filter(s => s.status === 3).length,
+                    down: sensors.filter(s => s.status === 5).length,
+                    warning: sensors.filter(s => s.status === 4).length
+                };
+
+                const healthPercent = sensorStats.total > 0 
+                    ? Math.round((sensorStats.up / sensorStats.total) * 100) 
+                    : 0;
+
+                statsHTML = `
+                    <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="color: rgba(0, 255, 255, 0.9); font-weight: 600;">${device.name}</div>
+                            <div style="font-size: 10px; color: #9ca3af; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">OFFLINE</div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; color: rgba(255, 255, 255, 0.7);">
+                            <span>Health:</span>
+                            <span style="color: ${healthPercent >= 80 ? '#22c55e' : healthPercent >= 50 ? '#fbbf24' : '#ef4444'}; font-weight: 600;">${healthPercent}%</span>
+                            
+                            <span>Sensors:</span>
+                            <span>${sensorStats.total} total</span>
+                            
+                            ${sensorStats.down > 0 ? `
+                                <span style="color: #ef4444;">⚠️ Critical:</span>
+                                <span style="color: #ef4444; font-weight: 600;">${sensorStats.down} sensor${sensorStats.down !== 1 ? 's' : ''} down</span>
+                            ` : ''}
+                            
+                            ${sensorStats.warning > 0 ? `
+                                <span style="color: #fbbf24;">⚡ Warning:</span>
+                                <span style="color: #fbbf24; font-weight: 600;">${sensorStats.warning} sensor${sensorStats.warning !== 1 ? 's' : ''}</span>
+                            ` : ''}
+                            
+                            ${sensorStats.down === 0 && sensorStats.warning === 0 ? `
+                                <span style="color: #22c55e;">✓ Status:</span>
+                                <span style="color: #22c55e; font-weight: 600;">All systems nominal</span>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (node.type === 'company') {
+                // Company/Organization statistics
+                const devices = nodes.filter(n => n.type === 'device' && n.parent === node);
+                const totalDevices = devices.length;
+                
+                const deviceStats = {
+                    up: devices.filter(d => d.data?.status === 3).length,
+                    down: devices.filter(d => d.data?.status === 5).length,
+                    warning: devices.filter(d => d.data?.status === 4).length
+                };
+
+                // Count total sensors across all devices
+                let totalSensors = 0;
+                let totalSensorsUp = 0;
+                let totalSensorsDown = 0;
+                let totalSensorsWarning = 0;
+                
+                devices.forEach(d => {
+                    const sensors = d.data?.sensors || [];
+                    totalSensors += sensors.length;
+                    totalSensorsUp += sensors.filter(s => s.status === 3).length;
+                    totalSensorsDown += sensors.filter(s => s.status === 5).length;
+                    totalSensorsWarning += sensors.filter(s => s.status === 4).length;
+                });
+
+                const healthPercent = totalSensors > 0 
+                    ? Math.round((totalSensorsUp / totalSensors) * 100) 
+                    : 0;
+
+                const urgentItems = [];
+                if (deviceStats.down > 0) urgentItems.push(`${deviceStats.down} device${deviceStats.down !== 1 ? 's' : ''} down`);
+                if (totalSensorsDown > 0) urgentItems.push(`${totalSensorsDown} sensor${totalSensorsDown !== 1 ? 's' : ''} down`);
+                if (deviceStats.warning > 0) urgentItems.push(`${deviceStats.warning} warning${deviceStats.warning !== 1 ? 's' : ''}`);
+
+                statsHTML = `
+                    <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="color: rgba(0, 255, 255, 0.9); font-weight: 600;">${node.name}</div>
+                            <div style="font-size: 10px; color: #9ca3af; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">OFFLINE</div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; color: rgba(255, 255, 255, 0.7);">
+                            <span>Network Health:</span>
+                            <span style="color: ${healthPercent >= 80 ? '#22c55e' : healthPercent >= 50 ? '#fbbf24' : '#ef4444'}; font-weight: 600;">${healthPercent}%</span>
+                            
+                            <span>Devices:</span>
+                            <span>${totalDevices} total (${deviceStats.up} up, ${deviceStats.down} down)</span>
+                            
+                            <span>Sensors:</span>
+                            <span>${totalSensors} monitored</span>
+                            
+                            ${urgentItems.length > 0 ? `
+                                <span style="color: #ef4444; font-weight: 600;">🚨 Urgent:</span>
+                                <span style="color: #ef4444; font-weight: 600;">${urgentItems.join(', ')}</span>
+                            ` : `
+                                <span style="color: #22c55e;">✓ Status:</span>
+                                <span style="color: #22c55e; font-weight: 600;">All systems operational</span>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (statsHTML) {
+                statsContainer.innerHTML = statsHTML;
+                statsContainer.style.display = 'block';
+            }
+        }
+
+        function showSensorPopup(deviceNode) {
+            const device = deviceNode.data;
+            
+            console.log('🔍 showSensorPopup called for device:', deviceNode.name);
+            console.log('📍 Current lastPopupNode:', lastPopupNode ? lastPopupNode.name : 'null');
+            
+            // Reset popup tracking when showing device sensor list
+            lastPopupNode = null;
+            console.log('🔄 Device clicked - popup state reset, lastPopupNode cleared');
+            
+            // Create or update popup
+            let popup = document.getElementById('sensor-popup');
+            if (!popup) {
+                popup = document.createElement('div');
+                popup.id = 'sensor-popup';
+                popup.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(10, 10, 10, 0.95);
+                    border: 2px solid #3b82f6;
+                    border-radius: 12px;
+                    padding: 20px;
+                    min-width: 400px;
+                    max-width: 600px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    z-index: 10000;
+                    box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+                    color: white;
+                    font-family: system-ui, -apple-system, sans-serif;
+                    display: block;
+                `;
+                document.body.appendChild(popup);
+            }
+            
+            // Always make popup visible when function is called
+            popup.style.display = 'block';
+            
+            // Get sensors array, default to empty if not available
+            const sensors = device.sensors || [];
+            
+            // Calculate comprehensive sensor stats
+            const sensorStats = {
+                total: sensors.length,
+                up: sensors.filter(s => s.status === 3).length,
+                down: sensors.filter(s => s.status === 5).length,
+                warning: sensors.filter(s => s.status === 4).length,
+                paused: sensors.filter(s => s.status === 7).length,
+                unusual: sensors.filter(s => s.status === 10).length
+            };
+            
+            const statusColor = device.status === 3 ? '#22c55e' : device.status === 5 ? '#ef4444' : '#fbbf24';
+            const statusText = device.status === 3 ? 'UP' : device.status === 5 ? 'DOWN' : 'WARNING';
+            
+            popup.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0; color: #3b82f6; font-size: 20px;">${device.name || 'Device'}</h2>
+                    <button onclick="closeSensorPopup()" 
+                            style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
+                        ✕
+                    </button>
+                </div>
+                
+                <!-- Device Overview -->
+                <div style="background: rgba(59, 130, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13px;">
+                        <div style="color: #9ca3af; font-weight: 500;">Device ID:</div>
+                        <div style="color: #e5e7eb;">${device.id || 'N/A'}</div>
+                        
+                        <div style="color: #9ca3af; font-weight: 500;">Host:</div>
+                        <div style="color: #e5e7eb;">${device.host || 'Unknown'}</div>
+                        
+                        <div style="color: #9ca3af; font-weight: 500;">Type:</div>
+                        <div style="color: #e5e7eb;">${device.deviceType || device.device_type || 'Network Device'}</div>
+                        
+                        <div style="color: #9ca3af; font-weight: 500;">Status:</div>
+                        <div style="color: ${statusColor}; font-weight: bold;">${statusText}${device.statusText ? ` (${device.statusText})` : ''}</div>
+                        
+                        <div style="color: #9ca3af; font-weight: 500;">Priority:</div>
+                        <div style="color: ${device.priority > 3 ? '#fbbf24' : '#e5e7eb'}; ${device.priority > 3 ? 'font-weight: bold;' : ''}">
+                            ${device.priority || 'Normal'}${device.priority > 3 ? ' ⚡' : ''}
+                        </div>
+                        
+                        ${device.lastSeen || device.last_seen ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Seen:</div>
+                            <div style="color: #e5e7eb;">${new Date(device.lastSeen || device.last_seen).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${device.created_at ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Created:</div>
+                            <div style="color: #e5e7eb;">${new Date(device.created_at).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${device.prtgServerId || device.prtg_server_id ? `
+                            <div style="color: #9ca3af; font-weight: 500;">PRTG Server ID:</div>
+                            <div style="color: #e5e7eb;">${device.prtgServerId || device.prtg_server_id}</div>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
+                
+                <!-- Sensor Statistics -->
+                <h3 style="color: #60a5fa; margin: 10px 0 12px 0; font-size: 16px;">📊 Sensor Statistics (${sensorStats.total} Total)</h3>
+                <div id="sensor-stats-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
+                    <div class="sensor-stat-card" data-status="3" style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${sensorStats.up > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(34, 197, 94, 0.2);">
+                        <div style="font-size: 24px; font-weight: bold; color: #22c55e;">${sensorStats.up}</div>
+                        <div style="font-size: 11px; color: #9ca3af;">🟢 Up</div>
+                    </div>
+                    <div class="sensor-stat-card" data-status="4" style="background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${sensorStats.warning > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(251, 191, 36, 0.2);">
+                        <div style="font-size: 24px; font-weight: bold; color: #fbbf24;">${sensorStats.warning}</div>
+                        <div style="font-size: 11px; color: #9ca3af;">🟡 Warning</div>
+                    </div>
+                    <div class="sensor-stat-card" data-status="5" style="background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; text-align: center; cursor: ${sensorStats.down > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(239, 68, 68, 0.2);">
+                        <div style="font-size: 24px; font-weight: bold; color: #ef4444;">${sensorStats.down}</div>
+                        <div style="font-size: 11px; color: #9ca3af;">🔴 Down</div>
+                    </div>
+                    <div class="sensor-stat-card" data-status="7" style="background: rgba(149, 165, 166, 0.1); padding: 8px; border-radius: 8px; text-align: center; cursor: ${sensorStats.paused > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(149, 165, 166, 0.2);">
+                        <div style="font-size: 18px; font-weight: bold; color: #95a5a6;">${sensorStats.paused}</div>
+                        <div style="font-size: 10px; color: #9ca3af;">⏸️ Paused</div>
+                    </div>
+                    <div class="sensor-stat-card" data-status="10" style="background: rgba(155, 89, 182, 0.1); padding: 8px; border-radius: 8px; text-align: center; cursor: ${sensorStats.unusual > 0 ? 'pointer' : 'default'}; transition: all 0.2s; border: 1px solid rgba(155, 89, 182, 0.2);">
+                        <div style="font-size: 18px; font-weight: bold; color: #9b59b6;">${sensorStats.unusual}</div>
+                        <div style="font-size: 10px; color: #9ca3af;">🟣 Unusual</div>
+                    </div>
+                    <div style="background: rgba(59, 130, 246, 0.1); padding: 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(59, 130, 246, 0.2);">
+                        <div style="font-size: 18px; font-weight: bold; color: #3b82f6;">${sensorStats.total}</div>
+                        <div style="font-size: 10px; color: #9ca3af;">📊 Total</div>
+                    </div>
+                </div>
+                <div id="sensor-list-container" style="margin-top: 15px; display: none;">
+                    <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4 id="sensor-list-title" style="margin: 0; color: #60a5fa; font-size: 14px;"></h4>
+                        <button onclick="document.getElementById('sensor-list-container').style.display='none'" 
+                                style="background: #6b7280; border: none; color: white; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                            Hide
+                        </button>
+                    </div>
+                    <div id="sensor-list" style="max-height: 300px; overflow-y: auto;"></div>
+                </div>
+                <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
+                    💡 Click on a sensor count to see details • Click outside to close
+                </div>
+            `;
+            
+            popup.style.display = 'block';
+            
+            // Add click handlers to sensor stat cards
+            const statCards = popup.querySelectorAll('.sensor-stat-card');
+            statCards.forEach(card => {
+                const status = parseInt(card.dataset.status);
+                const count = sensorStats.up || sensorStats.warning || sensorStats.down || 
+                             sensorStats.paused || sensorStats.unusual;
+                
+                if (count > 0) {
+                    // Add hover effect
+                    card.addEventListener('mouseenter', () => {
+                        card.style.transform = 'scale(1.05)';
+                        card.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.3)';
+                    });
+                    card.addEventListener('mouseleave', () => {
+                        card.style.transform = 'scale(1)';
+                        card.style.boxShadow = 'none';
+                    });
+                    
+                    // Add click handler
+                    card.addEventListener('click', () => {
+                        showFilteredSensors(sensors, status, device);
+                    });
+                }
+            });
+            
+            // Note: Click-outside handling is managed by the global listener that checks isProcessingCanvasClick
+            // Removed duplicate listener that was causing popup to close immediately on device clicks
+            console.log('✅ Device popup displayed, relying on global click-outside handler');
+        }
+        
+        // Track if we're currently processing a canvas click (to prevent close listener interference)
+        let isProcessingCanvasClick = false;
+        
+        // Track the last node that had a popup open (for sensor-to-sensor transitions)
+        let lastPopupNode = null;
+        
+        // Close sensor popup
+        function closeSensorPopup() {
+            const popup = document.getElementById('sensor-popup');
+            if (popup) {
+                popup.style.display = 'none';
+                lastPopupNode = null; // Clear tracking when popup closes
+                console.log('✅ Sensor popup closed');
+            }
+        }
+        
+        // Show individual sensor popup
+        function showIndividualSensorPopup(sensorNode) {
+            console.log('🔍 showIndividualSensorPopup called for:', sensorNode.name);
+            console.log('📍 Current lastPopupNode:', lastPopupNode ? lastPopupNode.name : 'null');
+            
+            // Check if switching from one sensor/device to another
+            const isSwitchingNodes = lastPopupNode && lastPopupNode !== sensorNode;
+            console.log('🔀 isSwitchingNodes:', isSwitchingNodes);
+            if (isSwitchingNodes) {
+                console.log('🔄 Switching from', lastPopupNode.name, 'to', sensorNode.name);
+            }
+            
+            // Update last popup node
+            lastPopupNode = sensorNode;
+            console.log('✅ lastPopupNode set to:', lastPopupNode.name);
+            
+            const sensor = sensorNode.sensorData || {};
+            const device = sensorNode.data;
+            const parentDevice = sensorNode.parent;
+            
+            // Create or update popup
+            let popup = document.getElementById('sensor-popup');
+            if (!popup) {
+                console.log('📦 Creating new popup');
+                popup = document.createElement('div');
+                popup.id = 'sensor-popup';
+                popup.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(10, 10, 10, 0.95);
+                    border: 2px solid #8b5cf6;
+                    border-radius: 12px;
+                    padding: 20px;
+                    min-width: 400px;
+                    max-width: 600px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    z-index: 10000;
+                    box-shadow: 0 0 30px rgba(139, 92, 246, 0.5);
+                    color: white;
+                    font-family: system-ui, -apple-system, sans-serif;
+                    display: block;
+                `;
+                document.body.appendChild(popup);
+                
+                // Add click-outside-to-close (close when clicking UI elements, NOT when clicking canvas/sensors)
+                // Use capture phase to check BEFORE other handlers, with setTimeout to check AFTER popup is updated
+                document.addEventListener('click', function(e) {
+                    // Don't interfere if canvas click is being processed
+                    if (isProcessingCanvasClick) {
+                        console.log('🚫 Click-outside listener blocked - canvas click in progress');
+                        return;
+                    }
+                    
+                    // Use setTimeout to check popup state AFTER the click has been fully processed
+                    setTimeout(() => {
+                        const popup = document.getElementById('sensor-popup');
+                        if (popup && popup.style.display === 'block' && !popup.contains(e.target)) {
+                            // Close popup ONLY if clicking UI elements (NOT canvas where sensors are)
+                            const canvas = document.getElementById('canvas');
+                            if (e.target === canvas) {
+                                // Clicking on canvas - already handled by canvas click
+                                return;
+                            }
+                            // Clicking outside canvas and outside popup - close it
+                            console.log('🔽 Closing popup - clicked outside');
+                            closeSensorPopup();
+                        }
+                    }, 10); // Small delay to ensure popup update completes first
+                });
+            } else {
+                console.log('♻️ Reusing existing popup for node:', sensorNode.name);
+                // If switching nodes, briefly hide and show to force update
+                if (isSwitchingNodes) {
+                    console.log('🔃 Forcing popup refresh for new node');
+                    popup.style.display = 'none'; // Briefly hide
+                    // Force reflow to ensure display change is registered
+                    void popup.offsetHeight;
+                }
+                // Add flash animation to show popup is updating
+                popup.style.borderColor = '#00ffff';
+                setTimeout(() => {
+                    popup.style.borderColor = '#8b5cf6';
+                }, 200);
+            }
+            
+            // Always make popup visible and ensure it's on top
+            popup.style.display = 'block';
+            popup.style.zIndex = '10000';
+            console.log('📋 Popup display set to: block');
+            
+            // Status display configurations
+            const statusConfigs = {
+                3: { name: '🟢 Up', color: '#22c55e', text: 'UP', bg: 'rgba(34, 197, 94, 0.1)' },
+                4: { name: '🟡 Warning', color: '#fbbf24', text: 'WARNING', bg: 'rgba(251, 191, 36, 0.1)' },
+                5: { name: '🔴 Down', color: '#ef4444', text: 'DOWN', bg: 'rgba(239, 68, 68, 0.1)' },
+                7: { name: '⏸️ Paused', color: '#95a5a6', text: 'PAUSED', bg: 'rgba(149, 165, 166, 0.1)' },
+                10: { name: '🟣 Unusual', color: '#9b59b6', text: 'UNUSUAL', bg: 'rgba(155, 89, 182, 0.1)' }
+            };
+            
+            const sensorStatus = sensor.status || 3;
+            const config = statusConfigs[sensorStatus] || statusConfigs[3];
+            
+            popup.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0; color: #8b5cf6; font-size: 20px;">📡 Sensor Details</h2>
+                    <button onclick="closeSensorPopup()" 
+                            style="background: #ef4444; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-size: 18px;">
+                        ✕
+                    </button>
+                </div>
+                
+                <!-- Sensor Title -->
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size: 22px; font-weight: bold; color: #e5e7eb; margin-bottom: 5px;">
+                        ${sensor.name || 'Sensor #' + (sensorNode.sensorIndex + 1)}
+                    </div>
+                    ${sensor.sensorType || sensor.sensor_type ? `
+                        <div style="font-size: 13px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px;">
+                            Type: ${sensor.sensorType || sensor.sensor_type}
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Current Value (Prominent) -->
+                ${sensor.lastvalue || sensor.lastValue || sensor.last_value ? `
+                    <div style="background: rgba(139, 92, 246, 0.15); border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;">
+                        <div style="font-size: 32px; font-weight: bold; color: #8b5cf6; font-family: monospace;">
+                            ${sensor.lastvalue || sensor.lastValue || sensor.last_value}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <!-- Status Badge -->
+                <div style="background: ${config.bg}; border: 2px solid ${config.color}; border-radius: 8px; padding: 12px; margin-bottom: 15px; text-align: center;">
+                    <div style="font-size: 18px; font-weight: bold; color: ${config.color};">
+                        ${config.name}
+                    </div>
+                </div>
+                
+                <!-- Sensor Message/Status -->\n                ${sensor.lastMessage && sensor.lastMessage.trim() ? `\n                    <div style="background: rgba(139, 92, 246, 0.08); border-left: 3px solid #8b5cf6; border-radius: 6px; padding: 12px; margin-bottom: 15px;">\n                        <div style="color: #e5e7eb; font-size: 14px; line-height: 1.5;">\n                            ${sensor.lastMessage.trim()}\n                        </div>\n                    </div>\n                ` : ''}\n                \n                <!-- Additional Details -->\n                <div style="background: rgba(139, 92, 246, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 15px;">\n                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13px;">\n                        ${sensor.priority ? `\n                            <div style="color: #9ca3af; font-weight: 500;">Priority:</div>\n                            <div style="color: ${sensor.priority > 3 ? '#fbbf24' : '#e5e7eb'};">${sensor.priority} ${sensor.priority > 3 ? '⚡' : ''}</div>\n                        ` : ''}
+                        
+                        ${sensor.lastUp || sensor.last_up ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Up:</div>
+                            <div style="color: #e5e7eb;">${new Date(sensor.lastUp || sensor.last_up).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${sensor.lastDown || sensor.last_down ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Down:</div>
+                            <div style="color: #e5e7eb;">${new Date(sensor.lastDown || sensor.last_down).toLocaleString()}</div>
+                        ` : ''}
+                        
+                        ${sensor.lastCheck || sensor.last_check ? `
+                            <div style="color: #9ca3af; font-weight: 500;">Last Check:</div>
+                            <div style="color: #e5e7eb;">${new Date(sensor.lastCheck || sensor.last_check).toLocaleString()}</div>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                <hr style="border: none; border-top: 1px solid #374151; margin: 15px 0;">
+                
+                <!-- Parent Device Info -->
+                <div style="font-size: 12px; color: #9ca3af; margin-bottom: 10px;">
+                    <strong style="color: #8b5cf6;">Parent Device:</strong> ${device.name || 'Unknown'}
+                </div>
+                
+                <!-- Actions -->
+                <div style="display: flex; gap: 8px; margin-top: 15px;">
+                    <button onclick="showSensorPopup({data: ${JSON.stringify(device).replace(/"/g, '&quot;')}})" 
+                            style="flex: 1; padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 13px;">
+                        👁️ View All Sensors
+                    </button>
+                    <a href="/?openDevice=${device.id || device.objid}&sensorId=${sensor.id || sensor.objid}" 
+                       target="_blank"
+                       style="flex: 1; padding: 8px 16px; background: #10b981; color: white; text-align: center; text-decoration: none; border-radius: 5px; cursor: pointer; font-size: 13px;">
+                        📊 Open Dashboard
+                    </a>
+                </div>
+                
+                <div style="margin-top: 15px; font-size: 11px; color: #6b7280; text-align: center;">
+                    💡 Click "View All Sensors" to see all sensors for this device
+                </div>
+            `;
+            
+            popup.style.display = 'block';
+            console.log('🎯 Individual sensor popup content updated for:', sensorNode.name);
+            
+            // Note: Click-outside handling is managed by the global listener added during popup creation
+            // Removed duplicate listener that was causing popups to close immediately after sensor-to-sensor clicks
+        }
+        
+        // Show filtered list of sensors by status
+        function showFilteredSensors(sensors, status, device) {
+            const listContainer = document.getElementById('sensor-list-container');
+            const listTitle = document.getElementById('sensor-list-title');
+            const list = document.getElementById('sensor-list');
+            
+            // Filter sensors by status
+            const filteredSensors = sensors.filter(s => s.status === status);
+            
+            // Debug: Log first sensor to see available data
+            if (filteredSensors.length > 0) {
+                console.log('📊 Sample sensor data:', JSON.stringify(filteredSensors[0], null, 2));
+                console.log('📊 Available keys:', Object.keys(filteredSensors[0]));
+                console.log('📊 lastValue check:', {
+                    lastValue: filteredSensors[0].lastValue,
+                    last_value: filteredSensors[0].last_value,
+                    lastvalue: filteredSensors[0].lastvalue
+                });
+            }
+            
+            // Status display configurations
+            const statusConfigs = {
+                3: { name: '🟢 Up', color: '#22c55e', icon: '✓', bg: 'rgba(34, 197, 94, 0.1)' },
+                4: { name: '🟡 Warning', color: '#fbbf24', icon: '⚠', bg: 'rgba(251, 191, 36, 0.1)' },
+                5: { name: '🔴 Down', color: '#ef4444', icon: '✗', bg: 'rgba(239, 68, 68, 0.1)' },
+                7: { name: '⏸️ Paused', color: '#95a5a6', icon: '⏸', bg: 'rgba(149, 165, 166, 0.1)' },
+                10: { name: '🟣 Unusual', color: '#9b59b6', icon: '⚡', bg: 'rgba(155, 89, 182, 0.1)' }
+            };
+            
+            const config = statusConfigs[status] || statusConfigs[5];
+            listTitle.innerHTML = `<span style="color: ${config.color}">${config.name} Sensors (${filteredSensors.length})</span>`;
+            
+            // Build sensor list HTML
+            if (filteredSensors.length === 0) {
+                list.innerHTML = '<div style="padding: 10px; color: #6b7280; text-align: center;">No sensors in this state</div>';
+            } else {
+                list.innerHTML = filteredSensors.map(sensor => {
+                    const sensorConfig = statusConfigs[sensor.status] || statusConfigs[5];
+                    
+                    // Get sensor value - API returns camelCase fields
+                    const sensorValue = sensor.lastValue || sensor.last_value;
+                    const sensorType = sensor.sensorType || sensor.sensor_type;
+                    const statusMsg = sensor.statusText || sensor.lastMessage;
+                    
+                    return `
+                        <div style="background: ${sensorConfig.bg}; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid ${sensorConfig.color};">
+                            <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
+                                <div style="flex: 1;">
+                                    <div style="font-weight: bold; color: ${sensorConfig.color}; margin-bottom: 2px; font-size: 13px;">
+                                        ${sensorConfig.icon} ${sensor.name || sensorType || 'Sensor'}
+                                    </div>
+                                    ${sensorType && sensor.name ? `
+                                        <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px;">
+                                            Type: ${sensorType}
+                                        </div>
+                                    ` : ''}
+                                    ${sensorValue ? `
+                                        <div style="font-size: 12px; color: #8b5cf6; font-weight: bold; margin-top: 4px;">
+                                            💎 ${sensorValue}
+                                        </div>
+                                    ` : ''}
+                                    ${statusMsg ? `
+                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">
+                                            ${statusMsg}
+                                        </div>
+                                    ` : ''}
+                                    ${!sensor.name && (sensor.id || sensor.objid) ? `
+                                        <div style="font-size: 10px; color: #6b7280; margin-top: 2px;">
+                                            ID: ${sensor.id || sensor.objid}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.lastMessage || sensor.last_message ? `
+                                        <div style="font-size: 11px; color: #d1d5db; margin-top: 4px; padding: 4px 6px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+                                            📝 ${(sensor.lastMessage || sensor.last_message).substring(0, 100)}${(sensor.lastMessage || sensor.last_message).length > 100 ? '...' : ''}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.sensorType || sensor.sensor_type ? `
+                                        <div style="font-size: 10px; color: #9ca3af; text-transform: uppercase; margin-bottom: 4px; display:none;">
+                                            ${sensor.sensorType || sensor.sensor_type}
+                                        </div>
+                                    ` : ''}
+                                    ${sensor.lastMessage && sensor.lastMessage.trim() ? `
+                                        <div style="font-size: 11px; color: #d1d5db; margin-top: 4px;">
+                                            ${sensor.lastMessage.trim()}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                                    ${sensorValue ? `
+                                        <div style="font-weight: bold; color: ${sensorConfig.color}; font-size: 16px; font-family: monospace; white-space: nowrap;">
+                                            ${sensorValue}
+                                        </div>
+                                    ` : `
+                                        <div style="font-size: 11px; color: #6b7280; font-style: italic;">
+                                            No value
+                                        </div>
+                                    `}
+                                    ${sensor.priority && sensor.priority > 3 ? `
+                                        <div style="font-size: 10px; color: #fbbf24; font-weight: bold;">
+                                            ⚡ Priority ${sensor.priority}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <div style="margin-top: 8px; text-align: right;">
+                                <a href="javascript:void(0);" onclick="window.open('/?openDevice=${device.id}&sensorId=${sensor.id}', '_blank');" style="display: inline-block; padding: 4px 12px; background: #3498db; color: white; text-decoration: none; border-radius: 4px; font-size: 11px; cursor: pointer;">📊 View in Dashboard</a>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+            
+            // Show the list container
+            listContainer.style.display = 'block';
+            
+            // Scroll to the sensor list
+            listContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        // Zoom to node
+        function zoomToNode(node) {
+            const targetPosition = node.mesh.position.clone();
+            
+            // ALWAYS use consistent positioning for all node types
+            // Ships (devices and motherships) point toward center (0,0,0)
+            // We want camera BEHIND the ship, looking toward center
+            
+            // Calculate direction from center to ship (this is BEHIND the ship)
+            const centerToShip = targetPosition.clone().normalize();
+            
+            // For ships on the XZ plane, we want to be behind and elevated
+            // Behind = in the direction away from center
+            const up = new THREE.Vector3(0, 1, 0);
+            
+            // Position camera much further back - elevated at 40 degrees
+            const behindDistance = 500;      // Total distance from ship
+            const elevationAngle = 40;        // 40 degrees elevation
+            const elevationRadians = elevationAngle * Math.PI / 180;
+            
+            // Calculate camera position: behind and elevated
+            const horizontalDistance = behindDistance * Math.cos(elevationRadians);
+            const heightOffset = behindDistance * Math.sin(elevationRadians);
+            
+            // Position camera behind ship (away from center) and elevated
+            const cameraTarget = targetPosition.clone()
+                .add(centerToShip.clone().multiplyScalar(horizontalDistance))  // Behind (away from center)
+                .add(up.clone().multiplyScalar(heightOffset));                  // Elevated
+            
+            // Look at the SHIP itself to center it in view, not the center of the formation
+            const lookAtTarget = targetPosition.clone();
+            
+            console.log('📷 Camera: Behind ship at', targetPosition, '→ Position:', cameraTarget, '→ Looking at center');
+
+            // Cancel any existing camera animation before starting new one
+            window.cancelCameraAnimation();
+
+            // Show loading overlay with click-to-dismiss handler
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                // Reset loading text
+                const loadingText = loadingOverlay.querySelector('.loading-text');
+                if (loadingText) loadingText.textContent = '⏳ Loading vendor details...';
+                
+                loadingOverlay.classList.add('visible');
+                
+                // Add one-time click handler to dismiss overlay and cancel animation
+                const dismissOverlay = function(event) {
+                    event.stopPropagation();
+                    loadingOverlay.classList.remove('visible');
+                    
+                    // Cancel the camera animation
+                    if (window.activeCameraAnimation) {
+                        cancelAnimationFrame(window.activeCameraAnimation);
+                        window.activeCameraAnimation = null;
+                        console.log('🚫 Camera animation cancelled by user click');
+                    }
+                    
+                    // Clear stats
+                    const statsContainer = document.getElementById('loading-stats');
+                    if (statsContainer) {
+                        statsContainer.style.display = 'none';
+                        statsContainer.innerHTML = '';
+                    }
+                    
+                    // Remove this event listener
+                    loadingOverlay.removeEventListener('click', dismissOverlay);
+                };
+                
+                loadingOverlay.addEventListener('click', dismissOverlay);
+            }
+
+            // Pause auto-rotate for 60 seconds when user clicks something
+            if (autoRotate) {
+                autoRotate = false;
+                console.log('Auto-rotate paused for 60 seconds');
+                
+                // Resume after 1 minute
+                if (window.autoRotateTimeout) clearTimeout(window.autoRotateTimeout);
+                window.autoRotateTimeout = setTimeout(() => {
+                    autoRotate = true;
+                    console.log('Auto-rotate resumed');
+                }, 60000);
+            }
+
+            const startPosition = camera.position.clone();
+            const startTarget = controls.target.clone();
+            const startTime = Date.now();
+            
+            // Determine if target is on same side or opposite side of the circle
+            // Project both positions onto XZ plane and calculate angle between them
+            const currentDir = new THREE.Vector2(startPosition.x, startPosition.z).normalize();
+            const targetDir = new THREE.Vector2(targetPosition.x, targetPosition.z).normalize();
+            const angleBetween = Math.acos(currentDir.dot(targetDir));
+            const angleDegrees = angleBetween * 180 / Math.PI;
+            
+            // Calculate arc length to determine animation duration
+            // Closer ships = longer duration (slower, more visible orbit)
+            // Farther ships = shorter duration (quicker to cover more distance)
+            const currentPos = new THREE.Vector2(camera.position.x, camera.position.z);
+            const targetPos2D = new THREE.Vector2(targetPosition.x, targetPosition.z);
+            const arcRadius = currentPos.length(); // Distance from center
+            const arcLength = arcRadius * angleBetween; // Physical distance to travel
+            
+            // Inverse relationship: closer angles get MORE time per unit distance
+            const normalizedAngle = angleBetween / Math.PI; // 0 to 1
+            const baseDuration = 3500; // 3.5s for adjacent ships (very slow, smooth orbit)
+            const maxDuration = 5000;  // 5s for opposite side
+            // Use inverse power curve: closer = slower per degree, farther = faster per degree
+            const totalDuration = baseDuration + (maxDuration - baseDuration) * Math.pow(normalizedAngle, 0.7);
+            
+            console.log(`📷 Camera pan - angle: ${angleDegrees.toFixed(1)}°, duration: ${(totalDuration/1000).toFixed(1)}s`);
+            
+            // Use sweep approach only for far opposite side (> 120 degrees)
+            const useSweepApproach = angleBetween > (2 * Math.PI / 3); // 120 degrees
+            
+            if (useSweepApproach) {
+                // FAR OPPOSITE SIDE (>120°): Graceful sweep approach
+                const toCamera = startPosition.clone().sub(targetPosition).normalize();
+                const orbitRight = new THREE.Vector3().crossVectors(up, toCamera).normalize();
+                const orbitDirection = Math.random() > 0.5 ? orbitRight : orbitRight.clone().negate();
+                
+                const orbitMidDistance = 200;
+                const orbitMidHeight = 100;
+                const orbitMidPosition = targetPosition.clone()
+                    .add(orbitDirection.multiplyScalar(orbitMidDistance))
+                    .add(up.clone().multiplyScalar(orbitMidHeight));
+                
+                function updateCamera() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / totalDuration, 1);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    
+                    let currentPos, currentLookAt;
+                    
+                    if (eased < 0.4) {
+                        const t = eased / 0.4;
+                        currentPos = new THREE.Vector3().lerpVectors(startPosition, orbitMidPosition, t);
+                        currentLookAt = new THREE.Vector3().lerpVectors(startTarget, targetPosition, t);
+                    } else {
+                        const t = (eased - 0.4) / 0.6;
+                        currentPos = new THREE.Vector3().lerpVectors(orbitMidPosition, cameraTarget, t);
+                        currentLookAt = new THREE.Vector3().lerpVectors(targetPosition, lookAtTarget, t);
+                    }
+                    
+                    camera.position.copy(currentPos);
+                    controls.target.copy(currentLookAt);
+                    controls.update();
+
+                    if (progress < 1) {
+                        window.activeCameraAnimation = requestAnimationFrame(updateCamera);
+                    } else {
+                        window.activeCameraAnimation = null;
+                        console.log('✅ Camera sweep complete');
+                        
+                        // Only hide overlay if stats are not still loading
+                        if (!window.isStatsLoading) {
+                            // Hide loading overlay
+                            const loadingOverlay = document.getElementById('loading-overlay');
+                            if (loadingOverlay) {
+                                loadingOverlay.classList.remove('visible');
+                                // Clear stats
+                                const statsContainer = document.getElementById('loading-stats');
+                                if (statsContainer) {
+                                    statsContainer.style.display = 'none';
+                                    statsContainer.innerHTML = '';
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                updateCamera();
+                
+            } else {
+                // ORBITAL PAN (≤120°): Direct circular movement with gentle deceleration
+                // Camera stays at constant distance - pure rotation around center
+                // Remove elastic overshoot to eliminate end jitter
+                
+                function updateCamera() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / totalDuration, 1);
+                    
+                    // Smooth ease-out cubic - no overshoot, no jitter
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    
+                    // Interpolate position and look-at separately to maintain constant camera distance
+                    camera.position.lerpVectors(startPosition, cameraTarget, eased);
+                    controls.target.lerpVectors(startTarget, lookAtTarget, eased);
+                    controls.update();
+
+                    if (progress < 1) {
+                        window.activeCameraAnimation = requestAnimationFrame(updateCamera);
+                    } else {
+                        window.activeCameraAnimation = null;
+                        console.log('✅ Camera orbital pan complete');
+                        
+                        // Hide loading overlay
+                        const loadingOverlay = document.getElementById('loading-overlay');
+                        if (loadingOverlay) {
+                            loadingOverlay.classList.remove('visible');
+                            // Clear stats
+                            const statsContainer = document.getElementById('loading-stats');
+                            if (statsContainer) {
+                                statsContainer.style.display = 'none';
+                                statsContainer.innerHTML = '';
+                            }
+                        }
+                    }
+                }
+                
+                updateCamera();
+            }
+        }
+
+        // Control functions
+        function resetCamera() {
+            // Reset to initial page load view: angled perspective showing entire formation
+            camera.position.set(800, 500, 600);
+            controls.target.set(0, 0, 0);
+            selectedNode = null;
+            document.getElementById('info-panel').classList.remove('visible');
+        }
+
+        function toggleAutoRotate() {
+            autoRotate = !autoRotate;
+        }
+        
+        function toggleSettings() {
+            const panel = document.getElementById('controls-panel');
+            panel.classList.toggle('hidden');
+        }
+        
+        function toggleLegend() {
+            const panel = document.getElementById('legend-panel');
+            panel.classList.toggle('hidden');
+        }
+
+        function updateNodeSize(value) {
+            nodeSizeMultiplier = parseFloat(value);
+            document.getElementById('size-value').textContent = value;
+            
+            // Update existing nodes without full reload
+            nodes.forEach(node => {
+                if (!node.mesh) return;
+                
+                if (node.type === 'company' && !node.isEarth) {
+                    // Mothership base size
+                    const baseSize = 12;
+                    const newScale = baseSize * nodeSizeMultiplier;
+                    node.mesh.scale.setScalar(newScale / 12); // Normalize to base
+                } else if (node.type === 'device') {
+                    // Device base size
+                    const baseSize = 2;
+                    const newScale = baseSize * nodeSizeMultiplier;
+                    node.mesh.scale.setScalar(newScale / 2); // Normalize to base
+                } else if (node.type === 'sensor') {
+                    // Sensor base size
+                    const baseSize = 1;
+                    const newScale = baseSize * nodeSizeMultiplier;
+                    node.mesh.scale.setScalar(newScale);
+                }
+            });
+            
+            requestRender();
+        }
+
+        function updateSpread(value) {
+            spreadFactor = parseFloat(value);
+            document.getElementById('spread-value').textContent = value;
+            
+            // Update positions without full reload
+            nodes.forEach(node => {
+                if (!node.mesh || !node.initialPosition) return;
+                
+                // Scale position from center based on spread factor
+                const scaledX = node.initialPosition.x * spreadFactor;
+                const scaledY = node.initialPosition.y * spreadFactor;
+                const scaledZ = node.initialPosition.z * spreadFactor;
+                
+                node.mesh.position.set(scaledX, scaledY, scaledZ);
+                
+                // Update sensor orbit radius if applicable
+                if (node.type === 'sensor' && node.orbit) {
+                    node.orbit.radius = node.orbit.baseRadius * spreadFactor;
+                }
+            });
+            
+            requestRender();
+        }
+
+        function toggleLabels() {
+            showLabels = !showLabels;
+            labels.forEach(label => {
+                label.visible = showLabels;
+            });
+        }
+
+        // toggleConnections removed - no more connection lines
+
+        function expandAll() {
+            nodes.forEach(node => {
+                if (node.type === 'sensor') {
+                    // Only show sensor if its parent device is visible
+                    if (node.parent && node.parent.mesh && node.parent.mesh.visible && node.parent.visible) {
+                        node.mesh.visible = true;
+                        node.visible = true;
+                    }
+                }
+            });
+            console.log('✨ Expanded all sensors for visible devices');
+        }
+
+        function collapseAll() {
+            nodes.forEach(node => {
+                if (node.type === 'sensor') {
+                    node.mesh.visible = false;
+                    node.visible = false;
+                }
+            });
+            console.log('📦 Collapsed all sensors');
+        }
+
+        function searchNetwork(query) {
+            const results = document.getElementById('search-results');
+            
+            if (!query || query.length < 2) {
+                results.classList.remove('visible');
+                return;
+            }
+
+            const matches = nodes.filter(node => {
+                return node.name.toLowerCase().includes(query.toLowerCase());
+            }).slice(0, 10);
+
+            if (matches.length > 0) {
+                results.innerHTML = matches.map(node => `
+                    <div class="search-result-item" onclick="selectNodeByName('${node.name}')">
+                        <div class="search-result-name">${node.name}</div>
+                        <div class="search-result-type">${node.type}</div>
+                    </div>
+                `).join('');
+                results.classList.add('visible');
+            } else {
+                results.classList.remove('visible');
+            }
+        }
+
+        function selectNodeByName(name) {
+            const node = nodes.find(n => n.name === name);
+            if (node) {
+                selectNode(node);
+                document.getElementById('search-results').classList.remove('visible');
+            }
+        }
+
+        function filterByStatus(status) {
+            let visibleCount = 0;
+            
+            nodes.forEach(node => {
+                if (node.type === 'device') {
+                    const deviceStatus = node.data.status;
+                    const hasDownSensors = node.data.sensorStats?.down > 0;
+                    const hasWarningSensors = node.data.sensorStats?.warning > 0;
+                    const hasAlarms = hasDownSensors || hasWarningSensors;
+                    
+                    // Critical: ONLY device is DOWN (5) OR has down sensors (STRICTLY)
+                    const isCritical = deviceStatus === 5 || hasDownSensors;
+                    // Warning: ONLY device is WARNING (4) OR has warning sensors (EXCLUDE if critical)
+                    const isWarning = !isCritical && (deviceStatus === 4 || hasWarningSensors);
+                    // Up/Healthy: status 3 with no alarms
+                    const isHealthy = deviceStatus === 3 && !hasAlarms;
+                    
+                    let shouldShow = false;
+                    
+                    if (status === 'all') {
+                        shouldShow = true;  // Show ALL devices including unusual/paused (purple)
+                    } else if (status === 'alarms') {
+                        shouldShow = hasAlarms || deviceStatus === 5 || deviceStatus === 4;
+                    } else if (status === 'critical') {
+                        shouldShow = isCritical;
+                    } else if (status === 'warning') {
+                        shouldShow = isWarning;
+                    } else if (status === 'up') {
+                        shouldShow = isHealthy;
+                    }
+                    
+                    node.mesh.visible = shouldShow;
+                    node.visible = shouldShow;
+                    if (node.label) node.label.visible = shouldShow;
+                    // Hide status circle (yellow/red indicator) when device is filtered out
+                    if (node.statusCircle) node.statusCircle.visible = shouldShow;
+                    
+                    // Show/hide sensors orbiting this device
+                    nodes.forEach(sensorNode => {
+                        if (sensorNode.type === 'sensor' && sensorNode.data.deviceId === node.data.id) {
+                            sensorNode.mesh.visible = shouldShow;
+                            sensorNode.visible = shouldShow;
+                            if (sensorNode.label) sensorNode.label.visible = shouldShow;
+                        }
+                    });
+                    
+                    if (shouldShow) visibleCount++;
+                }
+            });
+            
+            // Update info panel with filter results
+            console.log(`🔍 Filter: ${status} - ${visibleCount} devices visible`);
+        }
+
+        function clearTopology() {
+            // Clear nodes
+            nodes.forEach(node => {
+                if (node.mesh) scene.remove(node.mesh);
+                if (node.label) scene.remove(node.label);
+            });
+            nodes = [];
+
+            // Clear labels
+            labels.forEach(label => {
+                scene.remove(label);
+            });
+            labels = [];
+        }
+
+        // Start
+        window.addEventListener('error', function(event) {
+            // Suppress Three.js devtool errors
+            if (event.message && event.message.includes('IS_DEVTOOL_ENABLED')) {
+                event.preventDefault();
+                return false;
+            }
+        });
+        
+        // Initialize with retry logic
+        let initAttempts = 0;
+        async function initWithRetry() {
+            try {
+                initAttempts++;
+                console.log(`🚀 Initializing topology (attempt ${initAttempts})...`);
+                await init();
+                console.log('✅ Topology initialized successfully');
+            } catch (error) {
+                console.error('❌ Init failed:', error);
+                if (initAttempts < 2) {
+                    console.log(`⏳ Retrying in 3 seconds...`);
+                    document.querySelector('.loading-text').textContent = `Initialization failed, retrying (${initAttempts}/2)...`;
+                    setTimeout(initWithRetry, 3000);
+                } else {
+                    document.querySelector('.loading-text').textContent = 'Failed to initialize. Please refresh the page.';
+                    document.querySelector('.loading-text').style.color = '#ef4444';
+                    
+                    // Add manual retry button
+                    const retryBtn = document.createElement('button');
+                    retryBtn.textContent = 'Refresh Page';
+                    retryBtn.style.cssText = 'margin-top: 20px; padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;';
+                    retryBtn.onclick = () => window.location.reload();
+                    document.querySelector('.loading-container').appendChild(retryBtn);
+                }
+            }
+        }
+        
+        // Check for openDevice URL parameter and handle navigation
+        function handleOpenDeviceParam() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const openDeviceId = urlParams.get('openDevice');
+            
+            if (openDeviceId) {
+                console.log(`🎯 OpenDevice parameter detected: ${openDeviceId}`);
+                
+                // Wait for topology to be fully loaded
+                const checkLoaded = setInterval(() => {
+                    if (nodes.length > 0) {
+                        clearInterval(checkLoaded);
+                        
+                        // Find the device node - check multiple ID fields
+                        const deviceNode = nodes.find(n => 
+                            n.type === 'device' && 
+                            (String(n.data.id) === String(openDeviceId) || 
+                             String(n.data.objid) === String(openDeviceId) ||
+                             String(n.data.deviceId) === String(openDeviceId))
+                        );
+                        
+                        if (deviceNode && deviceNode.mesh) {
+                            console.log(`✅ Found device: ${deviceNode.name} (ID: ${openDeviceId})`);
+                            
+                            // Hide all other devices and their sensors
+                            nodes.forEach(node => {
+                                if (node.type === 'device' && node !== deviceNode) {
+                                    node.mesh.visible = false;
+                                    node.visible = false;
+                                } else if (node.type === 'sensor') {
+                                    if (node.parent === deviceNode) {
+                                        // Show sensors for target device
+                                        node.visible = true;
+                                        node.mesh.visible = true;
+                                    } else {
+                                        // Hide sensors for other devices
+                                        node.mesh.visible = false;
+                                        node.visible = false;
+                                    }
+                                } else if (node.type === 'company' && node !== deviceNode.parent) {
+                                    // Dim other companies
+                                    if (node.mesh && node.mesh.material) {
+                                        node.mesh.material.opacity = 0.2;
+                                        node.mesh.material.transparent = true;
+                                    }
+                                }
+                            });
+                            
+                            // Move camera to focus on device
+                            setTimeout(() => {
+                                selectNode(deviceNode);
+                                console.log('📷 Camera focused on device');
+                            }, 1000);
+                        } else {
+                            console.warn(`⚠️ Device not found with ID: ${openDeviceId}`);
+                            console.log('Available device IDs:', nodes.filter(n => n.type === 'device').map(n => `${n.name}: ${n.data.id || n.data.objid}`).slice(0, 5));
+                        }
+                    }
+                }, 100);
+                
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkLoaded);
+                }, 10000);
+            }
+        }
+        
+        initWithRetry();
+        handleOpenDeviceParam();
+        
+        // Connect WebSocket for live updates
+        setTimeout(() => {
+            try {
+                connectWebSocket();
+            } catch (error) {
+                console.error('WebSocket connection failed:', error);
+            }
+        }, 1000);
+        
+        // Refresh data every 5 minutes as fallback
+        setInterval(() => {
+            try {
+                console.log('🔄 Refreshing topology data...');
+                loadNetworkData();
+            } catch (error) {
+                console.error('Refresh failed:', error);
+            }
+        }, 300000);
+    

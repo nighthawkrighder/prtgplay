@@ -1111,6 +1111,197 @@ app.get('/devices/enhanced', requireAuth, async (req, res, next) => {
   }
 });
 
+// Topology Statistics Routes (protected) - MUST be before general /api mount
+const topologyStatsRouter = require('./routes/topology-stats');
+app.use('/api/topology-stats', requireAuth, topologyStatsRouter);
+
+// Internal snapshot endpoint for cron job (localhost-only)
+app.post('/internal/topology-stats/snapshot', (req, res) => {
+  const db = require('./config/mysql-pool');
+  
+  // Validate request is from localhost
+  const clientIp = req.ip || req.connection.remoteAddress;
+  const normalizedIp = clientIp.replace(/^::ffff:/, '');
+  
+  if (normalizedIp !== '127.0.0.1' && normalizedIp !== '::1' && normalizedIp !== 'localhost') {
+    logger.warn(`Unauthorized snapshot request from ${normalizedIp}`);
+    return res.status(403).json({ error: 'Forbidden: localhost only' });
+  }
+  
+  logger.info('Starting topology statistics snapshot...');
+  
+  // Get all devices with their current stats
+  const deviceQuery = `
+    SELECT 
+      d.id AS device_id,
+      d.name AS device_name,
+      dm.company_name,
+      d.status_text AS status,
+      COUNT(s.id) AS total_sensors,
+      SUM(CASE WHEN s.status_text = 'Up' THEN 1 ELSE 0 END) AS sensors_up,
+      SUM(CASE WHEN s.status_text = 'Down' THEN 1 ELSE 0 END) AS sensors_down,
+      SUM(CASE WHEN s.status_text = 'Warning' THEN 1 ELSE 0 END) AS sensors_warning,
+      SUM(CASE WHEN s.status_text = 'Paused' THEN 1 ELSE 0 END) AS sensors_paused
+    FROM devices d
+    LEFT JOIN device_metadata dm ON d.id = dm.device_id
+    LEFT JOIN sensors s ON d.id = s.device_id
+    GROUP BY d.id, d.name, dm.company_name, d.status_text
+  `;
+  
+  db.query(deviceQuery, (err, devices) => {
+    if (err) {
+      logger.error('Error fetching devices for snapshot:', err);
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+    
+    logger.info(`Found ${devices.length} devices for snapshot`);
+    
+    // Insert device snapshots
+    let devicesProcessed = 0;
+    const deviceErrors = [];
+    
+    if (devices.length === 0) {
+      logger.warn('No devices found for snapshot');
+      return res.json({ 
+        success: true, 
+        message: 'No devices to snapshot',
+        devicesProcessed: 0,
+        companiesProcessed: 0
+      });
+    }
+    
+    devices.forEach((device, index) => {
+      const healthPercentage = device.total_sensors > 0 
+        ? Math.round((device.sensors_up / device.total_sensors) * 100)
+        : 100;
+      
+      const insertQuery = `
+        INSERT INTO device_snapshots (
+          device_id, device_name, company_name, snapshot_time,
+          health_percentage, sensor_count_total, sensor_count_up, sensor_count_down,
+          sensor_count_warning, sensor_count_paused, status_text
+        ) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      const values = [
+        device.device_id,
+        device.device_name,
+        device.company_name,
+        healthPercentage,
+        device.total_sensors,
+        device.sensors_up,
+        device.sensors_down,
+        device.sensors_warning,
+        device.sensors_paused,
+        device.status
+      ];
+      
+      db.query(insertQuery, values, (err2) => {
+        devicesProcessed++;
+        
+        if (err2) {
+          logger.error(`Error saving snapshot for device ${device.device_id}:`, err2);
+          deviceErrors.push({ deviceId: device.device_id, error: err2.message });
+        }
+        
+        // After all devices are processed, handle company snapshots
+        if (devicesProcessed === devices.length) {
+          logger.info(`Device snapshots complete: ${devicesProcessed} processed, ${deviceErrors.length} errors`);
+          
+          // Get company aggregates
+          const companyQuery = `
+            SELECT 
+              dm.company_name,
+              COUNT(DISTINCT d.id) AS total_devices,
+              COUNT(DISTINCT CASE WHEN d.status_text = 'Down' THEN d.id END) AS critical_devices,
+              COUNT(s.id) AS total_sensors,
+              SUM(CASE WHEN s.status_text = 'Up' THEN 1 ELSE 0 END) AS sensors_up,
+              SUM(CASE WHEN s.status_text = 'Down' THEN 1 ELSE 0 END) AS sensors_down
+            FROM device_metadata dm
+            LEFT JOIN devices d ON dm.device_id = d.id
+            LEFT JOIN sensors s ON d.id = s.device_id
+            WHERE dm.company_name IS NOT NULL
+            GROUP BY dm.company_name
+          `;
+          
+          db.query(companyQuery, (err3, companies) => {
+            if (err3) {
+              logger.error('Error fetching companies for snapshot:', err3);
+              return res.status(500).json({ 
+                error: 'Error processing company snapshots',
+                devicesProcessed,
+                deviceErrors
+              });
+            }
+            
+            logger.info(`Found ${companies.length} companies for snapshot`);
+            
+            let companiesProcessed = 0;
+            const companyErrors = [];
+            
+            if (companies.length === 0) {
+              return res.json({
+                success: true,
+                message: 'Snapshot complete',
+                devicesProcessed,
+                companiesProcessed: 0,
+                deviceErrors,
+                companyErrors: []
+              });
+            }
+            
+            companies.forEach((company) => {
+              const healthPercentage = company.total_sensors > 0 
+                ? Math.round((company.sensors_up / company.total_sensors) * 100)
+                : 100;
+              
+              const insertCompanyQuery = `
+                INSERT INTO company_snapshots (
+                  company_name, snapshot_time, network_health_percentage,
+                  device_count_total, device_count_down, sensor_count_total,
+                  sensor_count_down
+                ) VALUES (?, NOW(), ?, ?, ?, ?, ?)
+              `;
+              
+              const companyValues = [
+                company.company_name,
+                healthPercentage,
+                company.total_devices,
+                company.critical_devices, // device_count_down
+                company.total_sensors,
+                company.sensors_down
+              ];
+              
+              db.query(insertCompanyQuery, companyValues, (err4) => {
+                companiesProcessed++;
+                
+                if (err4) {
+                  logger.error(`Error saving snapshot for company ${company.company_name}:`, err4);
+                  companyErrors.push({ companyName: company.company_name, error: err4.message });
+                }
+                
+                // Send response when all companies are processed
+                if (companiesProcessed === companies.length) {
+                  logger.info(`Company snapshots complete: ${companiesProcessed} processed, ${companyErrors.length} errors`);
+                  
+                  res.json({
+                    success: true,
+                    message: 'Snapshot complete',
+                    devicesProcessed,
+                    companiesProcessed,
+                    deviceErrors,
+                    companyErrors
+                  });
+                }
+              });
+            });
+          });
+        }
+      });
+    });
+  });
+});
+
 // API Routes (protected) - mounted after direct routes
 app.use('/api', requireAuth, apiRoutes);
 
