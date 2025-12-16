@@ -517,3 +517,191 @@
             font-size: 11px;
             color: #aaa;
         }
+
+/* =========================================
+   Fighter Jet HUD Styles
+   ========================================= */
+#hud-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let clicks pass through */
+    z-index: 100; /* Above canvas but below some controls */
+    font-family: 'Courier New', Courier, monospace;
+    color: #0f0; /* Green HUD */
+    text-shadow: 0 0 5px #0f0;
+}
+
+.hud-column {
+    position: absolute;
+    /* Default to top right if not positioned by JS */
+    top: 80px;
+    right: 80px;
+    width: 220px;
+    padding: 20px;
+    background: rgba(0, 20, 0, 0.2);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 10px;
+    backdrop-filter: blur(2px);
+    transition: opacity 0.3s; /* Smooth fade */
+}
+
+.hud-column.left {
+    /* Override left class if we want it on the right by default when detached */
+    /* But JS sets left/top dynamically so this is just fallback */
+    left: auto;
+    right: 80px;
+    border-left: none;
+    border-right: 4px solid #0f0;
+}
+
+.hud-item {
+    margin-bottom: 20px;
+}
+
+.hud-label {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.hud-bar-container {
+    width: 100%;
+    height: 12px;
+    background: rgba(0, 50, 0, 0.5);
+    border: 1px solid #0f0;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Grid lines on bars */
+.hud-bar-container::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 19%,
+        rgba(0, 255, 0, 0.3) 20%
+    );
+}
+
+.hud-bar {
+    height: 100%;
+    background: #0f0;
+    width: 0%;
+    transition: width 0.5s ease-out, background-color 0.5s;
+    box-shadow: 0 0 10px #0f0;
+    position: relative;
+}
+
+.hud-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 2px;
+    height: 100%;
+    background: #fff;
+    opacity: 0.8;
+}
+
+.hud-value {
+    text-align: right;
+    font-size: 16px;
+    margin-top: 4px;
+    font-weight: bold;
+}
+
+.hud-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: 0.8;
+}
+
+.hud-crosshair {
+    width: 60px;
+    height: 60px;
+    border: 2px solid rgba(0, 255, 0, 0.5);
+    border-radius: 50%;
+    position: relative;
+    margin: 0 auto 15px;
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+}
+
+.hud-crosshair::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -10px;
+    width: 80px;
+    height: 1px;
+    background: rgba(0, 255, 0, 0.5);
+    transform: translateY(-50%);
+}
+
+.hud-crosshair::after {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    width: 1px;
+    height: 80px;
+    background: rgba(0, 255, 0, 0.5);
+    transform: translateX(-50%);
+}
+
+.hud-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    background: #0f0;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    box-shadow: 0 0 5px #0f0;
+}
+
+.hud-status {
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    background: rgba(0, 20, 0, 0.6);
+    padding: 8px 15px;
+    border: 1px solid #0f0;
+    text-transform: uppercase;
+    display: inline-block;
+}
+
+/* Scan lines effect */
+#hud-overlay::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 255, 0, 0.03),
+        rgba(0, 255, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+    pointer-events: none;
+    z-index: -1;
+}

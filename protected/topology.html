@@ -154,6 +154,38 @@
             <canvas id="minimap-canvas"></canvas>
         </div>
 
+        <!-- Fighter Jet HUD Overlay -->
+        <div id="hud-overlay">
+            <div class="hud-column left">
+                <div class="hud-item">
+                    <div class="hud-label">CPU LOAD</div>
+                    <div class="hud-bar-container">
+                        <div class="hud-bar" id="hud-cpu-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="hud-value" id="hud-cpu-value">0%</div>
+                </div>
+                <div class="hud-item">
+                    <div class="hud-label">RAM USAGE</div>
+                    <div class="hud-bar-container">
+                        <div class="hud-bar" id="hud-ram-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="hud-value" id="hud-ram-value">0%</div>
+                </div>
+                <div class="hud-item">
+                    <div class="hud-label">DISK I/O</div>
+                    <div class="hud-bar-container">
+                        <div class="hud-bar" id="hud-disk-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="hud-value" id="hud-disk-value">0%</div>
+                </div>
+            </div>
+            <div class="hud-center">
+                <div class="hud-crosshair"></div>
+                <div class="hud-dot"></div>
+            </div>
+            <div class="hud-status" id="hud-status">SYSTEM NORMAL</div>
+        </div>
+
         <!-- Canvas -->
         <canvas id="canvas"></canvas>
     </div>

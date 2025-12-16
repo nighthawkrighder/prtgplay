@@ -1,4 +1,5 @@
 const express = require('express');
+const os = require('os');
 const { Op, sequelize } = require('sequelize');
 const { PRTGServer, Device, Sensor, SensorReading, Alert, DeviceMetadata, UserSession } = require('../models');
 const logger = require('../utils/logger');
@@ -26,6 +27,29 @@ function ensureAdminOrSessionOwner(req, res, next) {
 // ============================================
 // Dashboard Summary
 // ============================================
+router.get('/server-stats', (req, res) => {
+  try {
+    const cpuUsage = os.loadavg()[0]; // 1 min load avg
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const memUsage = Math.round((usedMem / totalMem) * 100);
+    
+    // Mock disk usage for now as 'os' doesn't provide it directly without 'df'
+    const diskUsage = 45; 
+
+    res.json({
+      cpu: Math.min(Math.round(cpuUsage * 10), 100), // Scale load avg roughly to %
+      ram: memUsage,
+      disk: diskUsage,
+      status: 'OK'
+    });
+  } catch (error) {
+    logger.error('Error fetching server stats:', error);
+    res.status(500).json({ error: 'Failed to fetch server stats' });
+  }
+});
+
 router.get('/dashboard/summary', async (req, res) => {
   try {
     const summary = {

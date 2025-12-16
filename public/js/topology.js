@@ -1802,6 +1802,109 @@
             
             scene.add(earthMesh);
             console.log('  ✅ Earth planet added to scene. Total scene children:', scene.children.length);
+
+            // Create moons
+            node.moons = [];
+            node.orbitPaths = []; // Store orbit paths for cleanup
+            
+            // Atom-like configuration: 8 moons with distinct colored orbits
+            // We use varying speeds (harmonics) to create a "beating" or "lapping" effect
+            const commonInclination = Math.PI / 3; // 60 degrees tilt
+            const baseSpeed = 0.02; // Base speed
+            
+            const moonConfigs = [];
+            const colors = [0xffaa00, 0x00ff00, 0x00aaff, 0xff3333]; // Orange, Green, Blue, Red
+            
+            // Create 4 orbital planes with harmonic speeds
+            for (let p = 0; p < 4; p++) {
+                const color = colors[p % colors.length];
+                // Speed multiplier: 1x, 2x, 3x, 4x
+                const speed = baseSpeed * (p + 1);
+                
+                // Two electrons per plane, opposite phases
+                moonConfigs.push({ 
+                    color: color, 
+                    inclination: commonInclination, 
+                    speed: speed, 
+                    phase: 0,
+                    planeIndex: p
+                });
+                moonConfigs.push({ 
+                    color: color, 
+                    inclination: commonInclination, 
+                    speed: speed, 
+                    phase: Math.PI, // Opposite side of the same orbit
+                    planeIndex: p
+                });
+            }
+            
+            const moonRadius = 2.5; // Size of moon
+            const orbitRadius = earthRadius * 1.8; // Distance from earth
+            
+            moonConfigs.forEach((config, i) => {
+                // 1. Create the Moon Mesh
+                const moonGeometry = new THREE.SphereGeometry(moonRadius, 16, 16);
+                const moonMaterial = new THREE.MeshPhongMaterial({
+                    color: config.color,
+                    emissive: config.color,
+                    emissiveIntensity: 0.6,
+                    specular: 0xffffff,
+                    shininess: 30
+                });
+                const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+                
+                // Calculate Y-rotation for this plane (0, 45, 90, 135)
+                const yRot = config.planeIndex * (Math.PI / 4);
+
+                // Store orbit data
+                moon.userData = {
+                    orbitRadius: orbitRadius,
+                    angle: config.phase, // Start at synchronized phase
+                    speed: config.speed,
+                    inclination: config.inclination,
+                    yRotation: yRot,
+                    phase: 0
+                };
+                
+                scene.add(moon);
+                node.moons.push(moon);
+                
+                // 2. Create the Visible Orbit Path (Ring) - Only one per plane
+                const existingPath = node.orbitPaths.find(path => path.userData.planeIndex === config.planeIndex);
+                
+                if (!existingPath) {
+                    const orbitCurve = new THREE.EllipseCurve(
+                        0, 0,            // ax, aY
+                        orbitRadius, orbitRadius, // xRadius, yRadius
+                        0, 2 * Math.PI,  // aStartAngle, aEndAngle
+                        false,           // aClockwise
+                        0                // aRotation
+                    );
+                    
+                    const points = orbitCurve.getPoints(128);
+                    const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                    const orbitMaterial = new THREE.LineBasicMaterial({
+                        color: config.color,
+                        transparent: true,
+                        opacity: 0.2,
+                        linewidth: 1
+                    });
+                    
+                    const orbitLine = new THREE.LineLoop(orbitGeometry, orbitMaterial);
+                    
+                    // Position at Earth center
+                    orbitLine.position.set(x, y, z);
+                    
+                    // Rotate to match the moon's orbital plane
+                    orbitLine.rotation.x = Math.PI / 2 + config.inclination;
+                    orbitLine.rotation.y = yRot;
+                    
+                    orbitLine.userData.planeIndex = config.planeIndex;
+                    
+                    scene.add(orbitLine);
+                    node.orbitPaths.push(orbitLine);
+                }
+            });
             
             // Add "LANAIR SOC" label
             const nameLabel = createEarthLabel('LANAIR SOC');
@@ -2645,6 +2748,66 @@
                 scene.rotation.y += 0.001;
             }
 
+            // Update HUD position to ALWAYS follow the Earth/Planet (Server Stats)
+            // We ignore selectedNode for the HUD position because the HUD shows Server Stats, not Client Stats
+            let targetNode = nodes.find(n => n.type === 'company' && n.isEarth);
+            
+            // Fallback if Earth not found yet
+            if (!targetNode && nodes.length > 0) {
+                targetNode = nodes.find(n => n.type === 'company');
+            }
+
+            /* 
+            // HUD Positioning Logic - Commented out to keep HUD at top-right (detached)
+            // User requested: "if you must detach the telemetry display, put it at the top right"
+            // Since we are detaching it from the object to satisfy this, we rely on CSS for positioning.
+            
+            if (targetNode && targetNode.mesh) {
+                const hudColumn = document.querySelector('.hud-column');
+                if (hudColumn) {
+                    // Get the target mesh (hull for ships, or mesh itself)
+                    const targetMesh = targetNode.mesh.type === 'Group' ? 
+                        targetNode.mesh.children.find(child => child.geometry === geometryCache.spaceship || child.geometry === geometryCache.mothership) || targetNode.mesh : 
+                        targetNode.mesh;
+                    
+                    // Get world position
+                    const position = new THREE.Vector3();
+                    targetMesh.getWorldPosition(position);
+                    
+                    // Project to screen coordinates
+                    position.project(camera);
+                    
+                    // Check if object is in front of camera
+                    if (position.z < 1) {
+                        const x = (position.x * .5 + .5) * window.innerWidth;
+                        const y = (-(position.y * .5) + .5) * window.innerHeight;
+                        
+                        hudColumn.style.left = `${x}px`;
+                        hudColumn.style.top = `${y}px`;
+                        hudColumn.style.opacity = '1';
+                    } else {
+                        // Object is behind camera
+                        hudColumn.style.opacity = '0';
+                    }
+                }
+            } else {
+                // No target found at all - hide HUD
+                const hudColumn = document.querySelector('.hud-column');
+                if (hudColumn) {
+                     hudColumn.style.opacity = '0';
+                }
+            }
+            */
+            
+            // Ensure HUD is visible (since we commented out the opacity logic above)
+            const hudColumn = document.querySelector('.hud-column');
+            if (hudColumn) {
+                hudColumn.style.opacity = '1';
+                // Clear any inline styles that might have been set by previous frames
+                hudColumn.style.left = '';
+                hudColumn.style.top = '';
+            }
+
             // Animate devices first, then sensors (so sensors follow updated device positions)
             
             // PASS 0: Rotate Earth if present
@@ -2655,6 +2818,51 @@
                 // Also rotate the glow
                 if (earthNode.glowMesh) {
                     earthNode.glowMesh.rotation.y += 0.005;
+                }
+
+                // Animate moons
+                if (earthNode.moons) {
+                    earthNode.moons.forEach(moon => {
+                        const data = moon.userData;
+                        
+                        // Update angle
+                        data.angle += data.speed;
+                        
+                        const r = data.orbitRadius;
+                        const a = data.angle;
+                        const inc = data.inclination;
+                        const yRot = data.yRotation || 0;
+                        
+                        // Center position (Earth's position)
+                        const cx = earthNode.mesh.position.x;
+                        const cy = earthNode.mesh.position.y;
+                        const cz = earthNode.mesh.position.z;
+                        
+                        // 1. Start with circle in XY plane (matching EllipseCurve default)
+                        let x = r * Math.cos(a);
+                        let y = r * Math.sin(a);
+                        let z = 0;
+                        
+                        // 2. Rotate around X axis by (PI/2 + inclination) to match the orbit path mesh
+                        // This tilts the plane from XY to the inclined position
+                        const tilt = Math.PI / 2 + inc;
+                        let y2 = y * Math.cos(tilt) - z * Math.sin(tilt);
+                        let z2 = y * Math.sin(tilt) + z * Math.cos(tilt);
+                        let x2 = x;
+                        
+                        // 3. Rotate around Y axis by yRotation (to match the "petal" arrangement)
+                        let x3 = x2 * Math.cos(yRot) + z2 * Math.sin(yRot);
+                        let z3 = -x2 * Math.sin(yRot) + z2 * Math.cos(yRot);
+                        let y3 = y2;
+                        
+                        // 4. Apply to moon position relative to Earth center
+                        moon.position.x = cx + x3;
+                        moon.position.y = cy + y3;
+                        moon.position.z = cz + z3;
+                        
+                        // Rotate moon itself
+                        moon.rotation.y += 0.02;
+                    });
                 }
             }
             
@@ -3115,11 +3323,8 @@
             }
             
             // Check if OrbitControls actually moved the camera (not just a simple click)
-            if (window.orbitControlsWasUsed) {
-                console.log('🚫 Ignoring click - OrbitControls was used to move camera');
-                window.orbitControlsWasUsed = false; // Reset flag
-                return;
-            }
+            // BUT: If we clicked on an object, we disabled controls in mousedown, so this flag shouldn't matter
+            // We'll check for object intersection first to be safe
             
             // Check if this was a drag operation (mouse moved significantly between down and up)
             // Use current click position if mouseUp hasn't fired yet
@@ -3135,7 +3340,7 @@
                 // Close camera = MUCH more forgiving (larger threshold)
                 // Far camera = stricter (smaller threshold)
                 const cameraDistance = camera.position.length();
-                const baseDragThreshold = window.dragThreshold || 40; // Increased to 40px (approx ship width) to allow clicking while moving
+                const baseDragThreshold = window.dragThreshold || 100; // Increased to 100px to be very forgiving
                 // Scale: at 100 units = 5x threshold, at 1000 units = 1x threshold
                 const scaledThreshold = baseDragThreshold * Math.max(1, Math.min(5, 1000 / cameraDistance));
                 
@@ -3189,7 +3394,7 @@
             
             // Scale raycaster threshold based on camera distance for easier clicking when far away
             const cameraDistance = camera.position.length();
-            const baseThreshold = 15;
+            const baseThreshold = 30; // Increased from 15 to 30 for easier selection
             const scaledThreshold = baseThreshold * Math.max(1, Math.min(3, cameraDistance / 300));
             
             raycaster.params.Points.threshold = scaledThreshold;
@@ -5135,6 +5340,13 @@
             nodes.forEach(node => {
                 if (node.mesh) scene.remove(node.mesh);
                 if (node.label) scene.remove(node.label);
+                if (node.glowMesh) scene.remove(node.glowMesh);
+                if (node.moons) {
+                    node.moons.forEach(moon => scene.remove(moon));
+                }
+                if (node.orbitPaths) {
+                    node.orbitPaths.forEach(path => scene.remove(path));
+                }
             });
             nodes = [];
 
@@ -5271,3 +5483,61 @@
             }
         }, 300000);
     
+/* =========================================
+   Fighter Jet HUD Logic
+   ========================================= */
+function updateHUD() {
+    fetch('/api/server-stats')
+        .then(response => response.json())
+        .then(data => {
+            updateHudBar('cpu', data.cpu);
+            updateHudBar('ram', data.ram);
+            updateHudBar('disk', data.disk);
+            
+            const statusEl = document.getElementById('hud-status');
+            if (statusEl) {
+                if (data.status === 'OK') {
+                    statusEl.textContent = 'SYSTEM NORMAL';
+                    statusEl.style.color = '#0f0';
+                    statusEl.style.borderColor = '#0f0';
+                    statusEl.style.textShadow = '0 0 5px #0f0';
+                    statusEl.style.background = 'rgba(0, 20, 0, 0.6)';
+                } else {
+                    statusEl.textContent = 'SYSTEM WARNING';
+                    statusEl.style.color = '#ff0';
+                    statusEl.style.borderColor = '#ff0';
+                    statusEl.style.textShadow = '0 0 5px #ff0';
+                    statusEl.style.background = 'rgba(50, 50, 0, 0.6)';
+                }
+            }
+        })
+        .catch(err => console.error('HUD Error:', err));
+}
+
+function updateHudBar(type, value) {
+    const bar = document.getElementById(`hud-${type}-bar`);
+    const val = document.getElementById(`hud-${type}-value`);
+    if (bar && val) {
+        bar.style.width = `${value}%`;
+        val.textContent = `${value}%`;
+        
+        // Color change based on load
+        if (value > 80) {
+            bar.style.backgroundColor = '#f00';
+            bar.style.boxShadow = '0 0 10px #f00';
+        } else if (value > 60) {
+            bar.style.backgroundColor = '#ff0';
+            bar.style.boxShadow = '0 0 10px #ff0';
+        } else {
+            bar.style.backgroundColor = '#0f0';
+            bar.style.boxShadow = '0 0 10px #0f0';
+        }
+    }
+}
+
+// Start HUD updates
+setInterval(updateHUD, 2000);
+// Initial call
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(updateHUD, 1000);
+});
