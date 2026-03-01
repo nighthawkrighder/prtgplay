@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analytics – PRTG Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      height: 100%; margin: 0; padding: 0;
+      background: #0b0f14; color: #e6eef7;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif;
+      font-size: 13px;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 16px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      position: sticky; top: 0; z-index: 20;
+    }
+    .header-left .title { font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+    .header-left .meta  { font-size: 11px; color: rgba(230,238,247,0.55); margin-top: 2px; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btn {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);
+      color: #e6eef7; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
+      transition: background .15s;
+    }
+    .btn:hover { background: rgba(255,255,255,0.11); }
+    .btn.primary { background: rgba(52,152,219,.20); border-color: rgba(52,152,219,.40); color: #7ec8e3; }
+    .btn.primary:hover { background: rgba(52,152,219,.30); }
+
+    /* ── Content wrap ───────────────────────────── */
+    .wrap { padding: 14px 16px 60px; max-width: 1400px; margin: 0 auto; }
+
+    /* ── KPI strip ──────────────────────────────── */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px; margin-bottom: 12px;
+    }
+    .kpi-card {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 12px 14px;
+    }
+    .kpi-val   { font-size: 22px; font-weight: 700; line-height: 1.1; }
+    .kpi-label { font-size: 11px; color: rgba(230,238,247,0.55); margin-top: 3px; }
+    .kpi-sub   { font-size: 10px; color: rgba(230,238,247,0.35); margin-top: 2px; }
+
+    /* ── Controls bar ───────────────────────────── */
+    .controls {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding: 10px 14px; margin-bottom: 12px;
+    }
+    .controls .divider { width: 1px; height: 22px; background: rgba(255,255,255,0.10); margin: 0 4px; }
+    .subtle { font-size: 11px; color: rgba(230,238,247,0.55); }
+    .select {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);
+      color: #e6eef7; padding: 6px 8px; border-radius: 8px; font-size: 12px; cursor: pointer;
+    }
+    .tab-btn {
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+      color: rgba(230,238,247,0.65); padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      font-size: 12px; transition: all .15s;
+    }
+    .tab-btn:hover { background: rgba(255,255,255,0.09); color: #e6eef7; }
+    .tab-btn.active {
+      background: rgba(52,152,219,.18); border-color: rgba(52,152,219,.40);
+      color: #7ec8e3; font-weight: 600;
+    }
+
+    /* ── Cards / shared ─────────────────────────── */
+    .card {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 12px;
+    }
+
+    /* ── Main grid ──────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 12px;
+    }
+    @media (max-width: 1000px) { .main-grid { grid-template-columns: 1fr; } }
+
+    /* ── Chart canvas ───────────────────────────── */
+    .chart-card { display: flex; flex-direction: column; }
+    #mainCanvas {
+      width: 100%; height: 390px; display: block;
+      border-radius: 8px;
+    }
+    .legend-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      margin-top: 10px; font-size: 11px; color: rgba(230,238,247,0.65);
+    }
+
+    /* ── Side panels ────────────────────────────── */
+    .side-panels { display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── Tables ─────────────────────────────────── */
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th {
+      padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,0.10);
+      text-align: left; font-size: 10px; text-transform: uppercase;
+      letter-spacing: .06em; color: rgba(230,238,247,0.45);
+    }
+    .table td { padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .table tr:last-child td { border-bottom: 0; }
+
+    /* ── Badges / pills ─────────────────────────── */
+    .badge {
+      display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.06);
+      color: rgba(230,238,247,0.8);
+    }
+    .pill {
+      display: inline-block; font-size: 11px; font-weight: 600;
+      color: rgba(230,238,247,0.75); letter-spacing: .03em;
+    }
+
+    /* ── Status bar ─────────────────────────────── */
+    .statusBar {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 6px 16px; font-size: 11px; color: rgba(230,238,247,0.55);
+      background: rgba(11,15,20,0.92); border-top: 1px solid rgba(255,255,255,0.07);
+      backdrop-filter: blur(6px); z-index: 30;
+    }
+
+    /* ── Spinner ────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+      border: 2px solid rgba(255,255,255,0.15); border-top-color: #3498db;
+      border-radius: 50%; animation: spin .7s linear infinite;
+      vertical-align: middle;
+    }
+
+    /* ── Donut canvas ───────────────────────────── */
+    #donutCanvas { width: 100%; height: 180px; display: block; }
+
+    /* ── Empty state ────────────────────────────── */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 16px; color: rgba(230,238,247,0.35); font-size: 13px; text-align: center;
+    }
+    .empty-state .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: .5; }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <div class="header-left">
+      <div class="title">Analytics</div>
+      <div class="meta" id="meta">Loading…</div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="window.location.href='/'">Dashboard</button>
+      <button class="btn" onclick="window.location.href='/topology'">Topology</button>
+      <button class="btn" onclick="window.location.href='/reports'">Reports</button>
+      <button class="btn" id="openJson">JSON</button>
+      <button class="btn" onclick="window.location.reload()">↺ Reload</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+
+    <!-- KPI Strip -->
+    <div class="kpi-strip" id="kpiStrip">
+      <div class="kpi-card"><div class="kpi-val" style="color:#3498db">—</div><div class="kpi-label">Loading KPIs…</div></div>
+    </div>
+
+    <!-- Controls + Tab Bar -->
+    <div class="controls card">
+      <span class="subtle">Lookback</span>
+      <select class="select" id="hours">
+        <option value="24">24 h</option>
+        <option value="168">7 d</option>
+        <option value="720">30 d</option>
+        <option value="1200">50 d</option>
+      </select>
+      <span class="subtle">Bucket</span>
+      <select class="select" id="bucketMinutes">
+        <option value="60">60 m</option>
+        <option value="120">120 m</option>
+        <option value="240">240 m</option>
+      </select>
+      <span class="subtle">Forecast</span>
+      <select class="select" id="forecastHours">
+        <option value="24">+24 h</option>
+        <option value="72">+72 h</option>
+        <option value="168">+7 d</option>
+      </select>
+      <button class="btn primary" id="run">▶ Run</button>
+      <div class="divider"></div>
+      <button class="tab-btn active" data-tab="health">Health</button>
+      <button class="tab-btn" data-tab="alerts">Alerts</button>
+      <button class="tab-btn" data-tab="companies">By Company</button>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="main-grid">
+
+      <!-- Chart Panel (left) -->
+      <div class="card chart-card">
+        <canvas id="mainCanvas"></canvas>
+        <div class="legend-row" id="chartLegend"></div>
+      </div>
+
+      <!-- Side Panels (right) -->
+      <div class="side-panels">
+        <div class="card" id="sidePanel">
+          <div class="pill">Sensor Distribution</div>
+          <div class="empty-state"><div class="empty-icon">⬤</div>Loading…</div>
+        </div>
+        <div class="card" id="riskPanel">
+          <div class="pill">At-Risk Devices</div>
+          <div class="empty-state"><div class="empty-icon">⚠</div>Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="statusBar" id="statusBar"><span class="spinner"></span>Initializing…</div>
+
+  <script src="/js/analytics/analytics.js"></script>
+</body>
+</html>

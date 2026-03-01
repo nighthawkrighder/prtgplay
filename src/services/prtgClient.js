@@ -35,7 +35,7 @@ class PRTGClient {
           passhash: this.passhash,
           output: 'json'
         },
-        timeout: 30000
+        timeout: 120000
       });
 
       logger.debug(`PRTG API request successful: ${this.id} - ${endpoint}`);
@@ -79,7 +79,7 @@ class PRTGClient {
         'objid', 'name', 'status', 'status_raw', 'host', 'device',
         'group', 'groupid', 'probe', 'probeid', 'priority',
         'lastup', 'lastdown', 'downtimesince', 'lastcheck',
-        'access', 'comments', 'favorite', 'tags', 'active'
+        'access', 'comments', 'favorite', 'tags', 'active', 'location'
       ].join(','),
       ...filters
     };

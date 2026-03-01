@@ -1728,6 +1728,7 @@
                         <a href="/admin" class="admin-link"><i class="fas fa-toolbox"></i> Admin Console</a>
                         <a href="/admin/sessions.html" class="admin-link"><i class="fas fa-users-gear"></i> Session Intelligence</a>
                         <a href="/admin/telemetry.html" class="admin-link"><i class="fas fa-chart-line"></i> Telemetry Overview</a>
+                        <a href="/reports" class="admin-link"><i class="fas fa-chart-area"></i> Reports</a>
                     </div>
                 </div>
                 <div class="user-menu-container">
@@ -1754,6 +1755,10 @@
                         <button class="menu-item" onclick="handleSessionInfo()">
                             <i class="fas fa-info-circle"></i>
                             Session Info
+                        </button>
+                        <button class="menu-item" onclick="window.location.href='/reports'">
+                            <i class="fas fa-chart-area"></i>
+                            Trend Reports (API)
                         </button>
                         <div class="menu-separator admin-only" id="adminMenuSeparator" style="display: none;"></div>
                         <button class="menu-item admin-only" id="adminDashboardLink" style="display: none;" onclick="navigateToAdmin('/admin')">
@@ -4574,16 +4579,16 @@
                     window.location.href = '/topology';
                     break;
                 case 'alerts':
-                    // TODO: Implement dedicated alerts view
-                    alert('Dedicated alerts view coming soon!');
+                    // Alerts trend viewer (deterministic chart)
+                    window.location.href = '/reports/alerts-trend?hours=24&bucketMinutes=60';
                     break;
                 case 'analytics':
-                    // TODO: Implement analytics dashboard
-                    alert('Analytics dashboard coming soon!');
+                    // Analytics (predictions + dynamic graphs)
+                    window.location.href = '/analytics';
                     break;
                 case 'reports':
-                    // TODO: Implement reports section
-                    alert('Reports section coming soon!');
+                    // Reports catalog (deterministic viewers)
+                    window.location.href = '/reports';
                     break;
             }
         }

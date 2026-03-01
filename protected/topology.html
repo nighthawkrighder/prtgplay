@@ -17,7 +17,7 @@
         <!-- Header -->
         <div class="topology-header">
             <div class="header-left">
-                <div class="header-title">🌐 3D Network Topology <span style="font-size: 0.7em; opacity: 0.6;">v13.0.0</span></div>
+                <div class="header-title">🌐 3D Network Topology <span class="header-version">v13.0.0</span></div>
                 <div class="header-stats">
                     <div class="stat-item">
                         <span>Companies:</span>
@@ -40,6 +40,8 @@
             <div class="header-right">
                 <button class="header-btn" onclick="resetCamera()">Reset View</button>
                 <button class="header-btn" onclick="toggleAutoRotate()">Auto Rotate</button>
+                <button class="header-btn" onclick="window.location.href='/reports'">Reports</button>
+                <button class="header-btn" onclick="window.location.href='/reports/company-device-health-graph'">Health Graph</button>
                 <button class="header-btn" onclick="window.location.href='/'">Dashboard</button>
             </div>
         </div>
@@ -52,36 +54,36 @@
         <div class="legend hidden" id="legend-panel">
             <div class="legend-title">Legend</div>
             <div class="legend-item">
-                <div class="legend-color" style="background: #667eea;"></div>
+                <div class="legend-color company"></div>
                 <span>Company</span>
             </div>
             <div class="legend-item">
-                <div class="legend-color" style="background: #22c55e;"></div>
+                <div class="legend-color device-online"></div>
                 <span>Device (Online)</span>
             </div>
             <div class="legend-item">
-                <div class="legend-color" style="background: #fbbf24;"></div>
+                <div class="legend-color device-warning"></div>
                 <span>Device (Warning)</span>
             </div>
             <div class="legend-item">
-                <div class="legend-color" style="background: #ef4444;"></div>
+                <div class="legend-color device-offline"></div>
                 <span>Device (Offline)</span>
             </div>
             <div class="legend-item">
-                <div class="legend-color" style="background: #8b5cf6;"></div>
+                <div class="legend-color sensor"></div>
                 <span>Sensor</span>
             </div>
-            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
-                <div class="legend-title" style="margin-bottom: 8px;">Keyboard Controls</div>
-                <div style="font-size: 11px; line-height: 1.6; color: #aaa;">
-                    <div><strong style="color: #667eea;">W/A/S/D</strong> - Fly forward/left/back/right</div>
-                    <div><strong style="color: #667eea;">Q/E</strong> - Fly up/down</div>
-                    <div><strong style="color: #667eea;">Shift+W/S</strong> - Speed boost</div>
-                    <div><strong style="color: #667eea;">Left Click</strong> - Look around</div>
-                    <div><strong style="color: #667eea;">Right Click</strong> - Strafe left/right (x-axis), in/out (z-axis)</div>
-                    <div><strong style="color: #667eea;">Double Click</strong> - Hurry to clicked coordinates</div>
-                    <div><strong style="color: #667eea;">Scroll</strong> - Zoom (limited)</div>
-                    <div><strong style="color: #667eea;">Arrow Keys</strong> - Step through devices left or right</div>
+            <div class="legend-separator">
+                <div class="legend-title legend-subtitle">Keyboard Controls</div>
+                <div class="legend-controls-list">
+                    <div><strong class="legend-key">W/A/S/D</strong> - Fly forward/left/back/right</div>
+                    <div><strong class="legend-key">Q/E</strong> - Fly up/down</div>
+                    <div><strong class="legend-key">Shift+W/S</strong> - Speed boost</div>
+                    <div><strong class="legend-key">Left Click</strong> - Look around</div>
+                    <div><strong class="legend-key">Right Click</strong> - Strafe left/right (x-axis), in/out (z-axis)</div>
+                    <div><strong class="legend-key">Double Click</strong> - Hurry to clicked coordinates</div>
+                    <div><strong class="legend-key">Scroll</strong> - Zoom (limited)</div>
+                    <div><strong class="legend-key">Arrow Keys</strong> - Step through devices left or right</div>
                 </div>
             </div>
         </div>
@@ -139,7 +141,7 @@
         <div class="loading-overlay" id="loading-overlay">
             <div class="loading-text">⏳ Loading vendor details...</div>
             <div class="loading-subtext">Click anywhere to dismiss</div>
-            <div id="loading-stats" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0, 255, 255, 0.2);"></div>
+            <div id="loading-stats"></div>
         </div>
 
         <!-- Info Panel -->
@@ -160,21 +162,21 @@
                 <div class="hud-item">
                     <div class="hud-label">CPU LOAD</div>
                     <div class="hud-bar-container">
-                        <div class="hud-bar" id="hud-cpu-bar" style="width: 0%"></div>
+                        <div class="hud-bar" id="hud-cpu-bar"></div>
                     </div>
                     <div class="hud-value" id="hud-cpu-value">0%</div>
                 </div>
                 <div class="hud-item">
                     <div class="hud-label">RAM USAGE</div>
                     <div class="hud-bar-container">
-                        <div class="hud-bar" id="hud-ram-bar" style="width: 0%"></div>
+                        <div class="hud-bar" id="hud-ram-bar"></div>
                     </div>
                     <div class="hud-value" id="hud-ram-value">0%</div>
                 </div>
                 <div class="hud-item">
                     <div class="hud-label">DISK I/O</div>
                     <div class="hud-bar-container">
-                        <div class="hud-bar" id="hud-disk-bar" style="width: 0%"></div>
+                        <div class="hud-bar" id="hud-disk-bar"></div>
                     </div>
                     <div class="hud-value" id="hud-disk-value">0%</div>
                 </div>

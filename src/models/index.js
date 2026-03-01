@@ -18,6 +18,10 @@ const PRTGServer = sequelize.define('PRTGServer', {
     type: DataTypes.STRING(100),
     allowNull: false
   },
+  passhash: {
+    type: DataTypes.STRING(100),
+    allowNull: true
+  },
   enabled: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

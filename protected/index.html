@@ -249,7 +249,13 @@
         <div id="tabContent-reports" class="tab-content" style="display:none;">
             <h2 style="margin-bottom:1rem;">Reports</h2>
             <div style="background:rgba(52,152,219,0.1);padding:2rem;border-radius:8px;text-align:center;">
-                <p>[Placeholder] Reports and export options will appear here.</p>
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;justify-content:center;">
+                    <button class="tab-btn" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;" onclick="window.location.href='/reports'">Reports Catalog</button>
+                    <button class="tab-btn" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;" onclick="window.open('/api/reports/catalog','_blank','noopener')">Reports Catalog (JSON)</button>
+                    <button class="tab-btn" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;" onclick="window.location.href='/reports/alerts-trend?hours=24&bucketMinutes=60'">Alerts Trend (24h)</button>
+                    <button class="tab-btn" style="padding: 0.5rem 1.5rem; border-radius: 6px; border: none; background: #34495e; color: #fff; cursor: pointer;" onclick="window.location.href='/reports/company-device-health-graph'">Company/Device Health Graph</button>
+                </div>
+                <p style="margin-top:1rem;opacity:0.85;">These endpoints return graph data + deterministic render specs for WebGL clients.</p>
             </div>
         </div>
 

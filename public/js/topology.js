@@ -23,6 +23,11 @@
         let gridHelper = null; // Reference to the grid helper for toggle
         let particleSystems = []; // Array to hold all particle systems
         
+        // Helper: Page Visibility API
+        window.isPageVisible = function() {
+            return !document.hidden;
+        };
+
         // Afterburner control
         let afterburnersEnabled = true;
         let afterburnerTimer = null;
@@ -73,6 +78,7 @@
             // Ship geometries
             mothership: null,
             spaceship: null,
+            lowPolyShip: null, // LOD optimization
             sensorSphere: null,
             // Shared detail geometries
             viewport: null,
@@ -152,6 +158,11 @@
             geometryCache.spaceship.addGroup(0, 36, 0); // Sides use hull material
             geometryCache.spaceship.addGroup(36, 18, 1); // Back cap uses engine material
             
+            // Low Poly Ship: Simple 3-sided pyramid for distant objects
+            geometryCache.lowPolyShip = new THREE.ConeGeometry(deviceSize * 0.8, deviceSize * 2, 3);
+            geometryCache.lowPolyShip.rotateX(Math.PI / 2);
+            geometryCache.lowPolyShip.scale(0.6, 0.25, 1);
+
             // Sensor escort: Tiny sphere
             geometryCache.sensorSphere = new THREE.SphereGeometry(0.4 * nodeSizeMultiplier, 12, 12);
             
@@ -909,6 +920,9 @@
             
             // Fire telemetry beams every 3 seconds from random motherships to Earth
             setInterval(() => {
+                // Skip if page is hidden
+                if (window.isPageVisible && !window.isPageVisible()) return;
+
                 const beamCount = Math.floor(Math.random() * 3) + 1; // 1-3 beams at once
                 for (let i = 0; i < beamCount; i++) {
                     setTimeout(() => fireTelemetryBeam(), i * 200); // Stagger slightly
@@ -1232,6 +1246,9 @@
                 console.log('[RENDER 1] Starting topology creation...');
                 const renderStart = Date.now();
                 
+                // Clear existing topology before creating new one to prevent duplicates
+                clearTopology();
+
                 // Create 3D topology
                 loadingText.textContent = 'Rendering topology...';
                 createTopology(companies);
@@ -2662,7 +2679,14 @@
             
             // Skip expensive operations when page is hidden
             const isVisible = window.isPageVisible ? window.isPageVisible() : true;
+            if (!isVisible) return;
             
+            // Frustum culling setup for CPU animation optimization
+            const frustum = new THREE.Frustum();
+            const projScreenMatrix = new THREE.Matrix4();
+            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(projScreenMatrix);
+
             const time = Date.now() * 0.001;
 
             // Keyboard camera movement - fly through the scene
@@ -2910,6 +2934,9 @@
             nodes.forEach(node => {
                 if ((node.type === 'device' || node.type === 'company') && node.mesh) {
                     if (!node.mesh.visible) return;
+
+                    // Culling: Skip animation if outside view (with margin for glow)
+                    if (!frustum.intersectsSphere(new THREE.Sphere(node.mesh.position, 20))) return;
                     
                     // Get the hull mesh (child of the Group)
                     const hullMesh = node.mesh.children?.find(child => 
@@ -3028,6 +3055,9 @@
             nodes.forEach(node => {
                 if ((node.type === 'device' || node.type === 'company') && node.mesh) {
                     if (!node.mesh.visible) return;
+
+                    // Culling: Skip animation if outside view
+                    if (!frustum.intersectsSphere(new THREE.Sphere(node.mesh.position, 20))) return;
                     
                     const status = getNodeEffectiveStatus(node);
                     const time = Date.now() * 0.001;
@@ -3087,10 +3117,40 @@
             // PASS 1: Update device positions (static on spokes with status effects)
             nodes.forEach(node => {
                 if (node.type === 'device' && node.mesh && node.spoke) {
+                    // LOD & Culling Logic
+                    const dist = camera.position.distanceTo(node.mesh.position);
+                    
+                    // Level 3: Extreme distance - Don't render at all
+                    if (dist > 3000) {
+                        node.mesh.visible = false;
+                        return;
+                    }
+                    
+                    // Level 2: Far distance - Use low poly geometry
+                    if (dist > 1500) {
+                        node.mesh.visible = true;
+                        // Swap to low poly if not already
+                        const hullMesh = node.mesh.children.find(c => c.geometry === geometryCache.spaceship || c.geometry === geometryCache.lowPolyShip);
+                        if (hullMesh && hullMesh.geometry !== geometryCache.lowPolyShip) {
+                            hullMesh.geometry = geometryCache.lowPolyShip;
+                        }
+                        return; // Skip animation updates for far objects
+                    }
+
+                    // Level 1: Near/Mid distance - High fidelity
+                    node.mesh.visible = true;
+                    const hullMesh = node.mesh.children.find(c => c.geometry === geometryCache.spaceship || c.geometry === geometryCache.lowPolyShip);
+                    if (hullMesh && hullMesh.geometry !== geometryCache.spaceship) {
+                        hullMesh.geometry = geometryCache.spaceship;
+                    }
+
                     // Skip animation if this device is being hovered
                     if (window.hoveredDevice === node) {
                         return; // Keep it frozen at current position
                     }
+
+                    // Culling: Skip animation if outside view
+                    if (!frustum.intersectsSphere(new THREE.Sphere(node.mesh.position, 10))) return;
                     
                     const status = node.data.status;
                     const spoke = node.spoke;
@@ -5336,16 +5396,43 @@
         }
 
         function clearTopology() {
+            console.log('🧹 Clearing topology...');
             // Clear nodes
             nodes.forEach(node => {
-                if (node.mesh) scene.remove(node.mesh);
-                if (node.label) scene.remove(node.label);
-                if (node.glowMesh) scene.remove(node.glowMesh);
+                if (node.mesh) {
+                    scene.remove(node.mesh);
+                    // Dispose geometries and materials to prevent memory leaks
+                    if (node.mesh.geometry) node.mesh.geometry.dispose();
+                    if (node.mesh.material) {
+                        if (Array.isArray(node.mesh.material)) {
+                            node.mesh.material.forEach(m => m.dispose());
+                        } else {
+                            node.mesh.material.dispose();
+                        }
+                    }
+                }
+                if (node.label) {
+                    scene.remove(node.label);
+                    if (node.label.material) node.label.material.dispose();
+                }
+                if (node.glowMesh) {
+                    scene.remove(node.glowMesh);
+                    if (node.glowMesh.geometry) node.glowMesh.geometry.dispose();
+                    if (node.glowMesh.material) node.glowMesh.material.dispose();
+                }
                 if (node.moons) {
-                    node.moons.forEach(moon => scene.remove(moon));
+                    node.moons.forEach(moon => {
+                        scene.remove(moon);
+                        if (moon.geometry) moon.geometry.dispose();
+                        if (moon.material) moon.material.dispose();
+                    });
                 }
                 if (node.orbitPaths) {
-                    node.orbitPaths.forEach(path => scene.remove(path));
+                    node.orbitPaths.forEach(path => {
+                        scene.remove(path);
+                        if (path.geometry) path.geometry.dispose();
+                        if (path.material) path.material.dispose();
+                    });
                 }
             });
             nodes = [];
@@ -5353,8 +5440,46 @@
             // Clear labels
             labels.forEach(label => {
                 scene.remove(label);
+                if (label.material) label.material.dispose();
             });
             labels = [];
+            
+            // Clear device map
+            deviceNodeMap.clear();
+            
+            // Nuclear cleanup: Remove any untracked meshes that might be lingering
+            // This fixes the "ships inside ships" issue if nodes array gets out of sync
+            if (scene) {
+                const toRemove = [];
+                scene.traverse((child) => {
+                    // Identify our objects by userData or type
+                    // Note: We use 'nodeType' in userData, not 'type'
+                    if (child.userData && (child.userData.nodeType === 'device' || child.userData.nodeType === 'company' || child.userData.nodeType === 'sensor')) {
+                        toRemove.push(child);
+                    }
+                    // Also remove unnamed Groups that might be ships (if userData missing)
+                    if (child.type === 'Group' && child.children.length > 0 && !child.userData.isSystem && child.parent === scene) {
+                        // Be careful not to remove lights or camera helpers
+                        // Only remove top-level groups that look like ships
+                        toRemove.push(child);
+                    }
+                });
+                
+                if (toRemove.length > 0) {
+                    console.log(`🧹 Nuclear cleanup: Removing ${toRemove.length} untracked objects from scene`);
+                    toRemove.forEach(child => {
+                        scene.remove(child);
+                        // Try to dispose
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) {
+                            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                            else child.material.dispose();
+                        }
+                    });
+                }
+            }
+
+            console.log('✨ Topology cleared');
         }
 
         // Start
@@ -5487,6 +5612,21 @@
    Fighter Jet HUD Logic
    ========================================= */
 function updateHUD() {
+    // Skip if page is hidden
+    if (window.isPageVisible && !window.isPageVisible()) return;
+
+    const statusEl = document.getElementById('hud-status');
+    
+    // Show loading state
+    if (statusEl) {
+        statusEl.textContent = 'TELEMETRY SYNC...';
+        statusEl.classList.add('hud-blink');
+        statusEl.style.color = '#0ff'; // Cyan
+        statusEl.style.borderColor = '#0ff';
+        statusEl.style.textShadow = '0 0 5px #0ff';
+        statusEl.style.background = 'rgba(0, 20, 20, 0.6)';
+    }
+
     fetch('/api/server-stats')
         .then(response => response.json())
         .then(data => {
@@ -5494,8 +5634,8 @@ function updateHUD() {
             updateHudBar('ram', data.ram);
             updateHudBar('disk', data.disk);
             
-            const statusEl = document.getElementById('hud-status');
             if (statusEl) {
+                statusEl.classList.remove('hud-blink');
                 if (data.status === 'OK') {
                     statusEl.textContent = 'SYSTEM NORMAL';
                     statusEl.style.color = '#0f0';
@@ -5511,7 +5651,17 @@ function updateHUD() {
                 }
             }
         })
-        .catch(err => console.error('HUD Error:', err));
+        .catch(err => {
+            console.error('HUD Error:', err);
+            if (statusEl) {
+                statusEl.classList.remove('hud-blink');
+                statusEl.textContent = 'LINK OFFLINE';
+                statusEl.style.color = '#f00';
+                statusEl.style.borderColor = '#f00';
+                statusEl.style.textShadow = '0 0 5px #f00';
+                statusEl.style.background = 'rgba(50, 0, 0, 0.6)';
+            }
+        });
 }
 
 function updateHudBar(type, value) {
@@ -5536,8 +5686,128 @@ function updateHudBar(type, value) {
 }
 
 // Start HUD updates
-setInterval(updateHUD, 2000);
+setInterval(updateHUD, 10000);
 // Initial call
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(updateHUD, 1000);
 });
+
+// SOC Telemetry Overlay Function
+async function showSocTelemetry(node) {
+    // Create overlay if not exists
+    let overlay = document.getElementById('soc-telemetry-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'soc-telemetry-overlay';
+        overlay.className = 'soc-telemetry-overlay';
+        document.body.appendChild(overlay);
+        
+        // Close on click outside or close button
+        overlay.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent closing when clicking inside
+        });
+        
+        // Add close handler to canvas to close this overlay
+        const canvas = document.getElementById('canvas');
+        if (canvas) {
+            canvas.addEventListener('click', () => {
+                // Only close if we are not currently processing a click that opened it
+                // But since this is async, the click processing flag might be reset already.
+                // We'll rely on the fact that clicking empty space closes popups.
+                // But we want to close THIS overlay specifically.
+                // Let's just hide it when clicking canvas, unless it was just opened.
+                setTimeout(() => {
+                    if (overlay.style.display === 'block') {
+                        overlay.style.display = 'none';
+                    }
+                }, 200);
+            });
+        }
+    }
+    
+    overlay.innerHTML = '<div class="loading">Fetching SOC Telemetry...</div>';
+    overlay.style.display = 'block';
+    
+    // Fly camera to look at planet from a distance
+    if (typeof camera !== 'undefined' && typeof THREE !== 'undefined') {
+        const targetPos = new THREE.Vector3(0, 50, 100); 
+        const startPos = camera.position.clone();
+        const duration = 2000;
+        const startTime = Date.now();
+        
+        function animateCamera() {
+            const now = Date.now();
+            const progress = Math.min((now - startTime) / duration, 1);
+            const ease = 1 - Math.pow(1 - progress, 3); // Cubic ease out
+            
+            camera.position.lerpVectors(startPos, targetPos, ease);
+            camera.lookAt(0, 0, 0);
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateCamera);
+            }
+        }
+        animateCamera();
+    }
+    
+    try {
+        const response = await fetch('/api/soc/stats', { credentials: 'include' });
+        const contentType = response.headers.get('content-type') || '';
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`SOC telemetry request failed (${response.status}). ${text.slice(0, 120)}`);
+        }
+
+        if (!contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(`SOC telemetry returned non-JSON (${contentType || 'no content-type'}): ${text.slice(0, 120)}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        const { telemetry, avgTemp, locations } = data;
+        
+        let heatmapHtml = '';
+        if (locations && locations.length > 0) {
+            const uniqueLocs = [...new Set(locations.map(l => l.location))].slice(0, 10);
+            heatmapHtml = `
+                <div class="heatmap-container">
+                    <div class="soc-telemetry-label">Active Locations:</div>
+                    ${uniqueLocs.map(loc => `<div class="heatmap-item"><span>${loc}</span></div>`).join('')}
+                </div>
+            `;
+        }
+        
+        overlay.innerHTML = `
+            <h2>LANAIR SOC Telemetry</h2>
+            <div class="soc-telemetry-item">
+                <span class="soc-telemetry-label">Uptime:</span>
+                <span class="soc-telemetry-value">${telemetry.uptime}</span>
+            </div>
+            <div class="soc-telemetry-item">
+                <span class="soc-telemetry-label">AV Status:</span>
+                <span class="soc-telemetry-value" style="color: ${telemetry.avStatus.includes('Active') ? '#00ff00' : '#ff0000'}">${telemetry.avStatus}</span>
+            </div>
+            <div class="soc-telemetry-item">
+                <span class="soc-telemetry-label">Global Avg Temp:</span>
+                <span class="soc-telemetry-value">${avgTemp}°F</span>
+            </div>
+            <div class="soc-telemetry-item">
+                <span class="soc-telemetry-label">CPU Load:</span>
+                <span class="soc-telemetry-value">${telemetry.cpu}%</span>
+            </div>
+            <div class="soc-telemetry-item">
+                <span class="soc-telemetry-label">Memory:</span>
+                <span class="soc-telemetry-value">${telemetry.ram}%</span>
+            </div>
+            ${heatmapHtml}
+        `;
+        
+    } catch (err) {
+        console.error('Error fetching SOC stats:', err);
+        overlay.innerHTML = `<div class="error">Failed to load data: ${err.message}</div>`;
+    }
+}

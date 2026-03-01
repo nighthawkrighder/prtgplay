@@ -2,6 +2,10 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+// Load shared env files from repo root so raw PM2 starts work consistently.
+// (CVA already uses .env/.env.local; CPM reads the same settings for cookie/cors/etc.)
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
 const fs = require('fs');
 const cors = require('cors');
 const session = require('express-session');
@@ -182,7 +186,14 @@ const sessionCookieSameSite = process.env.CVA_SESSION_COOKIE_SAMESITE || process
 const sessionCookieDomain = process.env.CVA_SESSION_COOKIE_DOMAIN || process.env.SESSION_COOKIE_DOMAIN || defaultCookieDomain;
 const sessionCookieMaxAge = parseInt(process.env.CVA_SESSION_MAX_AGE || process.env.SESSION_MAX_AGE || '1800000', 10);
 
-const sessionSecretUsed = process.env.SESSION_SECRET || process.env.CVA_SESSION_SECRET || 'prtg-dashboard-secret-key-change-in-production';
+const desiredSecret = 'cMYoH6rcchB4JtQ4cvNad2k6sM2paU7N9VD+S3DwrsO78AIRltTcUlFtnOFj6SpE';
+let sessionSecretUsed = process.env.SESSION_SECRET || process.env.CVA_SESSION_SECRET || 'prtg-dashboard-secret-key-change-in-production';
+
+if (sessionSecretUsed !== desiredSecret) {
+  console.warn('[PRTG CONFIG] Session secret mismatch detected or missing. Forcing correct CVA secret.');
+  sessionSecretUsed = desiredSecret;
+}
+
 console.log('[PRTG CONFIG] SESSION_SECRET loaded, length:', sessionSecretUsed.length, 'first 10 chars:', sessionSecretUsed.substring(0, 10));
 
 const sessionConfig = {
@@ -346,6 +357,12 @@ app.use((req, res, next) => {
   const fingerprintSource = `${ipAddress}|${userAgent}`;
   const fingerprint = crypto.createHash('sha256').update(fingerprintSource).digest('hex');
 
+  // Safety check for missing session functionality
+  if (!req.session) {
+    logger.warn('Session object missing in fingerprint middleware', { ipAddress });
+    return next();
+  }
+
   if (!req.session.fingerprint) {
     req.session.fingerprint = fingerprint;
     req.session.fingerprintMeta = { ip: ipAddress, userAgent };
@@ -380,6 +397,14 @@ app.use((req, res, next) => {
 function requireAuth(req, res, next) {
   const authenticated = isUserAuthenticated(req);
   const sessionUser = req.session?.user?.email || req.session?.user?.displayName;
+  const requestUrl = req.originalUrl || req.url || req.path || '';
+  const acceptHeader = req.headers.accept || '';
+  const isApiRequest =
+    req.path.startsWith('/api/') ||
+    requestUrl.startsWith('/api/') ||
+    requestUrl.includes('/api/') ||
+    acceptHeader.includes('application/json') ||
+    req.xhr;
 
   // Enhanced logging for debugging
   console.log(`[PRTG AUTH] ========== AUTH CHECK START ==========`);
@@ -405,7 +430,7 @@ function requireAuth(req, res, next) {
     return next();
   }
 
-  if (req.path.startsWith('/api/')) {
+  if (isApiRequest) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
@@ -503,9 +528,11 @@ app.use(async (req, res, next) => {
       req.session.restoredFromCache = false;
       res.cookie('edr.sid', edrSessionId, edrCookieOptions);
     }
+    
+    // Continue if no early exit occurred
+    next();
   } catch (error) {
     logger.error('EDR session synchronization failed', { error: error.message });
-  } finally {
     next();
   }
 });
@@ -824,6 +851,192 @@ app.get('/topology', requireAuth, async (req, res, next) => {
     logger.error('Error loading topology:', err);
     if (!res.headersSent) {
       res.status(500).send('Error loading topology');
+    }
+  }
+});
+
+// Reports: Company/Device Health Graph (WebGL viewer)
+app.get('/reports/company-device-health-graph', requireAuth, async (req, res) => {
+  if (res.headersSent) {
+    return;
+  }
+
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-company-device-health-graph.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+
+    if (res.headersSent) {
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading company/device health graph report viewer:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading report viewer');
+    }
+  }
+});
+
+// Reports: Catalog (GUI)
+app.get('/reports', requireAuth, async (req, res) => {
+  if (res.headersSent) {
+    return;
+  }
+
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-catalog.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+
+    if (res.headersSent) {
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading reports catalog:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading reports');
+    }
+  }
+});
+
+// Reports: Alerts Trend (GUI)
+app.get('/reports/alerts-trend', requireAuth, async (req, res) => {
+  if (res.headersSent) {
+    return;
+  }
+
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-alerts-trend.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+
+    if (res.headersSent) {
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading alerts trend report viewer:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading report viewer');
+    }
+  }
+});
+
+// Reports: SLA / Uptime by Company
+app.get('/reports/sla-uptime', requireAuth, async (req, res) => {
+  if (res.headersSent) return;
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-sla-uptime.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    if (res.headersSent) return;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading SLA uptime report viewer:', err);
+    if (!res.headersSent) res.status(500).send('Error loading report viewer');
+  }
+});
+
+// Reports: Flapping / Unstable Devices
+app.get('/reports/flapping-devices', requireAuth, async (req, res) => {
+  if (res.headersSent) return;
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-flapping-devices.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    if (res.headersSent) return;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading flapping devices report viewer:', err);
+    if (!res.headersSent) res.status(500).send('Error loading report viewer');
+  }
+});
+
+// Reports: Sensor Type Distribution
+app.get('/reports/sensor-type-distribution', requireAuth, async (req, res) => {
+  if (res.headersSent) return;
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-sensor-type-distribution.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    if (res.headersSent) return;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading sensor type distribution report viewer:', err);
+    if (!res.headersSent) res.status(500).send('Error loading report viewer');
+  }
+});
+
+// Reports: Alert Acknowledgment Latency
+app.get('/reports/alert-ack-latency', requireAuth, async (req, res) => {
+  if (res.headersSent) return;
+  try {
+    const filePath = path.join(__dirname, '../protected/reports-alert-ack-latency.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    if (res.headersSent) return;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading alert ack latency report viewer:', err);
+    if (!res.headersSent) res.status(500).send('Error loading report viewer');
+  }
+});
+
+// Reports: Alerts Trend (JSON, served without /api)
+app.get('/reports/alerts-trend.json', requireAuth, async (req, res) => {
+  try {
+    const hoursRaw = req.query.hours;
+    const bucketRaw = req.query.bucketMinutes;
+
+    const hours = Number.isFinite(Number.parseInt(hoursRaw, 10)) ? Number.parseInt(hoursRaw, 10) : 24;
+    const bucketMinutes = Number.isFinite(Number.parseInt(bucketRaw, 10)) ? Number.parseInt(bucketRaw, 10) : 60;
+
+    const safeHours = Math.max(1, Math.min(8760, hours));
+    const safeBucket = Math.max(5, Math.min(240, bucketMinutes));
+
+    const result = await apiRoutes.buildAlertsTrendReport({ hours: safeHours, bucketMinutes: safeBucket });
+    res.json(result);
+  } catch (err) {
+    logger.error('Error building alerts trend JSON:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to build alerts trend report' });
+    }
+  }
+});
+
+// Analytics: AI-ish predictions (GUI)
+app.get('/analytics', requireAuth, async (req, res) => {
+  if (res.headersSent) {
+    return;
+  }
+
+  try {
+    const filePath = path.join(__dirname, '../protected/analytics.html');
+    const content = await fs.promises.readFile(filePath, 'utf8');
+
+    if (res.headersSent) {
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(content);
+  } catch (err) {
+    logger.error('Error loading analytics:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error loading analytics');
     }
   }
 });
@@ -1446,7 +1659,14 @@ app.get('/api/admin/sessions/stats', requireAuth, requireAdmin, async (req, res)
 
 // Middleware to prevent static serving of protected HTML files
 app.use((req, res, next) => {
-  const protectedFiles = ['/soc-dashboard.html', '/index.html', '/topology.html'];
+  const protectedFiles = [
+    '/soc-dashboard.html',
+    '/index.html',
+    '/topology.html',
+    '/reports-company-device-health-graph.html',
+    '/reports-catalog.html',
+    '/reports-alerts-trend.html'
+  ];
   if (protectedFiles.includes(req.path)) {
     return res.status(404).send('Not Found');
   }
@@ -1738,14 +1958,24 @@ async function startServer() {
         return;
       }
       serverIndex += 1;
-      const [server] = await PRTGServer.findOrCreate({
+      const [server, created] = await PRTGServer.findOrCreate({
         where: { id: serverConfig.id },
         defaults: {
           url: serverConfig.url,
           username: serverConfig.username,
+          passhash: serverConfig.passhash,
           enabled: serverConfig.enabled
         }
       });
+
+      // Always update to ensure config is in sync (especially passhash)
+      if (!created) {
+          server.url = serverConfig.url;
+          server.username = serverConfig.username;
+          server.passhash = serverConfig.passhash;
+          server.enabled = serverConfig.enabled;
+          await server.save();
+      }
       logger.info(`PRTG Server initialized: ${server.id} - ${server.url}`);
       const serverProgress = 40 + Math.round((serverIndex / totalServers) * 15);
       progressTracker.update({
@@ -1815,6 +2045,58 @@ app.get('/health', (req, res) => {
     return res.status(200).json({ status: 'ok', uptime: process.uptime() });
   }
   res.sendFile(path.join(__dirname, '../public/health.html'));
+});
+
+// Catch-all 404 handler for unknown routes
+app.use((req, res, next) => {
+  if (res.headersSent) return next();
+  
+  // ignore harmless map files
+  if (req.path.endsWith('.map')) return res.status(404).end();
+
+  logger.warn(`[404] Resource not found: ${req.method} ${req.url}`, {
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+  
+  if (req.accepts('html')) {
+     res.status(404).send(`
+      <html>
+        <head><title>404 Not Found</title></head>
+        <body style="font-family:sans-serif; background:#1a1a2e; color:#fff; padding:2rem; text-align:center;">
+          <h1>404 Resource Not Found</h1>
+          <p>The requested path <code>${req.path}</code> does not exist on this server.</p>
+          <p><a href="/" style="color:#3498db">Return to Dashboard</a></p>
+        </body>
+      </html>
+    `);
+  } else if (req.accepts('json')) {
+    res.status(404).json({ error: 'Resource not found', path: req.path });
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  logger.error('Unhandled server error:', err);
+  if (res.headersSent) return next(err);
+  
+  res.status(500);
+  if (req.accepts('html')) {
+    res.send(`
+      <html>
+        <head><title>500 Application Error</title></head>
+        <body style="font-family:sans-serif; background:#1a1a2e; color:#fff; padding:2rem; text-align:center;">
+          <h1>Application Error</h1>
+          <p>The dashboard encountered an unexpected error.</p>
+          <p>Please try refreshing the page.</p>
+        </body>
+      </html>
+    `);
+  } else {
+    res.json({ error: 'Internal Server Error' });
+  }
 });
 
 /**

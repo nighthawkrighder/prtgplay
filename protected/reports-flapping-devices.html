@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flapping / Unstable Devices</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: #0b0f14; color: #e6eef7; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif; font-size: 13px; }
+    .header { display:flex; justify-content:space-between; align-items:center; padding: 10px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.07); position:sticky; top:0; z-index:10; }
+    .header-left .title { font-size: 15px; font-weight: 600; }
+    .header-left .meta  { font-size: 11px; color: rgba(230,238,247,0.55); margin-top: 2px; }
+    .actions { display:flex; gap: 6px; flex-wrap: wrap; }
+    .btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: #e6eef7; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+    .btn:hover { background: rgba(255,255,255,0.11); }
+    .btn.primary { background: rgba(52,152,219,.20); border-color: rgba(52,152,219,.40); color: #7ec8e3; }
+
+    .wrap { padding: 14px 16px 60px; max-width: 1200px; margin: 0 auto; }
+    .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; }
+
+    .controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
+    .subtle { font-size: 11px; color: rgba(230,238,247,0.55); }
+    .select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: #e6eef7; padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+
+    .grid2 { display:grid; grid-template-columns: 1fr 350px; gap:12px; }
+    @media (max-width:900px) { .grid2 { grid-template-columns:1fr; } }
+
+    canvas#mainCanvas { width:100%; height:460px; display:block; border-radius:8px; }
+
+    table.tbl { width:100%; border-collapse:collapse; font-size:12px; }
+    table.tbl th { padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.10); font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:rgba(230,238,247,0.40); text-align:left; }
+    table.tbl td { padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.06); }
+    table.tbl tr:last-child td { border-bottom:0; }
+    .badge { display:inline-block; font-size:10px; padding:2px 7px; border-radius:999px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); }
+
+    .statusBar { position:fixed; left:0; right:0; bottom:0; padding:6px 16px; font-size:11px; color:rgba(230,238,247,0.55); background:rgba(11,15,20,0.92); border-top:1px solid rgba(255,255,255,0.07); backdrop-filter:blur(6px); z-index:30; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .spinner { display:inline-block; width:11px; height:11px; border:2px solid rgba(255,255,255,0.15); border-top-color:#3498db; border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:5px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <div class="title">Flapping / Unstable Devices</div>
+      <div class="meta" id="meta">Loading…</div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="window.location.href='/reports'">Reports</button>
+      <button class="btn" onclick="window.location.href='/analytics'">Analytics</button>
+      <button class="btn" onclick="window.location.href='/'">Dashboard</button>
+      <button class="btn" id="openJson">JSON</button>
+      <button class="btn" onclick="window.location.reload()">↺</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="controls card">
+      <span class="subtle">Lookback</span>
+      <select class="select" id="hours">
+        <option value="24" selected>24 h</option>
+        <option value="168">7 d</option>
+        <option value="720">30 d</option>
+      </select>
+      <span class="subtle">Top N</span>
+      <select class="select" id="limit">
+        <option value="15" selected>15</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+      </select>
+      <button class="btn primary" id="run">▶ Run</button>
+      <span class="subtle" style="margin-left:6px;">Higher σ (std dev) = more flapping</span>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><canvas id="mainCanvas"></canvas></div>
+      <div class="card">
+        <div style="font-size:11px;font-weight:600;color:rgba(230,238,247,.45);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Ranked by Volatility</div>
+        <table class="tbl">
+          <thead><tr><th>#</th><th>Device</th><th>Company</th><th>σ</th><th>Range</th><th>Level</th></tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusBar" id="statusBar"><span class="spinner"></span>Loading…</div>
+  <script src="/js/reports/flappingDevices.js"></script>
+</body>
+</html>

@@ -1,11 +1,13 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+const path = require('path');
+const dotenvResult = require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+const envFile = dotenvResult.parsed || {};
 
 /**
  * Parse PRTG server configuration from environment
  * @returns {Array} Array of PRTG server configurations
  */
 function parsePrtgServers() {
-  const serverString = process.env.PRTG_SERVERS;
+  const serverString = process.env.PRTG_SERVERS || envFile.PRTG_SERVERS;
   if (!serverString) {
     throw new Error('PRTG_SERVERS environment variable is required');
   }
@@ -40,11 +42,11 @@ const config = {
   
   // Database configuration
   database: {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    name: process.env.DB_NAME || 'prtg_dashboard',
-    user: process.env.DB_USER || 'prtg_user',
-    password: process.env.DB_PASSWORD || '',
+    host: process.env.CPM_DB_HOST || envFile.CPM_DB_HOST || process.env.DB_HOST || envFile.DB_HOST || 'localhost',
+    port: parseInt(process.env.CPM_DB_PORT || envFile.CPM_DB_PORT || process.env.DB_PORT || envFile.DB_PORT || '3306', 10),
+    name: process.env.CPM_DB_NAME || envFile.CPM_DB_NAME || envFile.DB_NAME || process.env.DB_NAME || 'prtg_dashboard',
+    user: process.env.CPM_DB_USER || envFile.CPM_DB_USER || envFile.DB_USER || process.env.DB_USER || 'prtg_user',
+    password: process.env.CPM_DB_PASSWORD || envFile.CPM_DB_PASSWORD || envFile.DB_PASSWORD || process.env.DB_PASSWORD || '',
     pool: {
       max: parseInt(process.env.DB_POOL_MAX || '10', 10),
       min: parseInt(process.env.DB_POOL_MIN || '2', 10),

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLA / Uptime by Company</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: #0b0f14; color: #e6eef7; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif; font-size: 13px; }
+    .header { display:flex; justify-content:space-between; align-items:center; padding: 10px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.07); position:sticky; top:0; z-index:10; }
+    .header-left .title { font-size: 15px; font-weight: 600; }
+    .header-left .meta  { font-size: 11px; color: rgba(230,238,247,0.55); margin-top: 2px; }
+    .actions { display:flex; gap: 6px; flex-wrap: wrap; }
+    .btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: #e6eef7; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+    .btn:hover { background: rgba(255,255,255,0.11); }
+    .btn.primary { background: rgba(52,152,219,.20); border-color: rgba(52,152,219,.40); color: #7ec8e3; }
+
+    .wrap { padding: 14px 16px 60px; max-width: 1200px; margin: 0 auto; }
+    .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; }
+
+    .controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
+    .subtle { font-size: 11px; color: rgba(230,238,247,0.55); }
+    .select { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: #e6eef7; padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+    .input  { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: #e6eef7; padding: 6px 8px; border-radius: 8px; font-size: 12px; width: 72px; }
+
+    .kpi-row { display:grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap:10px; margin-bottom:12px; }
+    .kpi { background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 12px; }
+    .kpi-val   { font-size: 22px; font-weight: 700; line-height:1.1; }
+    .kpi-label { font-size: 11px; color: rgba(230,238,247,0.50); margin-top:3px; }
+
+    canvas#mainCanvas { width:100%; height:420px; display:block; border-radius:8px; }
+
+    table.tbl { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+    table.tbl th { padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.10); font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:rgba(230,238,247,0.40); text-align:left; }
+    table.tbl td { padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.06); }
+    table.tbl tr:last-child td { border-bottom:0; }
+    .badge { display:inline-block; font-size:10px; padding:2px 7px; border-radius:999px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); }
+
+    .statusBar { position:fixed; left:0; right:0; bottom:0; padding:6px 16px; font-size:11px; color:rgba(230,238,247,0.55); background:rgba(11,15,20,0.92); border-top:1px solid rgba(255,255,255,0.07); backdrop-filter:blur(6px); z-index:30; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .spinner { display:inline-block; width:11px; height:11px; border:2px solid rgba(255,255,255,0.15); border-top-color:#3498db; border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:5px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <div class="title">SLA / Uptime by Company</div>
+      <div class="meta" id="meta">Loading…</div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="window.location.href='/reports'">Reports</button>
+      <button class="btn" onclick="window.location.href='/analytics'">Analytics</button>
+      <button class="btn" onclick="window.location.href='/'">Dashboard</button>
+      <button class="btn" id="openJson">JSON</button>
+      <button class="btn" onclick="window.location.reload()">↺</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="controls card">
+      <span class="subtle">Period</span>
+      <select class="select" id="hours">
+        <option value="168">7 d</option>
+        <option value="720" selected>30 d</option>
+        <option value="2160">90 d</option>
+        <option value="8760">1 yr</option>
+      </select>
+      <span class="subtle">SLA Target %</span>
+      <input class="input" id="slaTarget" type="number" min="0" max="100" step="0.1" value="99.0" />
+      <button class="btn primary" id="run">▶ Run</button>
+    </div>
+
+    <div class="kpi-row" id="kpiRow"></div>
+    <div class="card">
+      <canvas id="mainCanvas"></canvas>
+    </div>
+    <div class="card" style="margin-top:12px;">
+      <div style="font-size:11px;font-weight:600;color:rgba(230,238,247,.45);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">All Companies</div>
+      <table class="tbl">
+        <thead><tr><th>Company</th><th>Uptime %</th><th>SLA</th><th>Breaches</th><th>Est. Downtime</th><th>Devices</th><th>Lowest Health</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="statusBar" id="statusBar"><span class="spinner"></span>Loading…</div>
+  <script src="/js/reports/slaUptime.js"></script>
+</body>
+</html>
