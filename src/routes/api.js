@@ -1315,6 +1315,59 @@ router.get('/analytics/company-health', async (req, res) => {
   }
 });
 
+// ─── Health Heatmap (day-of-week × hour-of-day) ─────────────────────────────
+router.get('/analytics/heatmap', async (req, res) => {
+  try {
+    const cached = getCachedReport(req);
+    if (cached) return res.json(cached);
+
+    const hours = parseIntParam(req.query.hours, 720, { min: 24, max: 2160 });
+    const start = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    const sql = `
+      SELECT
+        DAYOFWEEK(snapshot_time) AS dow,
+        HOUR(snapshot_time)      AS hod,
+        ROUND(AVG(health_percentage), 1) AS avg_health,
+        COUNT(*)                          AS cnt
+      FROM device_snapshots
+      WHERE snapshot_time >= :start
+        AND health_percentage IS NOT NULL
+      GROUP BY dow, hod
+      ORDER BY dow, hod
+    `;
+
+    const rows = await sequelize.query(sql, {
+      replacements: { start },
+      type: Sequelize.QueryTypes.SELECT
+    });
+
+    // Build 7×24 matrix. DAYOFWEEK: 1=Sun…7=Sat
+    const grid = Array.from({ length: 7 }, () => new Array(24).fill(null));
+    rows.forEach(r => {
+      const d = Number(r.dow) - 1;   // 0=Sun…6=Sat
+      const h = Number(r.hod);
+      grid[d][h] = { avg: Number.parseFloat(r.avg_health) || 0, cnt: Number(r.cnt) || 0 };
+    });
+
+    const result = {
+      analytics: 'heatmap',
+      range: { start: start.toISOString(), hours },
+      rowLabels: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      grid,
+      generatedAt: new Date().toISOString()
+    };
+    setCachedReport(req, result);
+    return res.json(result);
+  } catch (error) {
+    logger.error('Failed to build heatmap analytics:', error);
+    if (res.headersSent || res.writableEnded || res.finished) return;
+    try {
+      return res.status(500).json({ error: 'Failed to build heatmap analytics' });
+    } catch (e) { return; }
+  }
+});
+
 // ============================================
 // AI Intelligence Engine
 // ============================================

@@ -1,36 +1,62 @@
 /* Analytics module – PRTG Unified Dashboard
- * Tabs: Health forecast · Alerts trend · Company breakdown · AI Insights
- * Charts: line, stacked-bar, horizontal-bar, donut
- * Auto-refresh: 5 min
+ * Tabs: Health forecast · Alerts trend · Company breakdown · Heatmap · AI Insights
+ * Charts: line, stacked-bar, horizontal-bar, heatmap, donut
+ * Auto-refresh: 5 min  ·  localStorage settings persistence
  */
 (function () {
   'use strict';
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
-  const statusBar  = $('statusBar');
-  const kpiStrip   = $('kpiStrip');
-  const mainCanvas = $('mainCanvas');
-  const legendEl   = $('chartLegend');
-  const sidePanel  = $('sidePanel');
-  const riskPanel  = $('riskPanel');
-  const hoursEl    = $('hours');
-  const bucketEl   = $('bucketMinutes');
-  const forecastEl = $('forecastHours');
-  const metaEl     = $('meta');
-  const mainGrid   = $('mainGrid');
-  const aiPanel    = $('aiPanel');
+  const statusBar    = $('statusBar');
+  const kpiStrip     = $('kpiStrip');
+  const mainCanvas   = $('mainCanvas');
+  const legendEl     = $('chartLegend');
+  const sidePanel    = $('sidePanel');
+  const riskPanel    = $('riskPanel');
+  const hoursEl      = $('hours');
+  const bucketEl     = $('bucketMinutes');
+  const forecastEl   = $('forecastHours');
+  const metaEl       = $('meta');
+  const mainGrid     = $('mainGrid');
+  const aiPanel      = $('aiPanel');
+  const heatmapPanel = $('heatmapPanel');
+  const hmTooltip    = $('hmTooltip');
 
-  let activeTab = 'health';
-  let lastData  = {};
-  let refreshTimer = null;
+  let activeTab     = 'health';
+  let lastData      = {};
+  let refreshTimer  = null;
+  let countdownInt  = null;
+  let nextRefreshAt = null;
+  // Heatmap state for hover
+  let hmCells = [];  // { x, y, w, h, day, hour, avg, cnt }
+  let hmCanvas = null;
 
   // ─── Utilities ────────────────────────────────────────────────────────────
   function setStatus(text, busy) {
     if (!statusBar) return;
+    const countdownHtml = nextRefreshAt
+      ? `<span class="refresh-countdown" id="cdPill">↺ in ${formatCountdown()}</span>`
+      : '';
     statusBar.innerHTML = busy
-      ? `<span class="spinner"></span>${esc(text)}`
-      : esc(text);
+      ? `<span class="spinner"></span>${esc(text)}${countdownHtml}`
+      : `${esc(text)}${countdownHtml}`;
+  }
+
+  function formatCountdown() {
+    if (!nextRefreshAt) return '';
+    const ms = Math.max(0, nextRefreshAt - Date.now());
+    const m  = Math.floor(ms / 60000);
+    const s  = Math.floor((ms % 60000) / 1000);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function startCountdown() {
+    clearInterval(countdownInt);
+    countdownInt = setInterval(() => {
+      const pill = document.getElementById('cdPill');
+      if (pill) pill.textContent = `↺ in ${formatCountdown()}`;
+    }, 1000);
   }
 
   function esc(s) {
@@ -65,6 +91,30 @@
       throw new Error(`Expected JSON, got "${ct}": ${t.slice(0, 120)}`);
     }
     return r.json();
+  }
+
+  // ─── Settings persistence ─────────────────────────────────────────────────
+  const STORAGE_KEY = 'analytics_prefs';
+
+  function savePrefs() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        tab:     activeTab,
+        hours:   hoursEl.value,
+        bucket:  bucketEl.value,
+        forecast: forecastEl.value
+      }));
+    } catch (_) {}
+  }
+
+  function loadPrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (p.hours    && hoursEl.querySelector(`option[value="${p.hours}"]`))    hoursEl.value    = p.hours;
+      if (p.bucket   && bucketEl.querySelector(`option[value="${p.bucket}"]`))  bucketEl.value   = p.bucket;
+      if (p.forecast && forecastEl.querySelector(`option[value="${p.forecast}"]`)) forecastEl.value = p.forecast;
+      return p.tab || 'health';
+    } catch (_) { return 'health'; }
   }
 
   // ─── Canvas setup ─────────────────────────────────────────────────────────
@@ -422,6 +472,86 @@
     ctx.textAlign = 'left';
   }
 
+  // ─── Chart: Heatmap (day-of-week × hour-of-day) ───────────────────────────
+  function drawHeatmap(canvas, heatmapData) {
+    const { ctx, w, h } = setupCanvas(canvas);
+    ctx.clearRect(0, 0, w, h);
+    hmCells = [];
+    hmCanvas = canvas;
+
+    const rowLabels = heatmapData.rowLabels || ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const grid = heatmapData.grid || [];
+    const ROWS = 7;
+    const COLS = 24;
+
+    const pad = { top: 28, right: 12, bottom: 30, left: 40 };
+    const pw = w - pad.left - pad.right;
+    const ph = h - pad.top  - pad.bottom;
+    const cellW = pw / COLS;
+    const cellH = ph / ROWS;
+
+    function healthToColor(pct, alpha = 1) {
+      if (pct === null) return `rgba(40,40,50,${alpha})`;
+      const v = Math.max(0, Math.min(100, pct)) / 100;
+      // Red(0) → Yellow(0.5) → Green(1)
+      let r, g, b;
+      if (v < 0.5) {
+        r = 239; g = Math.round(68 + (158 - 68) * (v * 2)); b = 68;
+      } else {
+        r = Math.round(245 - (245 - 16)  * ((v - 0.5) * 2));
+        g = Math.round(158 + (185 - 158) * ((v - 0.5) * 2));
+        b = Math.round(11  + (129 - 11)  * ((v - 0.5) * 2));
+      }
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    // Row labels (days)
+    ctx.fillStyle = 'rgba(230,238,247,.50)';
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    for (let d = 0; d < ROWS; d++) {
+      const cy = pad.top + d * cellH + cellH / 2 + 3;
+      ctx.fillText(rowLabels[d], pad.left - 5, cy);
+    }
+
+    // Hour labels
+    ctx.textAlign = 'center';
+    ctx.font = '9px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(230,238,247,.40)';
+    for (let hh = 0; hh < COLS; hh += 4) {
+      const cx = pad.left + hh * cellW + cellW / 2;
+      ctx.fillText(String(hh).padStart(2,'0'), cx, pad.top + ph + 14);
+    }
+
+    // Title
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(230,238,247,.40)';
+    ctx.font = '9px system-ui, sans-serif';
+    ctx.fillText('Hour →', pad.left, pad.top + ph + 25);
+
+    // Cells
+    for (let d = 0; d < ROWS; d++) {
+      for (let hh = 0; hh < COLS; hh++) {
+        const cell = grid[d] ? grid[d][hh] : null;
+        const avg  = cell ? cell.avg : null;
+        const x = pad.left + hh * cellW;
+        const y = pad.top  + d  * cellH;
+        const gap = 1.5;
+
+        ctx.fillStyle = healthToColor(avg);
+        ctx.beginPath();
+        ctx.roundRect
+          ? ctx.roundRect(x + gap, y + gap, cellW - gap * 2, cellH - gap * 2, 2)
+          : (ctx.rect(x + gap, y + gap, cellW - gap * 2, cellH - gap * 2));
+        ctx.fill();
+
+        // Store cell for hover
+        hmCells.push({ x: x + gap, y: y + gap, w: cellW - gap * 2, h: cellH - gap * 2,
+                       day: d, hour: hh, avg, cnt: cell ? cell.cnt : 0 });
+      }
+    }
+  }
+
   // ─── KPI Cards ────────────────────────────────────────────────────────────
   function renderKPIs(summary) {
     const d = summary.devices || {};
@@ -584,6 +714,59 @@
       </table>`;
   }
 
+  // ─── Heatmap panel render ──────────────────────────────────────────────────
+  function renderHeatmap(heatmapData) {
+    const hmc = $('heatmapCanvas');
+    if (!hmc) return;
+    drawHeatmap(hmc, heatmapData);
+
+    // Compute interesting stats from grid
+    const grid = heatmapData.grid || [];
+    const all  = grid.flat().filter(c => c !== null);
+    if (!all.length) return;
+
+    const avgs = all.map(c => c.avg);
+    const worstHour = { val: 100, label: '' };
+    const bestHour  = { val: 0, label: '' };
+
+    // Per-hour average across all days
+    for (let h = 0; h < 24; h++) {
+      const cells = grid.map(row => row[h]).filter(c => c !== null);
+      if (!cells.length) continue;
+      const avg = cells.reduce((s, c) => s + c.avg, 0) / cells.length;
+      if (avg < worstHour.val) { worstHour.val = avg; worstHour.label = `${String(h).padStart(2,'0')}:00`; }
+      if (avg > bestHour.val)  { bestHour.val  = avg; bestHour.label  = `${String(h).padStart(2,'0')}:00`; }
+    }
+
+    // Worst / best day
+    const rowLabels = heatmapData.rowLabels || ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const worstDay  = { val: 100, label: '' };
+    const bestDay   = { val: 0, label: '' };
+    grid.forEach((row, d) => {
+      const cells = row.filter(c => c !== null);
+      if (!cells.length) return;
+      const avg = cells.reduce((s, c) => s + c.avg, 0) / cells.length;
+      if (avg < worstDay.val) { worstDay.val = avg; worstDay.label = rowLabels[d]; }
+      if (avg > bestDay.val)  { bestDay.val  = avg; bestDay.label  = rowLabels[d]; }
+    });
+
+    const overallAvg = avgs.reduce((s, v) => s + v, 0) / avgs.length;
+
+    const stats = $('hmStatsGrid');
+    if (!stats) return;
+    const healthCol = v => v >= 90 ? '#10b981' : v >= 70 ? '#f59e0b' : '#ef4444';
+    stats.innerHTML = [
+      { val: overallAvg.toFixed(1) + '%', label: 'Overall Avg Health', col: healthCol(overallAvg) },
+      { val: worstHour.label || '—',      label: `Worst Hour (${worstHour.val.toFixed(0)}% avg)`, col: '#ef4444' },
+      { val: bestHour.label || '—',       label: `Best Hour  (${bestHour.val.toFixed(0)}% avg)`,  col: '#10b981' },
+      { val: worstDay.label || '—',       label: `Worst Day  (${worstDay.val.toFixed(0)}% avg)`,  col: '#f59e0b' }
+    ].map(s => `
+      <div class="hm-stat-card">
+        <div class="hm-stat-val" style="color:${s.col}">${esc(s.val)}</div>
+        <div class="hm-stat-label">${esc(s.label)}</div>
+      </div>`).join('');
+  }
+
   // ─── Tab redraw ────────────────────────────────────────────────────────────
   function redraw() {
     legendEl.innerHTML = '';
@@ -645,13 +828,21 @@
     document.querySelectorAll('.tab-btn').forEach(btn =>
       btn.classList.toggle('active', btn.dataset.tab === name)
     );
-    if (name === 'ai') {
-      if (mainGrid)  mainGrid.style.display  = 'none';
-      if (aiPanel)   aiPanel.style.display   = 'block';
+    savePrefs();
+
+    const showMain    = name !== 'ai' && name !== 'heatmap';
+    const showAI      = name === 'ai';
+    const showHeatmap = name === 'heatmap';
+
+    if (mainGrid)     mainGrid.style.display     = showMain    ? '' : 'none';
+    if (aiPanel)      aiPanel.style.display      = showAI      ? 'block' : 'none';
+    if (heatmapPanel) heatmapPanel.style.display = showHeatmap ? 'block' : 'none';
+
+    if (showAI) {
       loadAIInsights();
+    } else if (showHeatmap) {
+      loadHeatmap();
     } else {
-      if (mainGrid)  mainGrid.style.display  = '';
-      if (aiPanel)   aiPanel.style.display   = 'none';
       redraw();
     }
   }
@@ -826,6 +1017,26 @@
     if (tsEl) tsEl.textContent = `Generated: ${new Date(data.generatedAt || Date.now()).toLocaleString()}`;
   }
 
+  // ─── Heatmap load ──────────────────────────────────────────────────────────
+  let hmLoading = false;
+  async function loadHeatmap() {
+    if (hmLoading) return;
+    hmLoading = true;
+    setStatus('Loading heatmap…', true);
+    try {
+      const hours = Number.parseInt(hoursEl.value, 10) || 720;
+      const d = await fetchJson(`/api/analytics/heatmap?hours=${hours}`);
+      lastData.heatmap = d;
+      renderHeatmap(d);
+      setStatus(`Heatmap rendered · ${hours}h lookback`, false);
+    } catch (e) {
+      console.error('Heatmap error:', e);
+      setStatus('Heatmap error: ' + e.message, false);
+    } finally {
+      hmLoading = false;
+    }
+  }
+
   let aiLoading = false;
   async function loadAIInsights() {
     if (aiLoading) return;
@@ -851,6 +1062,7 @@
     const hours         = Number.parseInt(hoursEl.value,    10) || 24;
     const bucketMinutes = Number.parseInt(bucketEl.value,   10) || 60;
     const forecastHours = Number.parseInt(forecastEl.value, 10) || 24;
+    savePrefs();
 
     setStatus('Loading analytics…', true);
 
@@ -898,8 +1110,19 @@
   // ─── Auto-refresh ──────────────────────────────────────────────────────────
   function scheduleRefresh() {
     clearTimeout(refreshTimer);
+    nextRefreshAt = Date.now() + 5 * 60 * 1000;
+    startCountdown();
     refreshTimer = setTimeout(async () => {
-      try { await run(); } catch (e) { console.error('Auto-refresh error:', e); }
+      nextRefreshAt = null;
+      try {
+        if (activeTab === 'ai') {
+          await loadAIInsights();
+        } else if (activeTab === 'heatmap') {
+          await loadHeatmap();
+        } else {
+          await run();
+        }
+      } catch (e) { console.error('Auto-refresh error:', e); }
       scheduleRefresh();
     }, 5 * 60 * 1000);
   }
@@ -907,8 +1130,14 @@
   // ─── Event wiring ──────────────────────────────────────────────────────────
   $('run').addEventListener('click', () => {
     clearTimeout(refreshTimer);
+    nextRefreshAt = null;
+    savePrefs();
     if (activeTab === 'ai') {
       loadAIInsights()
+        .catch(e => { console.error(e); setStatus('Error: ' + e.message, false); })
+        .finally(() => scheduleRefresh());
+    } else if (activeTab === 'heatmap') {
+      loadHeatmap()
         .catch(e => { console.error(e); setStatus('Error: ' + e.message, false); })
         .finally(() => scheduleRefresh());
     } else {
@@ -923,22 +1152,126 @@
   );
 
   $('openJson').addEventListener('click', () => {
-    const hours   = Number.parseInt(hoursEl.value,    10) || 24;
-    const bucket  = Number.parseInt(bucketEl.value,   10) || 60;
-    const fcast   = Number.parseInt(forecastEl.value, 10) || 24;
-    const url = activeTab === 'ai'
-      ? `/api/analytics/ai-insights?hours=${hours}`
-      : `/api/analytics/network-health?hours=${hours}&bucketMinutes=${bucket}&forecastHours=${fcast}`;
-    window.open(url, '_blank', 'noopener');
+    const hours  = Number.parseInt(hoursEl.value,    10) || 24;
+    const bucket = Number.parseInt(bucketEl.value,   10) || 60;
+    const fcast  = Number.parseInt(forecastEl.value, 10) || 24;
+    const urlMap = {
+      ai:        `/api/analytics/ai-insights?hours=${hours}`,
+      heatmap:   `/api/analytics/heatmap?hours=${hours}`,
+      companies: `/api/analytics/company-health?hours=${hours}`,
+      alerts:    `/api/reports/alerts-trend?hours=${hours}&bucketMinutes=${bucket}`,
+      health:    `/api/analytics/network-health?hours=${hours}&bucketMinutes=${bucket}&forecastHours=${fcast}`
+    };
+    window.open(urlMap[activeTab] || urlMap.health, '_blank', 'noopener');
   });
 
-  window.addEventListener('resize', () => requestAnimationFrame(redraw));
+  // PNG export
+  $('exportPng').addEventListener('click', () => {
+    let canvas = null;
+    if (activeTab === 'heatmap') canvas = $('heatmapCanvas');
+    else if (activeTab !== 'ai') canvas = mainCanvas;
+    if (!canvas) { alert('No chart to export for this tab.'); return; }
+    const link = document.createElement('a');
+    link.download = `prtg-analytics-${activeTab}-${new Date().toISOString().slice(0,10)}.png`;
+    // Composite onto a bg-filled canvas to avoid transparent PNG
+    const out = document.createElement('canvas');
+    out.width  = canvas.width;
+    out.height = canvas.height;
+    const octx = out.getContext('2d');
+    octx.fillStyle = '#0b0f14';
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.drawImage(canvas, 0, 0);
+    link.href = out.toDataURL('image/png');
+    link.click();
+  });
+
+  // Company chart click → SOC dashboard drill-down
+  mainCanvas.addEventListener('click', e => {
+    if (activeTab !== 'companies') return;
+    const companies = lastData.companies?.companies || [];
+    if (!companies.length) return;
+    const rect   = mainCanvas.getBoundingClientRect();
+    const dpr    = Math.min(window.devicePixelRatio || 1, 2);
+    const scaleX = mainCanvas.width / dpr / rect.width;
+    const scaleY = mainCanvas.height / dpr / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top)  * scaleY;
+
+    const labelW = 160, valW = 42;
+    const pad    = { top: 22, right: valW + 8, bottom: 8, left: labelW };
+    const pw = mainCanvas.width / dpr - pad.left - pad.right;
+    const ph = mainCanvas.height / dpr - pad.top  - pad.bottom;
+    const sorted = [...companies].sort((a, b) => b.avgHealth - a.avgHealth);
+    const rowH = Math.min(30, Math.floor(ph / Math.max(1, sorted.length)));
+
+    const idx = Math.floor((my - pad.top) / rowH);
+    if (idx >= 0 && idx < sorted.length) {
+      const company = sorted[idx];
+      const barW = (Math.max(0, Math.min(100, company.avgHealth)) / 100) * pw;
+      // Only trigger if click is within the bar area
+      if (mx >= pad.left && mx <= pad.left + pw) {
+        const encoded = encodeURIComponent(company.companyName);
+        window.location.href = `/?company=${encoded}`;
+      }
+    }
+  });
+
+  // Change company cursor to pointer
+  mainCanvas.addEventListener('mousemove', e => {
+    if (activeTab === 'companies') {
+      mainCanvas.style.cursor = 'pointer';
+    } else {
+      mainCanvas.style.cursor = '';
+    }
+  });
+  mainCanvas.addEventListener('mouseleave', () => { mainCanvas.style.cursor = ''; });
+
+  // Heatmap canvas hover tooltip
+  document.addEventListener('mousemove', e => {
+    if (activeTab !== 'heatmap' || !hmCanvas || !hmTooltip) return;
+    const rect = hmCanvas.getBoundingClientRect();
+    const dpr    = Math.min(window.devicePixelRatio || 1, 2);
+    const scaleX = hmCanvas.width / dpr / rect.width;
+    const scaleY = hmCanvas.height / dpr / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top)  * scaleY;
+
+    let found = false;
+    for (const cell of hmCells) {
+      if (mx >= cell.x && mx <= cell.x + cell.w && my >= cell.y && my <= cell.y + cell.h) {
+        const rowLabels = lastData.heatmap?.rowLabels || ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const day  = rowLabels[cell.day] || cell.day;
+        const hour = `${String(cell.hour).padStart(2,'0')}:00`;
+        const avgStr = cell.avg !== null ? cell.avg.toFixed(1) + '%' : 'No data';
+        hmTooltip.innerHTML = `<strong>${day} ${hour}</strong><br>Avg Health: ${avgStr}${cell.cnt ? `<br>${cell.cnt.toLocaleString()} snapshots` : ''}`;
+        hmTooltip.style.display = 'block';
+        hmTooltip.style.left = (e.clientX + 14) + 'px';
+        hmTooltip.style.top  = (e.clientY - 10) + 'px';
+        found = true;
+        break;
+      }
+    }
+    if (!found) hmTooltip.style.display = 'none';
+  });
+
+  document.addEventListener('mouseleave', () => {
+    if (hmTooltip) hmTooltip.style.display = 'none';
+  });
+
+  window.addEventListener('resize', () => requestAnimationFrame(() => {
+    if (activeTab === 'heatmap' && lastData.heatmap) renderHeatmap(lastData.heatmap);
+    else redraw();
+  }));
 
   // ─── Boot ──────────────────────────────────────────────────────────────────
   (async function boot() {
+    // Restore saved prefs, then navigate to the saved tab
+    const savedTab = loadPrefs();
     try {
       await run();
       scheduleRefresh();
+      // After initial data load, switch to saved tab if not 'health'
+      if (savedTab && savedTab !== 'health') switchTab(savedTab);
     } catch (e) {
       console.error('Analytics boot error:', e);
       setStatus('Failed to load: ' + e.message, false);

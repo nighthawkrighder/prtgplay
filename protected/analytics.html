@@ -235,6 +235,64 @@
     .flap-std { font-size: 11px; color: #fbbf24; font-weight: 600; }
     .ai-empty { padding: 20px; text-align: center; color: rgba(230,238,247,.35); font-size: 12px; }
     .ai-ts { font-size: 10px; color: rgba(230,238,247,.30); margin-top: 12px; text-align: right; }
+
+    /* ── Heatmap Panel ──────────────────────────── */
+    #heatmapPanel { display: none; }
+    .heatmap-wrap {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 16px 18px; margin-bottom: 12px;
+    }
+    .heatmap-title {
+      font-size: 13px; font-weight: 600; margin-bottom: 14px;
+      color: rgba(230,238,247,.85);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .heatmap-subtitle { font-size: 11px; color: rgba(230,238,247,.40); font-weight: 400; }
+    #heatmapCanvas { width: 100%; height: 240px; display: block; }
+    .heatmap-legend {
+      display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px;
+      color: rgba(230,238,247,.50);
+    }
+    .heatmap-gradient {
+      width: 120px; height: 10px; border-radius: 5px;
+      background: linear-gradient(to right, #ef4444, #f59e0b, #10b981);
+    }
+    .heatmap-tooltip {
+      position: fixed; background: rgba(15,20,30,.95); border: 1px solid rgba(255,255,255,.15);
+      border-radius: 8px; padding: 8px 12px; font-size: 11px; pointer-events: none;
+      z-index: 9999; display: none; white-space: nowrap; backdrop-filter: blur(4px);
+      color: #e6eef7; box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    }
+    .hm-stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px;
+      margin-top: 12px;
+    }
+    .hm-stat-card {
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    .hm-stat-val { font-size: 20px; font-weight: 700; }
+    .hm-stat-label { font-size: 10px; color: rgba(230,238,247,.45); text-transform: uppercase; letter-spacing: .06em; margin-top: 3px; }
+
+    /* ── Shimmer skeleton ───────────────────────── */
+    @keyframes shimmer { 0%{background-position:-468px 0} 100%{background-position:468px 0} }
+    .skeleton {
+      background: linear-gradient(90deg,rgba(255,255,255,.05) 25%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.05) 75%);
+      background-size: 936px 100%;
+      animation: shimmer 1.4s ease infinite;
+      border-radius: 6px;
+    }
+
+    /* ── Countdown pill ─────────────────────────── */
+    .refresh-countdown {
+      font-size: 10px; color: rgba(52,152,219,.65); margin-left: 10px;
+      border: 1px solid rgba(52,152,219,.25); border-radius: 999px;
+      padding: 1px 8px; display: inline-block;
+    }
+
+    /* ── Export button ──────────────────────────── */
+    .btn.export { background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.30); color: #6ee7b7; }
+    .btn.export:hover { background: rgba(16,185,129,.22); }
   </style>
 </head>
 <body>
@@ -248,6 +306,7 @@
       <button class="btn" onclick="window.location.href='/'">Dashboard</button>
       <button class="btn" onclick="window.location.href='/topology'">Topology</button>
       <button class="btn" onclick="window.location.href='/reports'">Reports</button>
+      <button class="btn export" id="exportPng" title="Export chart as PNG">⬇ PNG</button>
       <button class="btn" id="openJson">JSON</button>
       <button class="btn" onclick="window.location.reload()">↺ Reload</button>
     </div>
@@ -286,7 +345,31 @@
       <button class="tab-btn active" data-tab="health">Health</button>
       <button class="tab-btn" data-tab="alerts">Alerts</button>
       <button class="tab-btn" data-tab="companies">By Company</button>
+      <button class="tab-btn" data-tab="heatmap">🔥 Heatmap</button>
       <button class="tab-btn" data-tab="ai" style="border-color:rgba(139,92,246,.4);color:#c4b5fd;">🧠 AI Insights</button>
+    </div>
+
+    <!-- Heatmap Panel -->
+    <div id="heatmapPanel">
+      <div class="heatmap-wrap">
+        <div class="heatmap-title">
+          🔥 Health Heatmap — Hour of Day × Day of Week
+          <span class="heatmap-subtitle">Hover a cell for details · Darker red = unhealthy, green = healthy</span>
+        </div>
+        <canvas id="heatmapCanvas"></canvas>
+        <div class="heatmap-legend">
+          <span>0%</span>
+          <div class="heatmap-gradient"></div>
+          <span>100%</span>
+          <span style="margin-left:12px;color:rgba(230,238,247,.30);">▩ = no data for that slot</span>
+        </div>
+      </div>
+      <div class="hm-stats-grid" id="hmStatsGrid">
+        <div class="hm-stat-card skeleton" style="height:60px;"></div>
+        <div class="hm-stat-card skeleton" style="height:60px;"></div>
+        <div class="hm-stat-card skeleton" style="height:60px;"></div>
+        <div class="hm-stat-card skeleton" style="height:60px;"></div>
+      </div>
     </div>
 
     <!-- AI Insights Panel -->
@@ -373,6 +456,7 @@
   </div>
 
   <div class="statusBar" id="statusBar"><span class="spinner"></span>Initializing…</div>
+  <div class="heatmap-tooltip" id="hmTooltip"></div>
 
   <script src="/js/analytics/analytics.js"></script>
 </body>
