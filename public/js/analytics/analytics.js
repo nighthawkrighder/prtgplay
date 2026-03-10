@@ -1,5 +1,5 @@
 /* Analytics module – PRTG Unified Dashboard
- * Tabs: Health forecast · Alerts trend · Company breakdown
+ * Tabs: Health forecast · Alerts trend · Company breakdown · AI Insights
  * Charts: line, stacked-bar, horizontal-bar, donut
  * Auto-refresh: 5 min
  */
@@ -18,6 +18,8 @@
   const bucketEl   = $('bucketMinutes');
   const forecastEl = $('forecastHours');
   const metaEl     = $('meta');
+  const mainGrid   = $('mainGrid');
+  const aiPanel    = $('aiPanel');
 
   let activeTab = 'health';
   let lastData  = {};
@@ -643,7 +645,205 @@
     document.querySelectorAll('.tab-btn').forEach(btn =>
       btn.classList.toggle('active', btn.dataset.tab === name)
     );
-    redraw();
+    if (name === 'ai') {
+      if (mainGrid)  mainGrid.style.display  = 'none';
+      if (aiPanel)   aiPanel.style.display   = 'block';
+      loadAIInsights();
+    } else {
+      if (mainGrid)  mainGrid.style.display  = '';
+      if (aiPanel)   aiPanel.style.display   = 'none';
+      redraw();
+    }
+  }
+
+  // ─── AI Insights ────────────────────────────────────────────────────────────
+
+  function severityColor(sev) {
+    if (sev === 'critical') return '#ef4444';
+    if (sev === 'warning')  return '#f59e0b';
+    return '#3b82f6';
+  }
+
+  function etaText(isoTime) {
+    const ms  = new Date(isoTime).getTime() - Date.now();
+    if (ms < 0) return 'Overdue';
+    const h   = Math.floor(ms / 3600000);
+    if (h < 24) return `in ${h}h`;
+    const d   = Math.floor(h / 24);
+    return `in ${d}d ${h % 24}h`;
+  }
+
+  function renderAIInsights(data) {
+    const s = data.summary || {};
+
+    // Hero
+    const scoreEl = $('aiHealthScore');
+    if (scoreEl) {
+      const col = s.overallHealth >= 90 ? '#10b981' : s.overallHealth >= 70 ? '#f59e0b' : '#ef4444';
+      scoreEl.style.color = col;
+      scoreEl.innerHTML = `${Math.round(s.overallHealth)}<span class="unit">%</span>`;
+    }
+    const sumEl = $('aiSummaryText');
+    if (sumEl) sumEl.textContent = s.text || 'Analysis complete.';
+
+    const heroStats = $('aiHeroStats');
+    if (heroStats) {
+      const trend = s.trendSlope < -0.1 ? '↘ Declining' : s.trendSlope > 0.1 ? '↗ Recovering' : '→ Stable';
+      const trendCol = s.trendSlope < -0.1 ? '#ef4444' : s.trendSlope > 0.1 ? '#10b981' : '#6b7280';
+      heroStats.innerHTML = [
+        { val: s.networkDown,       lbl: 'Devices Down',   col: s.networkDown   > 0 ? '#ef4444' : '#10b981' },
+        { val: s.networkWarning,    lbl: 'Warnings',       col: s.networkWarning > 0 ? '#f59e0b' : '#10b981' },
+        { val: s.anomalyCount,      lbl: 'Anomalies',      col: s.anomalyCount  > 0 ? '#f59e0b' : '#10b981' },
+        { val: s.predictionCount,   lbl: 'Predictions',    col: s.predictionCount > 0 ? '#a78bfa' : '#10b981' },
+        { val: s.flappingCount,     lbl: 'Flapping',       col: s.flappingCount > 0 ? '#f59e0b' : '#10b981' },
+        { val: trend,               lbl: '24h Trend',      col: trendCol }
+      ].map(st =>
+        `<div class="ai-hero-stat"><div class="val" style="color:${st.col}">${esc(String(st.val))}</div><div class="lbl">${esc(st.lbl)}</div></div>`
+      ).join('');
+    }
+
+    // Live anomalies
+    const anomList = $('aiAnomalyList');
+    if (anomList) {
+      const all = [...(data.liveAnomalies || []), ...(data.storedAnomalies || [])]
+        .sort((a, b) => {
+          const order = { critical: 0, warning: 1, info: 2 };
+          return (order[a.severity] || 2) - (order[b.severity] || 2);
+        });
+      if (!all.length) {
+        anomList.innerHTML = `<div class="ai-empty">✅ No anomalies detected</div>`;
+      } else {
+        anomList.innerHTML = all.slice(0, 8).map(a => `
+          <div class="anomaly-card ${esc(a.severity)}">
+            <div class="anomaly-device">${esc(a.deviceName || a.entityName || 'Unknown')}</div>
+            <div class="anomaly-company">${esc(a.companyName || 'Unassigned')}</div>
+            <div class="anomaly-msg">${esc(a.message || '')}</div>
+            <span class="anomaly-badge ${esc(a.severity)}">${esc(a.severity)}</span>
+          </div>`).join('');
+        if (all.length > 8) {
+          anomList.innerHTML += `<div class="ai-empty" style="padding:8px;">+${all.length - 8} more anomalies</div>`;
+        }
+      }
+    }
+
+    // Predictions
+    const predList = $('aiPredList');
+    if (predList) {
+      const preds = data.predictions || [];
+      if (!preds.length) {
+        predList.innerHTML = `<div class="ai-empty">✅ No predictive alarms active</div>`;
+      } else {
+        predList.innerHTML = preds.slice(0, 6).map(p => {
+          const conf = Math.round(Number(p.confidenceScore) * 100);
+          return `
+          <div class="pred-card">
+            <div class="pred-entity">${esc(p.entityName || 'Unknown')}</div>
+            <div class="pred-company">${esc(p.companyName || 'Unassigned')}</div>
+            <div class="pred-eta">⏰ ${esc(etaText(p.predictedTime))}</div>
+            <div class="pred-conf">Type: ${esc(p.predictionType)} · Confidence: ${conf}%</div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Recommendations
+    const recList = $('aiRecList');
+    if (recList) {
+      const recs = data.recommendations || [];
+      recList.innerHTML = recs.map(r =>
+        `<li class="rec-item ${esc(r.priority)}">
+           <span class="rec-icon">${esc(r.icon)}</span>
+           <span class="rec-text">${esc(r.text)}</span>
+         </li>`
+      ).join('');
+    }
+
+    // At-risk companies
+    const riskComp = $('aiRiskCompanies');
+    if (riskComp) {
+      const companies = data.atRiskCompanies || [];
+      if (!companies.length) {
+        riskComp.innerHTML = `<div class="ai-empty">✅ All companies healthy</div>`;
+      } else {
+        riskComp.innerHTML = companies.slice(0, 8).map(c => {
+          const col = c.riskLevel === 'critical' ? '#ef4444' : c.riskLevel === 'high' ? '#f59e0b' : '#3b82f6';
+          const pct = Math.max(0, Math.min(100, c.avgHealth));
+          return `<div class="risk-row">
+            <span class="risk-name" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(c.companyName)}">${esc(c.companyName)}</span>
+            <div class="risk-bar-wrap"><div class="risk-bar" style="width:${pct}%;background:${col};"></div></div>
+            <span class="risk-pct" style="color:${col};">${pct.toFixed(0)}%</span>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Flapping
+    const flapList = $('aiFlapList');
+    if (flapList) {
+      const flaps = data.flapping || [];
+      if (!flaps.length) {
+        flapList.innerHTML = `<div class="ai-empty">✅ No flapping devices detected</div>`;
+      } else {
+        flapList.innerHTML = flaps.map(f =>`
+          <div class="flap-row">
+            <span class="flap-name" title="${esc(f.deviceName)}">${esc(f.deviceName.length > 22 ? f.deviceName.slice(0,21)+'…' : f.deviceName)}</span>
+            <span class="flap-std">σ ${f.stdHealth}%</span>
+          </div>`).join('');
+      }
+    }
+
+    // Trend model
+    const trendMod = $('aiTrendModel');
+    if (trendMod) {
+      const m = data.models?.trend || {};
+      const slope = m.slope || 0;
+      const r2    = m.r2    || 0;
+      const arrow = slope < -0.15 ? '↘' : slope > 0.15 ? '↗' : '→';
+      const arrowCl = slope < -0.15 ? 'trend-down' : slope > 0.15 ? 'trend-up' : 'trend-flat';
+      const description = slope < -0.5  ? 'Rapid decline — urgent' :
+                          slope < -0.1  ? 'Gradual decline — watch' :
+                          slope >  0.3  ? 'Recovering well' :
+                          slope >  0.05 ? 'Slight improvement' :
+                                          'Stable — no significant change';
+      trendMod.innerHTML = `
+        <div style="text-align:center;margin-bottom:12px;">
+          <span class="ai-trend-arrow ${arrowCl}">${arrow}</span>
+        </div>
+        <table class="table">
+          <tbody>
+            <tr><td style="color:rgba(230,238,247,.55);">Model</td><td>Linear Regression (24h)</td></tr>
+            <tr><td style="color:rgba(230,238,247,.55);">Slope</td><td style="color:${slope < 0 ? '#ef4444' : '#10b981'}">${slope.toFixed(4)}/hr</td></tr>
+            <tr><td style="color:rgba(230,238,247,.55);">R²</td><td>${r2.toFixed(3)}</td></tr>
+            <tr><td style="color:rgba(230,238,247,.55);">Anomaly</td><td>Z-score ≥ 2.0σ</td></tr>
+            <tr><td style="color:rgba(230,238,247,.55);">Window</td><td>${(data.models?.anomaly?.windowHours || '?')}h</td></tr>
+          </tbody>
+        </table>
+        <div style="font-size:11px;margin-top:10px;color:rgba(230,238,247,.60);">${esc(description)}</div>
+      `;
+    }
+
+    const tsEl = $('aiTimestamp');
+    if (tsEl) tsEl.textContent = `Generated: ${new Date(data.generatedAt || Date.now()).toLocaleString()}`;
+  }
+
+  let aiLoading = false;
+  async function loadAIInsights() {
+    if (aiLoading) return;
+    aiLoading = true;
+    setStatus('Loading AI analysis…', true);
+    try {
+      const hours = Number.parseInt(hoursEl.value, 10) || 48;
+      const d = await fetchJson(`/api/analytics/ai-insights?hours=${hours}`);
+      renderAIInsights(d);
+      setStatus('AI analysis ready · auto-refreshes every 5 min', false);
+    } catch (e) {
+      console.error('AI insights error:', e);
+      setStatus('AI insights error: ' + e.message, false);
+      const heroSum = $('aiSummaryText');
+      if (heroSum) heroSum.textContent = 'Failed to load AI analysis: ' + e.message;
+    } finally {
+      aiLoading = false;
+    }
   }
 
   // ─── Main data load ────────────────────────────────────────────────────────
@@ -707,9 +907,15 @@
   // ─── Event wiring ──────────────────────────────────────────────────────────
   $('run').addEventListener('click', () => {
     clearTimeout(refreshTimer);
-    run()
-      .catch(e => { console.error(e); setStatus('Error: ' + e.message, false); })
-      .finally(() => scheduleRefresh());
+    if (activeTab === 'ai') {
+      loadAIInsights()
+        .catch(e => { console.error(e); setStatus('Error: ' + e.message, false); })
+        .finally(() => scheduleRefresh());
+    } else {
+      run()
+        .catch(e => { console.error(e); setStatus('Error: ' + e.message, false); })
+        .finally(() => scheduleRefresh());
+    }
   });
 
   document.querySelectorAll('.tab-btn').forEach(btn =>
@@ -720,10 +926,10 @@
     const hours   = Number.parseInt(hoursEl.value,    10) || 24;
     const bucket  = Number.parseInt(bucketEl.value,   10) || 60;
     const fcast   = Number.parseInt(forecastEl.value, 10) || 24;
-    window.open(
-      `/api/analytics/network-health?hours=${hours}&bucketMinutes=${bucket}&forecastHours=${fcast}`,
-      '_blank', 'noopener'
-    );
+    const url = activeTab === 'ai'
+      ? `/api/analytics/ai-insights?hours=${hours}`
+      : `/api/analytics/network-health?hours=${hours}&bucketMinutes=${bucket}&forecastHours=${fcast}`;
+    window.open(url, '_blank', 'noopener');
   });
 
   window.addEventListener('resize', () => requestAnimationFrame(redraw));

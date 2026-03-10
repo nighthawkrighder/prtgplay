@@ -1315,6 +1315,320 @@ router.get('/analytics/company-health', async (req, res) => {
   }
 });
 
+// ============================================
+// AI Intelligence Engine
+// ============================================
+
+/**
+ * Compute Z-score based anomalies live from device_snapshots.
+ * Returns devices whose latest health is >= zThreshold std-devs below their
+ * own recent baseline (mean over the window).
+ */
+async function computeLiveAnomalies(hours = 48, zThreshold = 2.0) {
+  const start = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+  const sql = `
+    SELECT
+      device_id                                   AS deviceId,
+      MAX(device_name)                            AS deviceName,
+      MAX(company_name)                           AS companyName,
+      AVG(health_percentage)                      AS meanHealth,
+      STDDEV_POP(health_percentage)               AS stdHealth,
+      CAST(SUBSTRING_INDEX(
+        GROUP_CONCAT(health_percentage ORDER BY snapshot_time DESC SEPARATOR ','),
+        ',', 1
+      ) AS DECIMAL(10,2))                         AS latestHealth,
+      COUNT(*)                                    AS points,
+      MIN(snapshot_time)                          AS firstSeen,
+      MAX(snapshot_time)                          AS lastSeen
+    FROM device_snapshots
+    WHERE snapshot_time >= :start
+    GROUP BY device_id
+    HAVING points >= 8
+  `;
+
+  const rows = await sequelize.query(sql, {
+    replacements: { start },
+    type: Sequelize.QueryTypes.SELECT
+  });
+
+  const anomalies = [];
+  for (const r of rows) {
+    const mean   = Number.parseFloat(String(r.meanHealth   ?? '0')) || 0;
+    const std    = Number.parseFloat(String(r.stdHealth    ?? '0')) || 0;
+    const latest = Number.parseFloat(String(r.latestHealth ?? '0')) || 0;
+
+    if (std < 0.5) continue; // Flat signal — ignore
+
+    const z = std > 0 ? (mean - latest) / std : 0; // positive z = below mean
+
+    if (z >= zThreshold) {
+      const severity = z >= 3.5 ? 'critical' : z >= 2.5 ? 'warning' : 'info';
+      anomalies.push({
+        deviceId:    r.deviceId,
+        deviceName:  r.deviceName   || 'Unknown',
+        companyName: r.companyName  || 'Unassigned',
+        meanHealth:  Math.round(mean * 10) / 10,
+        latestHealth: Math.round(latest * 10) / 10,
+        zScore:      Math.round(z * 100) / 100,
+        severity,
+        type: 'zscore_health_drop',
+        message: `Health dropped to ${Math.round(latest)}% (${Math.round(z * 10) / 10}σ below baseline of ${Math.round(mean)}%)`
+      });
+    }
+  }
+
+  anomalies.sort((a, b) => b.zScore - a.zScore);
+  return anomalies;
+}
+
+/**
+ * Compute flapping devices — high variance with no clear trend.
+ */
+async function computeFlappingDevices(hours = 24) {
+  const start = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+  const sql = `
+    SELECT
+      device_id                AS deviceId,
+      MAX(device_name)         AS deviceName,
+      MAX(company_name)        AS companyName,
+      STDDEV_POP(health_percentage) AS stdHealth,
+      COUNT(*)                 AS points,
+      AVG(health_percentage)   AS meanHealth
+    FROM device_snapshots
+    WHERE snapshot_time >= :start
+    GROUP BY device_id
+    HAVING points >= 6 AND stdHealth >= 15
+    ORDER BY stdHealth DESC
+    LIMIT 10
+  `;
+
+  const rows = await sequelize.query(sql, {
+    replacements: { start },
+    type: Sequelize.QueryTypes.SELECT
+  });
+
+  return rows.map(r => ({
+    deviceId:    r.deviceId,
+    deviceName:  r.deviceName  || 'Unknown',
+    companyName: r.companyName || 'Unassigned',
+    stdHealth:   Math.round(Number.parseFloat(String(r.stdHealth ?? '0')) * 10) / 10,
+    meanHealth:  Math.round(Number.parseFloat(String(r.meanHealth ?? '0')) * 10) / 10,
+    severity:    Number.parseFloat(String(r.stdHealth ?? '0')) >= 25 ? 'critical' : 'warning',
+    type: 'flapping',
+    message: `Unstable health — standard deviation ${Math.round(Number.parseFloat(String(r.stdHealth ?? '0')) * 10) / 10}% over ${hours}h`
+  }));
+}
+
+/**
+ * Build a natural-language smart summary of the network state.
+ */
+function buildSmartSummary({ overallHealth, trendSlope, liveAnomalies, flapping, storedAnomalies, predictions, networkDown, networkWarning }) {
+  const lines = [];
+
+  if (overallHealth >= 95) lines.push(`Network is operating at peak health (${Math.round(overallHealth)}%).`);
+  else if (overallHealth >= 85) lines.push(`Network health is good at ${Math.round(overallHealth)}%.`);
+  else if (overallHealth >= 70) lines.push(`Network health is degraded at ${Math.round(overallHealth)}% — attention recommended.`);
+  else lines.push(`Network health is critically low at ${Math.round(overallHealth)}% — immediate action required.`);
+
+  if (trendSlope < -0.5) lines.push(`Health is trending down at ${Math.abs(Math.round(trendSlope * 10) / 10)}% per hour — investigate now.`);
+  else if (trendSlope < -0.1) lines.push(`A slow downward trend of ${Math.abs(Math.round(trendSlope * 10) / 10)}%/hr is in progress.`);
+  else if (trendSlope > 0.3) lines.push(`Health is recovering (+${Math.round(trendSlope * 10) / 10}%/hr).`);
+
+  if (networkDown > 0) lines.push(`${networkDown} device${networkDown > 1 ? 's are' : ' is'} currently DOWN.`);
+  if (networkWarning > 0) lines.push(`${networkWarning} device${networkWarning > 1 ? 's have' : ' has'} active warnings.`);
+
+  const critLive = liveAnomalies.filter(a => a.severity === 'critical').length;
+  if (critLive > 0) lines.push(`AI detected ${critLive} critical health anomaly${critLive > 1 ? 'ies' : ''} via Z-score analysis.`);
+  else if (liveAnomalies.length > 0) lines.push(`AI detected ${liveAnomalies.length} health anomaly${liveAnomalies.length > 1 ? 'ies' : ''} below baseline.`);
+
+  if (flapping.length > 0) lines.push(`${flapping.length} device${flapping.length > 1 ? 's are' : ' is'} flapping with unstable health readings.`);
+
+  if (predictions.length > 0) {
+    const critPred = predictions.filter(p => p.confidence_score >= 0.85).length;
+    if (critPred > 0) lines.push(`${critPred} high-confidence failure prediction${critPred > 1 ? 's' : ''} detected — proactive action advised.`);
+    else lines.push(`${predictions.length} predictive alarm${predictions.length > 1 ? 's' : ''} active.`);
+  }
+
+  if (storedAnomalies.length === 0 && liveAnomalies.length === 0 && flapping.length === 0 && predictions.length === 0) {
+    lines.push('No active anomalies or predictions detected. All systems nominal.');
+  }
+
+  return lines.join(' ');
+}
+
+router.get('/analytics/ai-insights', async (req, res) => {
+  try {
+    const cached = getCachedReport(req, 120000); // 2-minute cache
+    if (cached) return res.json(cached);
+
+    const hours = parseIntParam(req.query.hours, 48, { min: 6, max: 720 });
+
+    // ── 1. Current fleet health ──────────────────────────────────────────────
+    const healthSql = `
+      SELECT
+        AVG(avg_health) AS overallHealth,
+        SUM(down_count) AS networkDown,
+        SUM(warn_count) AS networkWarning
+      FROM (
+        SELECT
+          ds.device_id,
+          AVG(ds.health_percentage) AS avg_health,
+          MAX(CASE WHEN d.status = 5 THEN 1 ELSE 0 END) AS down_count,
+          MAX(CASE WHEN d.status = 4 THEN 1 ELSE 0 END) AS warn_count
+        FROM device_snapshots ds
+        LEFT JOIN devices d ON d.id = ds.device_id
+        WHERE ds.snapshot_time >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+        GROUP BY ds.device_id
+      ) recent
+    `;
+    const [healthRow] = await sequelize.query(healthSql, { type: Sequelize.QueryTypes.SELECT });
+    const overallHealth  = Number.parseFloat(String(healthRow?.overallHealth ?? '0')) || 0;
+    const networkDown    = Number.parseInt(String(healthRow?.networkDown    ?? '0'), 10) || 0;
+    const networkWarning = Number.parseInt(String(healthRow?.networkWarning ?? '0'), 10) || 0;
+
+    // ── 2. Trend slope (last 24h via linear regression) ──────────────────────
+    const trendSql = `
+      SELECT
+        FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(snapshot_time) / 3600) * 3600) AS bucket,
+        AVG(health_percentage) AS avg_health
+      FROM device_snapshots
+      WHERE snapshot_time >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      GROUP BY bucket
+      ORDER BY bucket ASC
+    `;
+    const trendRows = await sequelize.query(trendSql, { type: Sequelize.QueryTypes.SELECT });
+    const trendPoints = trendRows.map((r, idx) => ({ x: idx, y: Number.parseFloat(String(r.avg_health ?? '0')) || 0 }));
+    const trendModel  = linearRegression(trendPoints);
+
+    // ── 3. Stored anomalies & predictions ────────────────────────────────────
+    const anomalyQuery = `
+      SELECT id, device_id AS deviceId, device_name AS deviceName,
+             company_name AS companyName, anomaly_type AS anomalyType,
+             severity, current_value AS currentValue, days_to_critical AS daysToCritical,
+             message, detected_at AS detectedAt
+      FROM device_anomalies
+      WHERE is_active = 1
+      ORDER BY FIELD(severity,'critical','warning','info'), detected_at DESC
+      LIMIT 25
+    `;
+    const storedAnomalies = await sequelize.query(anomalyQuery, { type: Sequelize.QueryTypes.SELECT });
+
+    const predQuery = `
+      SELECT id, entity_type AS entityType, entity_id AS entityId,
+             entity_name AS entityName, company_name AS companyName,
+             prediction_type AS predictionType,
+             confidence_score AS confidenceScore,
+             predicted_time AS predictedTime,
+             details, created_at AS createdAt
+      FROM predictive_analytics
+      WHERE is_active = 1
+      ORDER BY confidence_score DESC, predicted_time ASC
+      LIMIT 20
+    `;
+    const predictions = await sequelize.query(predQuery, { type: Sequelize.QueryTypes.SELECT });
+
+    // ── 4. Live anomaly detection (Z-score) ──────────────────────────────────
+    const liveAnomalies = await computeLiveAnomalies(hours, 2.0);
+
+    // ── 5. Flapping detection ─────────────────────────────────────────────────
+    const flapping = await computeFlappingDevices(24);
+
+    // ── 6. Company-level health clustering ───────────────────────────────────
+    const companySql = `
+      SELECT
+        COALESCE(ds.company_name, 'Unassigned') AS companyName,
+        ROUND(AVG(ds.health_percentage), 1)     AS avgHealth,
+        COUNT(DISTINCT ds.device_id)            AS deviceCount,
+        SUM(CASE WHEN d.status = 5 THEN 1 ELSE 0 END) AS devicesDown
+      FROM device_snapshots ds
+      LEFT JOIN devices d ON d.id = ds.device_id
+      WHERE ds.snapshot_time >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+      GROUP BY ds.company_name
+      HAVING deviceCount >= 2
+      ORDER BY avgHealth ASC
+      LIMIT 20
+    `;
+    const companyHealth = await sequelize.query(companySql, { type: Sequelize.QueryTypes.SELECT });
+
+    // ── 7. Top at-risk companies ──────────────────────────────────────────────
+    const atRisk = companyHealth
+      .filter(c => Number.parseFloat(String(c.avgHealth)) < 90)
+      .map(c => ({
+        companyName:  String(c.companyName),
+        avgHealth:    Number.parseFloat(String(c.avgHealth ?? '0')),
+        deviceCount:  Number.parseInt(String(c.deviceCount ?? '0'), 10),
+        devicesDown:  Number.parseInt(String(c.devicesDown ?? '0'), 10),
+        riskLevel:    Number.parseFloat(String(c.avgHealth)) < 70 ? 'critical' : Number.parseFloat(String(c.avgHealth)) < 85 ? 'high' : 'medium'
+      }));
+
+    // ── 8. Smart summary text ─────────────────────────────────────────────────
+    const summary = buildSmartSummary({
+      overallHealth,
+      trendSlope: trendModel.slope,
+      liveAnomalies,
+      flapping,
+      storedAnomalies,
+      predictions,
+      networkDown,
+      networkWarning
+    });
+
+    // ── 9. Auto-recommendations ───────────────────────────────────────────────
+    const recommendations = [];
+    if (networkDown > 0) recommendations.push({ priority: 'critical', icon: '🔴', text: `Investigate ${networkDown} offline device${networkDown > 1 ? 's' : ''} — check PRTG for root cause.` });
+    if (trendModel.slope < -0.3 && trendModel.r2 > 0.5) recommendations.push({ priority: 'high', icon: '📉', text: `Consistent health decline detected. Forecast shows continued drop — schedule maintenance window.` });
+    const criticalAnomalies = liveAnomalies.filter(a => a.severity === 'critical');
+    if (criticalAnomalies.length > 0) recommendations.push({ priority: 'high', icon: '⚡', text: `${criticalAnomalies.length} device${criticalAnomalies.length > 1 ? 's' : ''} showing statistical health anomalies: ${criticalAnomalies.slice(0, 3).map(a => a.deviceName).join(', ')}` });
+    if (flapping.length > 0) recommendations.push({ priority: 'medium', icon: '🔀', text: `${flapping.length} flapping device${flapping.length > 1 ? 's' : ''} detected. Review connectivity and sensor configuration.` });
+    const nearPredictions = predictions.filter(p => {
+      const eta = new Date(p.predictedTime).getTime() - Date.now();
+      return eta > 0 && eta < 48 * 60 * 60 * 1000;
+    });
+    if (nearPredictions.length > 0) recommendations.push({ priority: 'high', icon: '⏰', text: `${nearPredictions.length} device${nearPredictions.length > 1 ? 's are' : ' is'} predicted to fail within 48 hours — proactive intervention recommended.` });
+    if (atRisk.filter(c => c.riskLevel === 'critical').length > 0) recommendations.push({ priority: 'high', icon: '🏢', text: `Companies at critical health: ${atRisk.filter(c => c.riskLevel === 'critical').map(c => c.companyName).slice(0, 3).join(', ')}` });
+    if (recommendations.length === 0) recommendations.push({ priority: 'low', icon: '✅', text: 'All systems operating within normal parameters. Continue monitoring.' });
+
+    const result = {
+      analytics: 'aiInsights',
+      version: '1.0',
+      generatedAt: new Date().toISOString(),
+      summary: {
+        text: summary,
+        overallHealth: Math.round(overallHealth * 10) / 10,
+        networkDown,
+        networkWarning,
+        trendSlope: Math.round(trendModel.slope * 1000) / 1000,
+        trendR2:    Math.round(trendModel.r2 * 1000) / 1000,
+        anomalyCount: liveAnomalies.length + storedAnomalies.length,
+        predictionCount: predictions.length,
+        flappingCount: flapping.length,
+        criticalCount: liveAnomalies.filter(a => a.severity === 'critical').length + storedAnomalies.filter(a => a.severity === 'critical').length
+      },
+      liveAnomalies,
+      storedAnomalies,
+      predictions,
+      flapping,
+      atRiskCompanies: atRisk,
+      recommendations,
+      models: {
+        trend: { kind: 'linearRegression', slope: trendModel.slope, intercept: trendModel.intercept, r2: trendModel.r2 },
+        anomaly: { kind: 'zScore', threshold: 2.0, windowHours: hours }
+      }
+    };
+
+    setCachedReport(req, result);
+    return res.json(result);
+  } catch (error) {
+    logger.error('Failed to build AI insights:', error);
+    if (res.headersSent || res.writableEnded || res.finished) return;
+    try {
+      return res.status(500).json({ error: 'Failed to build AI insights' });
+    } catch (e) { return; }
+  }
+});
+
 router.get('/dashboard/summary', async (req, res) => {
   try {
     const summary = {

@@ -1677,6 +1677,73 @@
             opacity: 1;
             visibility: visible;
         }
+
+        /* ── AI Signals Bar ────────────────────────────── */
+        .ai-signals-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            margin: 12px 0 0;
+            background: linear-gradient(135deg, rgba(139,92,246,.10) 0%, rgba(59,130,246,.08) 60%, rgba(16,185,129,.06) 100%);
+            border: 1px solid rgba(139,92,246,.25);
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .ai-signals-bar::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(ellipse at top left, rgba(139,92,246,.12) 0%, transparent 60%);
+            pointer-events: none;
+        }
+        .ai-signals-label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: rgba(196,181,253,.80);
+            white-space: nowrap;
+        }
+        .ai-signal-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: filter .15s;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+        .ai-signal-pill:hover { filter: brightness(1.2); }
+        .ai-signal-pill.critical { background: rgba(239,68,68,.18);  border-color: rgba(239,68,68,.35);  color: #fca5a5; }
+        .ai-signal-pill.warning  { background: rgba(245,158,11,.18); border-color: rgba(245,158,11,.35); color: #fde68a; }
+        .ai-signal-pill.success  { background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.30); color: #6ee7b7; }
+        .ai-signal-pill.info     { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.30); color: #93c5fd; }
+        .ai-signal-pill.purple   { background: rgba(139,92,246,.15); border-color: rgba(139,92,246,.30); color: #c4b5fd; }
+        .ai-signals-summary {
+            flex: 1;
+            font-size: 11px;
+            color: rgba(230,238,247,.55);
+            font-style: italic;
+            min-width: 160px;
+        }
+        .ai-signals-link {
+            font-size: 11px;
+            color: #a78bfa;
+            text-decoration: none;
+            white-space: nowrap;
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(139,92,246,.25);
+            transition: background .15s;
+        }
+        .ai-signals-link:hover { background: rgba(139,92,246,.15); }
     </style>
 </head>
 <body>
@@ -1866,6 +1933,14 @@
     <div class="main-content">
         <div class="overview-stats" id="overviewStats">
             <!-- Stats will be populated by JavaScript -->
+        </div>
+
+        <!-- AI Signals Bar -->
+        <div class="ai-signals-bar" id="aiSignalsBar" style="display:none;">
+            <span class="ai-signals-label">🧠 AI</span>
+            <div id="aiSignalPills" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+            <span class="ai-signals-summary" id="aiSignalsSummary"></span>
+            <a href="/analytics#ai" class="ai-signals-link" onclick="window.location.href='/analytics'; return false;">View Full AI Analysis →</a>
         </div>
 
         <div class="companies-grid" id="companiesGrid">
@@ -5163,12 +5238,54 @@
             }
         }
 
+        // ── AI Signals Bar ────────────────────────────────────────────────────
+        async function loadAISignals() {
+            const bar   = document.getElementById('aiSignalsBar');
+            const pills = document.getElementById('aiSignalPills');
+            const sumEl = document.getElementById('aiSignalsSummary');
+            if (!bar || !pills) return;
+            try {
+                const r = await fetch('/api/analytics/ai-insights?hours=24', { credentials: 'include' });
+                if (!r.ok) return;
+                const data = await r.json();
+                const s    = data.summary || {};
+
+                const pillDefs = [];
+                if (s.networkDown > 0)    pillDefs.push({ cls: 'critical', icon: '🔴', text: `${s.networkDown} Down` });
+                if (s.networkWarning > 0) pillDefs.push({ cls: 'warning',  icon: '⚡', text: `${s.networkWarning} Warning` });
+                if (s.anomalyCount > 0)   pillDefs.push({ cls: s.criticalCount > 0 ? 'critical' : 'warning', icon: '⚡', text: `${s.anomalyCount} Anomal${s.anomalyCount > 1 ? 'ies' : 'y'}` });
+                if (s.predictionCount > 0) pillDefs.push({ cls: 'purple', icon: '🔮', text: `${s.predictionCount} Prediction${s.predictionCount > 1 ? 's' : ''}` });
+                if (s.flappingCount > 0)  pillDefs.push({ cls: 'warning', icon: '🔀', text: `${s.flappingCount} Flapping` });
+                if (pillDefs.length === 0) pillDefs.push({ cls: 'success', icon: '✅', text: 'All Clear' });
+
+                const healthArrow = s.trendSlope < -0.1 ? '↘' : s.trendSlope > 0.1 ? '↗' : '→';
+                pillDefs.unshift({ cls: 'info', icon: '🧠', text: `${Math.round(s.overallHealth)}% ${healthArrow}` });
+
+                pills.innerHTML = pillDefs.map(p =>
+                    `<span class="ai-signal-pill ${p.cls}">${p.icon} ${p.text}</span>`
+                ).join('');
+
+                if (sumEl) {
+                    const rec = (data.recommendations || [])[0];
+                    sumEl.textContent = rec ? rec.text.slice(0, 90) + (rec.text.length > 90 ? '…' : '') : '';
+                }
+
+                bar.style.display = 'flex';
+            } catch (e) {
+                console.debug('AI signals load skipped:', e.message);
+            }
+        }
+
         // Initialize dashboard when page loads
         document.addEventListener('DOMContentLoaded', async () => {
             monitorStartupProgress().catch(error => console.debug('Startup progress monitor error:', error));
             window.securityManager = new SecurityManager();
             window.dashboard = new SOCDashboard();
             await syncSessionContext();
+
+            // Load AI signals bar (non-blocking, best-effort)
+            loadAISignals();
+            setInterval(loadAISignals, 5 * 60 * 1000); // refresh every 5 min
             
             // Check for openDevice URL parameter from topology
             const urlParams = new URLSearchParams(window.location.search);

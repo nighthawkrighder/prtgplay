@@ -147,6 +147,94 @@
       padding: 32px 16px; color: rgba(230,238,247,0.35); font-size: 13px; text-align: center;
     }
     .empty-state .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: .5; }
+
+    /* ── AI Panel ───────────────────────────────── */
+    #aiPanel { display: none; }
+    .ai-hero {
+      border-radius: 14px; padding: 20px 24px; margin-bottom: 14px;
+      background: linear-gradient(135deg, rgba(139,92,246,.15) 0%, rgba(59,130,246,.12) 50%, rgba(16,185,129,.10) 100%);
+      border: 1px solid rgba(139,92,246,.30);
+      position: relative; overflow: hidden;
+    }
+    .ai-hero::before {
+      content: ''; position: absolute; top: -60px; right: -60px;
+      width: 200px; height: 200px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(139,92,246,.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .ai-hero-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: rgba(196,181,253,.7); margin-bottom: 6px; }
+    .ai-hero-score { font-size: 48px; font-weight: 800; line-height: 1; }
+    .ai-hero-score .unit { font-size: 20px; opacity: .6; margin-left: 3px; }
+    .ai-hero-summary { font-size: 13px; line-height: 1.6; color: rgba(230,238,247,.80); margin-top: 10px; max-width: 800px; }
+    .ai-hero-stats { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 14px; }
+    .ai-hero-stat { display: flex; flex-direction: column; }
+    .ai-hero-stat .val { font-size: 20px; font-weight: 700; }
+    .ai-hero-stat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: rgba(230,238,247,.45); margin-top: 2px; }
+    .ai-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+    @media (max-width: 1100px) { .ai-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 700px)  { .ai-grid { grid-template-columns: 1fr; } }
+    .ai-section-title {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .10em;
+      color: rgba(230,238,247,.45); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+    }
+    .ai-section-title::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,.07); }
+    .anomaly-card {
+      border-radius: 10px; padding: 11px 13px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      transition: border-color .2s;
+    }
+    .anomaly-card:hover { border-color: rgba(255,255,255,.15); }
+    .anomaly-card.critical { border-left: 3px solid #ef4444; }
+    .anomaly-card.warning  { border-left: 3px solid #f59e0b; }
+    .anomaly-card.info     { border-left: 3px solid #3b82f6; }
+    .anomaly-device { font-size: 12px; font-weight: 600; line-height: 1.2; }
+    .anomaly-company { font-size: 10px; color: rgba(230,238,247,.45); margin-top: 2px; }
+    .anomaly-msg { font-size: 11px; color: rgba(230,238,247,.70); margin-top: 5px; line-height: 1.4; }
+    .anomaly-badge {
+      display: inline-block; font-size: 9px; padding: 2px 6px; border-radius: 4px;
+      font-weight: 600; letter-spacing: .05em; text-transform: uppercase; margin-top: 5px;
+    }
+    .anomaly-badge.critical { background: rgba(239,68,68,.20); color: #fca5a5; }
+    .anomaly-badge.warning  { background: rgba(245,158,11,.20); color: #fde68a; }
+    .anomaly-badge.info     { background: rgba(59,130,246,.20); color: #93c5fd; }
+    .pred-card {
+      border-radius: 10px; padding: 11px 13px;
+      border: 1px solid rgba(139,92,246,.25);
+      background: rgba(139,92,246,.07);
+    }
+    .pred-entity { font-size: 12px; font-weight: 600; }
+    .pred-company { font-size: 10px; color: rgba(230,238,247,.45); margin-top: 2px; }
+    .pred-eta { font-size: 11px; color: #a78bfa; margin-top: 5px; font-weight: 600; }
+    .pred-conf { font-size: 10px; color: rgba(230,238,247,.50); margin-top: 3px; }
+    .rec-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+    .rec-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; border-radius: 8px;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07);
+    }
+    .rec-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .rec-text { font-size: 12px; line-height: 1.5; color: rgba(230,238,247,.80); }
+    .rec-item.critical { border-left: 3px solid #ef4444; }
+    .rec-item.high     { border-left: 3px solid #f59e0b; }
+    .rec-item.medium   { border-left: 3px solid #3b82f6; }
+    .rec-item.low      { border-left: 3px solid #10b981; }
+    .risk-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+    .risk-row:last-child { border-bottom: 0; }
+    .risk-name { font-size: 12px; }
+    .risk-bar-wrap { flex: 1; margin: 0 10px; height: 4px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+    .risk-bar { height: 100%; border-radius: 2px; }
+    .risk-pct { font-size: 11px; min-width: 36px; text-align: right; color: rgba(230,238,247,.70); }
+    .ai-trend-arrow { font-size: 28px; font-weight: 800; }
+    .trend-up   { color: #10b981; }
+    .trend-down { color: #ef4444; }
+    .trend-flat { color: #6b7280; }
+    .flap-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+    .flap-row:last-child { border-bottom: 0; }
+    .flap-name { font-size: 12px; }
+    .flap-std { font-size: 11px; color: #fbbf24; font-weight: 600; }
+    .ai-empty { padding: 20px; text-align: center; color: rgba(230,238,247,.35); font-size: 12px; }
+    .ai-ts { font-size: 10px; color: rgba(230,238,247,.30); margin-top: 12px; text-align: right; }
   </style>
 </head>
 <body>
@@ -198,10 +286,70 @@
       <button class="tab-btn active" data-tab="health">Health</button>
       <button class="tab-btn" data-tab="alerts">Alerts</button>
       <button class="tab-btn" data-tab="companies">By Company</button>
+      <button class="tab-btn" data-tab="ai" style="border-color:rgba(139,92,246,.4);color:#c4b5fd;">🧠 AI Insights</button>
+    </div>
+
+    <!-- AI Insights Panel -->
+    <div id="aiPanel">
+      <!-- Hero card -->
+      <div class="ai-hero" id="aiHero">
+        <div class="ai-hero-title">🧠 AI Network Intelligence · Real-time</div>
+        <div class="ai-hero-score" id="aiHealthScore" style="color:#10b981">—<span class="unit">%</span></div>
+        <div class="ai-hero-summary" id="aiSummaryText">Loading AI analysis…</div>
+        <div class="ai-hero-stats" id="aiHeroStats"></div>
+      </div>
+
+      <!-- Row 1: Anomalies | Predictions | Recommendations -->
+      <div class="ai-grid">
+
+        <!-- Live Z-score Anomalies -->
+        <div class="card" id="aiAnomalyCard">
+          <div class="ai-section-title">⚡ Live Anomalies (Z-score)</div>
+          <div id="aiAnomalyList"><div class="ai-empty">Loading…</div></div>
+        </div>
+
+        <!-- Predictive Alarms -->
+        <div class="card" id="aiPredCard">
+          <div class="ai-section-title">🔮 Predictive Alarms</div>
+          <div id="aiPredList"><div class="ai-empty">Loading…</div></div>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="card" id="aiRecCard">
+          <div class="ai-section-title">💡 Recommendations</div>
+          <ul class="rec-list" id="aiRecList"></ul>
+        </div>
+
+      </div>
+
+      <!-- Row 2: At-Risk Companies | Flapping Devices | Trend Model -->
+      <div class="ai-grid">
+
+        <!-- At-Risk Companies -->
+        <div class="card">
+          <div class="ai-section-title">🏢 At-Risk Companies</div>
+          <div id="aiRiskCompanies"><div class="ai-empty">Loading…</div></div>
+        </div>
+
+        <!-- Flapping Devices -->
+        <div class="card">
+          <div class="ai-section-title">🔀 Flapping Devices</div>
+          <div id="aiFlapList"><div class="ai-empty">Loading…</div></div>
+        </div>
+
+        <!-- Trend Model -->
+        <div class="card">
+          <div class="ai-section-title">📈 Trend Model</div>
+          <div id="aiTrendModel"><div class="ai-empty">Loading…</div></div>
+        </div>
+
+      </div>
+
+      <div class="ai-ts" id="aiTimestamp"></div>
     </div>
 
     <!-- Main Content Grid -->
-    <div class="main-grid">
+    <div class="main-grid" id="mainGrid">
 
       <!-- Chart Panel (left) -->
       <div class="card chart-card">
